@@ -1,9 +1,11 @@
 import time
 import struct
 import threading
+import binascii
 from .Worker import WorkerManager
 from .UART import UART
 from .Pcap import Pcap
+from .Fifo import FifoLinux
 from .Packets import GeneralUARTPacket, DataUARTPacket
 from .Definitions import PCAP_MAX_PACKET_SIZE
 from .Protocols import PROTOCOL_BLE, PROTOCOLSLIST
@@ -19,6 +21,8 @@ class SnifferCollector(threading.Thread, SnifferLogger):
         self.sniffer_worker = WorkerManager()
         self.board_uart = UART()
         self.output_workers = []
+        self.fifo_worker = FifoLinux()
+        self.wireshark_data = 0
         self.protocol = PROTOCOL_BLE
         self.protocol_freq_channel = 37
         self.initiator_address = None
@@ -83,39 +87,81 @@ class SnifferCollector(threading.Thread, SnifferLogger):
         if self.initiator_address:
             get_protocol_commands.insert(4, self.protocol.command_cfg_init_address(self.initiator_address))
         for command in get_protocol_commands:
+            print(command.raw_packet)
             self.board_uart.send(command.raw_packet)
             time.sleep(0.1)
     
     def handle_sniffer_data(self):
         while not self.sniffer_recv_cancel:
             if self.sniffer_data:
-                with self.data_queue_lock:
-                    data = self.sniffer_data.pop(0)
-                    # Send to the dumpers
-                    if data:
-                        for output_worker in self.output_workers:
-                            if output_worker.type_worker == "raw":
-                                output_worker.add_data(data)
-                            elif output_worker.type_worker == "pcap":
-                                general_packet = GeneralUARTPacket(data)
-                                if general_packet.is_data_packet():
-                                    try:
-                                        data_packet = DataUARTPacket(general_packet.packet_bytes)
-                                        pcap_file = Pcap(data_packet.payload, data_packet.timestamp)
-                                        output_worker.add_data(pcap_file.get_pcap())
-                                        self.pcap_size += len(pcap_file.get_pcap())
-                                        self.logger.debug("[PCAP_SIZE] - %s", self.pcap_size)
-                                        #TODO: Handle Max PCAP size
-                                        if self.pcap_size == PCAP_MAX_PACKET_SIZE:
-                                            self.logger.debug("[PCAP_SIZE] - %s", self.pcap_size)
-                                            self.pcap_size = 0
-                                    except struct.error as e:
-                                        self.logger.error(e)
-                                        continue
-                                else:
-                                    print("Not a data packet", data)
-                            else:
+                data = self.sniffer_data.pop(0)
+                # Send to the dumpers
+                for output_worker in self.output_workers:
+                    if output_worker.type_worker == "raw":
+                        output_worker.add_data(data)
+                    elif output_worker.type_worker == "pcap":
+                        self.logger.debug("[SC_RECV] - %s", data)
+                        general_packet = GeneralUARTPacket(data)
+                        if general_packet.is_data_packet():
+                            try:
+                                data_packet = DataUARTPacket(general_packet.packet_bytes)
+                                
+                                #packet = bytes.fromhex('003e000004000305620900002500bc') + data_packet.payload
+                                version = b'\x00'
+                                # 6 bytes timestamp
+                                # 1 byte channel
+                                # 2 byte Connection Event
+                                # 1 byte Info
+                                # 4 Access Address
+                                payload       = data_packet.packet_bytes[11:-4]
+                                length        = data_packet.packet_length
+                                interfaceType = b'\x00'
+                                interfaceId   = bytes.fromhex('0300')
+                                protocol      = b'\x03'
+                                phy           = bytes.fromhex('05')
+                                freq          = bytes.fromhex('62090000')
+                                channel       = payload[:2]
+                                rssi          = data_packet.packet_bytes[-4]
+                                status        = data_packet.packet_bytes[-3]
+                                blepi         = payload[2:]
+                                connection_evt = blepi[:2]
+                                con_info = blepi[2]
+                                # print("TIMESTAMP", data_packet.timestamp)
+                                # print("VERSION", version)
+                                # print("PAYLOAD", payload)
+                                # print("LENGTH", length)
+                                # print("INTERFACE TYPE", interfaceType)
+                                # print("INTERFACE ID", interfaceId)
+                                # print("PROTOCOL", protocol)
+                                # print("PHY", phy)
+                                # print("FREQ", freq)
+                                # print("CHANNEL", channel)
+                                # print("RSSI", rssi)
+                                # print("STATUS", status)
+                                # print("CONNECTION EVT", connection_evt)
+                                # print("CON INFO", con_info)
+                                # print("BLEPI", binascii.hexlify(blepi))
+                                # print("\n")
+
+                                packet = (version + length.to_bytes(2) + interfaceType + interfaceId + protocol + phy + freq + channel + rssi.to_bytes(1) + status.to_bytes(1) + 
+                                            connection_evt + con_info.to_bytes(1) + 
+                                            blepi[2:]
+                                        )
+                                
+                                pcap_file = Pcap(packet, data_packet.timestamp)
+                                output_worker.add_data(pcap_file.get_pcap())
+                                self.pcap_size += len(pcap_file.get_pcap())
+                                #TODO: Handle Max PCAP size
+                                if self.pcap_size == PCAP_MAX_PACKET_SIZE:
+                                    self.logger.debug("[PCAP_SIZE] - %s", self.pcap_size)
+                                    self.pcap_size = 0
+                            except struct.error as e:
+                                self.logger.error(e)
                                 continue
+                        else:
+                            print("Not a data packet", data)
+                    else:
+                        continue
             else:
                 time.sleep(0.1)
     
@@ -134,6 +180,68 @@ class SnifferCollector(threading.Thread, SnifferLogger):
                     if self.verbose_mode:
                         print(f"[RECV] -> {frame}")
                     self.logger.debug("[SC_RECV] - %s", frame)
+                    self.logger.debug("[SC_RECV] - %s", frame)
+                    self.wireshark_data += 1
+                    general_packet = GeneralUARTPacket(frame)
+                    if general_packet.is_data_packet():
+                        try:
+                            data_packet = DataUARTPacket(general_packet.packet_bytes)
+                            
+                            #packet = bytes.fromhex('003e000004000305620900002500bc') + data_packet.payload
+                            version = b'\x00'
+                            # 6 bytes timestamp
+                            # 1 byte channel
+                            # 2 byte Connection Event
+                            # 1 byte Info
+                            # 4 Access Address
+                            payload       = data_packet.packet_bytes[11:-4]
+                            length        = data_packet.packet_length
+                            interfaceType = b'\x00'
+                            interfaceId   = bytes.fromhex('0300')
+                            protocol      = b'\x03'
+                            phy           = bytes.fromhex('05')
+                            freq          = bytes.fromhex('62090000')
+                            channel       = payload[:2]
+                            rssi          = data_packet.packet_bytes[-4]
+                            status        = data_packet.packet_bytes[-3]
+                            blepi         = payload[2:]
+                            connection_evt = blepi[:2]
+                            con_info = blepi[2]
+                            # print("TIMESTAMP", data_packet.timestamp)
+                            # print("VERSION", version)
+                            # print("PAYLOAD", payload)
+                            # print("LENGTH", length)
+                            # print("INTERFACE TYPE", interfaceType)
+                            # print("INTERFACE ID", interfaceId)
+                            # print("PROTOCOL", protocol)
+                            # print("PHY", phy)
+                            # print("FREQ", freq)
+                            # print("CHANNEL", channel)
+                            # print("RSSI", rssi)
+                            # print("STATUS", status)
+                            # print("CONNECTION EVT", connection_evt)
+                            # print("CON INFO", con_info)
+                            # print("BLEPI", binascii.hexlify(blepi))
+                            # print("\n")
+
+                            packet = (version + length.to_bytes(2) + interfaceType + interfaceId + protocol + phy + freq + channel + rssi.to_bytes(1) + status.to_bytes(1) + 
+                                        #connection_evt + con_info.to_bytes(1) + 
+                                        blepi[2:]
+                                    )
+                            
+                            pcap_file = Pcap(packet, data_packet.timestamp)
+                            
+                            self.fifo_worker.add_data(pcap_file.get_pcap())
+                            self.pcap_size += len(pcap_file.get_pcap())
+                            #TODO: Handle Max PCAP size
+                            if self.pcap_size == PCAP_MAX_PACKET_SIZE:
+                                self.logger.debug("[PCAP_SIZE] - %s", self.pcap_size)
+                                self.pcap_size = 0
+                        except struct.error as e:
+                            self.logger.error(e)
+                            continue
+                    else:
+                        print("Not a frame packet", frame)
         except Exception as e:
             #TODO: Hanlde exception
             print(e)
@@ -148,9 +256,13 @@ class SnifferCollector(threading.Thread, SnifferLogger):
         
         self.sniffer_worker.add_worker(threading.Thread(target=self.recv_worker, daemon=True))
         self.sniffer_worker.add_worker(threading.Thread(target=self.handle_sniffer_data, daemon=True))
+        self.sniffer_worker.add_worker(threading.Thread(target=self.fifo_worker.open, daemon=True))
         self.sniffer_worker.start_all_workers()
     
     def stop_workers(self):
+        print("="*10, "STOP WORKERS", "="*10)
+        print("Data proceced:", self.wireshark_data)
+        
         self.sniffer_recv_cancel = True
         for output_worker in self.output_workers:
             output_worker.stop()

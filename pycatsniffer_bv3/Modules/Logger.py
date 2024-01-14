@@ -10,7 +10,7 @@ class SnifferLogger:
   def __init__(self):
     # Setup logger
     self.logger = logging.getLogger(__name__)
-    self.logger.setLevel(logging.INFO)
+    self.logger.setLevel(logging.DEBUG)
 
     # Setup console handler
     console_handler = logging.StreamHandler()
