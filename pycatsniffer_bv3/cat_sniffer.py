@@ -165,13 +165,13 @@ def setup_sniffer(dumpfile, dumpfile_name, pcapfile, pcapfile_name, fifo, fifo_n
         output_workers.append(HexDumper.HexDumper(dumpfile_name))
     if pcapfile:
         output_workers.append(PcapDumper.PcapDumper(pcapfile_name))
-    if fifo:
-        if platform.system() == "Windows":
-            output_workers.append(Fifo.FifoWindows(fifo_name))
-        else:
-            output_workers.append(Fifo.FifoLinux(fifo_name))
-        if wireshark:
-            output_workers.append(Wireshark.Wireshark(fifo_name))
+    # if fifo:
+    #     if platform.system() == "Windows":
+    #         output_workers.append(Fifo.FifoWindows(fifo_name))
+    #     else:
+    #         output_workers.append(Fifo.FifoLinux(fifo_name))
+    if wireshark:
+        output_workers.append(Wireshark.Wireshark(fifo_name))
     
     sniffer_collector.set_output_workers(output_workers)
 
