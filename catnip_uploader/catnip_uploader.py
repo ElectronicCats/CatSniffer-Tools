@@ -4,6 +4,7 @@ import sys
 import io
 import argparse
 import serial
+import time
 from serial.tools import list_ports
 
 GITHUB_REPO_URL     = "https://github.com/ElectronicCats/CatSniffer-Firmware/tree/v3.x/CC1352P7"
@@ -53,11 +54,15 @@ def load_firmware():
     
 def send_ping():
     try:
-        ser = serial.Serial(args.port, 500000, timeout=1)
+        ser = serial.Serial(args.port, 921600, timeout=1)
         ser.write(create_command(b"P"))
-        print("Waiting for response")
-        readline = ser.readline()
-        print(readline)
+        print("Waiting for response:")
+        while True:
+            readline = ser.read_until("\n")
+            print(readline)
+            if readline != b"":
+                break
+            time.sleep(1)
         ser.close()
         return True
     except Exception as e:
@@ -66,7 +71,7 @@ def send_ping():
 
 def send_bootloader_mode():
     try:
-        ser = serial.Serial(args.port, 500000, timeout=1)
+        ser = serial.Serial(args.port, 921600, timeout=1)
         ser.write(create_command(b"B"))
         ser.close()
     except Exception as e:
