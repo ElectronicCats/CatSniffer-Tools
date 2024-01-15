@@ -1,25 +1,22 @@
 import os
 import requests
-import magic
-import binascii
 import sys
 import io
 import argparse
 import serial
 from serial.tools import list_ports
 
-GITHUB_REPO_URL = "https://github.com/ElectronicCats/CatSniffer-Firmware/tree/v3.x/CC1352P7"
-GITHUB_RELEASE_URL = "https://github.com/ElectronicCats/CatSniffer-Firmware/releases/tag/board-v3.x-v1.0.0"
+GITHUB_REPO_URL     = "https://github.com/ElectronicCats/CatSniffer-Firmware/tree/v3.x/CC1352P7"
+GITHUB_RELEASE_URL  = "https://github.com/ElectronicCats/CatSniffer-Firmware/releases/tag/board-v3.x-v1.0.0"
 GITHUB_RAW_REPO_URL = "https://raw.githubusercontent.com/ElectronicCats/CatSniffer-Firmware/v3.x/CC1352P7/"
 
 START_OF_FRAME = "ñ<"
-END_OF_FRAME = ">ñ"
-TMP_FILE = "firmware.hex"
+END_OF_FRAME   = ">ñ"
+TMP_FILE       = "firmware.hex"
 
 def show_ports():
     for port in list_ports.comports():
         print(f"- {port.device}")
-
 
 def create_command(payload: str):
     return START_OF_FRAME.encode("utf-8") + payload + END_OF_FRAME.encode("utf-8")
@@ -58,6 +55,9 @@ def send_ping():
     try:
         ser = serial.Serial(args.port, 500000, timeout=1)
         ser.write(create_command(b"P"))
+        print("Waiting for response")
+        readline = ser.readline()
+        print(readline)
         ser.close()
         return True
     except Exception as e:
@@ -74,18 +74,18 @@ def send_bootloader_mode():
 
 parser = argparse.ArgumentParser(description='CatSniffer Firmware Loader', )
 parser.add_argument('-p', '--port', help='Serial port to use', required=True)
-parser.add_argument('-f', '--firmware', help='Firmware to load', required=True)
+parser.add_argument('-f', '--firmware', help='Firmware to load', required=False)
 args = parser.parse_args()
 
-if int(args.firmware) not in list_releases.keys():
-    print("Firmware not found")
-    sys.exit(1)
+if args.firmware:
+    if int(args.firmware) not in list_releases.keys():
+        print("Firmware not found")
+        sys.exit(1)
+    firmware_selected = list_releases[int(args.firmware)]
+    print(firmware_selected)
 
-firmware_selected = list_releases[int(args.firmware)]
-
-print(firmware_selected)
 is_valid = send_ping()
 if is_valid:
     print("CatSniffer found")
-    send_bootloader_mode()
-    load_firmware()
+    #send_bootloader_mode()
+    #load_firmware()
