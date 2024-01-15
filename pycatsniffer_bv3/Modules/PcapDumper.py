@@ -13,6 +13,7 @@ class PcapDumper(threading.Thread):
         super().__init__()
         self.filename = filename
         self.data_queue = []
+        self.data_length = 0
         self.data_queue_lock = threading.Lock()
         self.running = True
         self.needs_header = True
@@ -37,7 +38,7 @@ class PcapDumper(threading.Thread):
                     
                     dumper_file.write(data)
                     dumper_file.flush()
-                    os.fsync(dumper_file.fileno())
+                    self.data_length += 1
             else:
                 time.sleep(0.1)
     

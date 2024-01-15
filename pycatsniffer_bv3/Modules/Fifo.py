@@ -24,6 +24,8 @@ class Fifo(threading.Thread):
         self.fifo_recv_cancel = False
         self.fifo_need_header = True
         self.fifo_data = []
+        self.fifo_packet = None
+        self.fifo_dumped = 0
         self.fifo_data_lock = threading.Lock()
         self.logger = Logger.SnifferLogger().get_logger()
 
@@ -57,24 +59,28 @@ class FifoLinux(Fifo):
             if self.fifo_worker is None:
                 self.open()
             while not self.fifo_recv_cancel:
-                if self.fifo_data:
-                    with self.fifo_data_lock:
-                        data = self.fifo_data.pop(0)
+                if self.fifo_packet:
+                    #with self.fifo_data_lock:
+                    data = self.fifo_data.pop(0)
 
                     if self.fifo_need_header:
                         self.fifo_worker.write(Pcap.get_global_header())
                         self.fifo_worker.flush()
                         self.fifo_need_header = False
                     
-                    self.fifo_worker.write(data)
+                    self.fifo_worker.write(self.fifo_packet)
                     self.fifo_worker.flush()
+                    self.fifo_dumped += 1
+                    self.fifo_packet = None
                 else:
-                    time.sleep(0.01)
+                    time.sleep(0.0001)
         except BrokenPipeError as e:
             logging.error(e)
             pass
     
     def stop(self):
+        print("="*10, "FIFO DUMPER", "="*10)
+        print("Data FIFO:", self.fifo_dumped)
         self.fifo_recv_cancel = True
         self.fifo_data = []
         self.join()
@@ -84,8 +90,19 @@ class FifoLinux(Fifo):
             logging.error(e)
     
     def add_data(self, data):
-        with self.fifo_data_lock:
-            self.fifo_data.append(data)
+        self.fifo_data.append(data)
+        self.fifo_packet = data
+        if self.fifo_worker is None:
+            self.open()
+        if self.fifo_need_header:
+            self.fifo_worker.write(Pcap.get_global_header())
+            self.fifo_worker.flush()
+            self.fifo_need_header = False
+        
+        self.fifo_worker.write(data)
+        self.fifo_worker.flush()
+        self.fifo_dumped += 1
+        self.fifo_packet = None
 
     def set_fifo_filename(self, fifo_filname: str):
         self.fifo_filname = fifo_filname
