@@ -203,5 +203,7 @@ class SnifferCollector(threading.Thread, SnifferLogger):
         self.output_workers = []
         
     def delete_all_workers(self):
+        for output_worker in self.output_workers:
+            output_worker.join()
         self.sniffer_worker.delete_all_workers()
         self.output_workers = []
