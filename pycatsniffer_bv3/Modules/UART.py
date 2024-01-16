@@ -30,6 +30,15 @@ class UART(threading.Thread):
     def set_serial_port(self, serial_port: str):
         self.serial_worker.port = serial_port
 
+    def is_valid_connection(self) -> bool:
+        try:
+            self.open()
+            self.close()
+            return True
+        except serial.SerialException as e:
+            print(e)
+            return False
+
     def open(self):
         self.serial_worker.open()
     
@@ -64,20 +73,17 @@ class UART(threading.Thread):
                 if eof_index == -1:
                     print(f"[UART] EOF - {eof_index} not found in {bytestream}")
                     break
-            
+                
                 bytestream = bytestream[sof_index:eof_index+2]
                 return bytestream
         except serial.SerialException as e:
-            print(e)
+            print("Serial recv2: ", e)
             return None
     
     def recv(self):
         if not self.is_connected():
             self.open()
         try:
-            if self.serial_worker.in_waiting == 0:
-                return None
-
             time.sleep(0.01)
             bytestream = self.serial_worker.read_until(END_OF_FRAME)
             sof_index = 0

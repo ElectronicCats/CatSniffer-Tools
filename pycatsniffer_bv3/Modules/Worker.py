@@ -10,11 +10,9 @@ class Worker(threading.Thread):
         self.worker = None
 
     def run(self):
-        print(f"Starting module {self.module.file_name}")
         self.running = True
         self.worker = threading.Thread(target=self.module.start_module)
         self.worker.start()
-
 
     def stop(self):
         self.running = False
@@ -38,7 +36,6 @@ class WorkerManager:
         self.running = True
         for module in self.modules:
             worker = Worker(module)
-            print(f"Starting worker for module {module}")
             worker.run()
             self.workers.append(worker)
 

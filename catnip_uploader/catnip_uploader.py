@@ -22,20 +22,35 @@ def show_ports():
 def create_command(payload: str):
     return START_OF_FRAME.encode("utf-8") + payload + END_OF_FRAME.encode("utf-8")
 
-list_releases = {
+list_releases_version_3 = {
     0: "airtag_scanner_CC1352P_7.hex",
     1: "airtag_spoofer_CC1352P_7.hex",
     2: "sniffer_fw_CC1352P_7.hex",
     3: "sniffle_CC1352P_7.hex"
 }
+list_releases_version_2 = {
+    0: "airtag_scanner_CC1352P_2.hex",
+    1: "airtag_spoofer_CC1352P_2.hex",
+    2: "sniffer_fw_CC1352P_2.hex",
+}
 def show_releases():
-    for i in list_releases:
-        print(f"{i}: {list_releases[i]}")
+    print("Version 2.x")
+    for i in list_releases_version_2:
+        print(f"{i}: {list_releases_version_2[i]}")
+    print("Version 3.x")
+    for i in list_releases_version_3:
+        print(f"{i}: {list_releases_version_3[i]}")
+    
 
 def load_firmware():
     try:
         #url = "https://github.com/ElectronicCats/CatSniffer-Firmware/releases/download/board-v3.x-v1.0.0/sniffer_fw_CC1352P_7.hex.hex"
-        url = f"https://github.com/ElectronicCats/CatSniffer-Firmware/releases/download/board-v3.x-v1.0.0/{firmware_selected}"
+        if int(args.version) == 0:
+            print("Loading Firmware for version 2.x")
+            url = f"https://github.com/ElectronicCats/CatSniffer-Firmware/releases/download/board-v2.x-v1.0.0/{firmware_selected}"
+        elif int(args.version) == 1:
+            print("Loading Firmware for version 3.x")
+            url = f"https://github.com/ElectronicCats/CatSniffer-Firmware/releases/download/board-v3.x-v1.0.0/{firmware_selected}"
         response = requests.get(url)
         response.raise_for_status()
         content = response.content
@@ -80,17 +95,28 @@ def send_bootloader_mode():
 parser = argparse.ArgumentParser(description='CatSniffer Firmware Loader', )
 parser.add_argument('-p', '--port', help='Serial port to use', required=True)
 parser.add_argument('-f', '--firmware', help='Firmware to load', required=False)
+parser.add_argument('-v', '--version', help='Version to load', required=False)
 args = parser.parse_args()
 
+
+
 if args.firmware:
+    if int(args.version) == 0:
+        list_releases = list_releases_version_2
+    elif int(args.version) == 1:
+        list_releases = list_releases_version_3
+    else:
+        print("Version not found")
+        sys.exit(1)
+    
     if int(args.firmware) not in list_releases.keys():
         print("Firmware not found")
         sys.exit(1)
     firmware_selected = list_releases[int(args.firmware)]
     print(firmware_selected)
 
-is_valid = send_ping()
-if is_valid:
-    print("CatSniffer found")
-    #send_bootloader_mode()
-    #load_firmware()
+# is_valid = send_ping()
+# if is_valid:
+#     print("CatSniffer found")
+#     send_bootloader_mode()
+load_firmware()
