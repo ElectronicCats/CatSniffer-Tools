@@ -3,6 +3,7 @@ import threading
 import time
 import os
 import logging
+import sys
 
 from . import Pcap, Logger
 from .Definitions import LINKTYPE_IEEE802_15_4_NOFCS
@@ -90,6 +91,7 @@ class FifoLinux(Fifo):
             os.remove(self.fifo_path)
         except FileNotFoundError as e:
             logging.error(e)
+            sys.exit(0)
     
     def add_data(self, data):
         self.fifo_packet = data
