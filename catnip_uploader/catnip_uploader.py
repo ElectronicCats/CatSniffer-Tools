@@ -1,166 +1,125 @@
-import os
-import json
-import requests
-import sys
-import io
-import argparse
+import typer
 import serial
+import platform
+import requests
+import io
+import os
 import time
-from serial.tools import list_ports
 
-GITHUB_REPO_URL     = "https://github.com/ElectronicCats/CatSniffer-Firmware/tree/v3.x/CC1352P7"
-GITHUB_RELEASE_URL  = "https://github.com/ElectronicCats/CatSniffer-Firmware/releases/tag/board-v3.x-v1.0.0"
-GITHUB_RAW_REPO_URL = "https://raw.githubusercontent.com/ElectronicCats/CatSniffer-Firmware/v3.x/CC1352P7/"
+if platform.system() == "Windows":
+    DEFAULT_COMPORT = "COM1"
+else:
+    DEFAULT_COMPORT = "/dev/ttyACM0"
 
-START_OF_FRAME = "ñ<"
-END_OF_FRAME   = ">ñ"
-TMP_FILE       = "firmware.hex"
+GITHUB_URL_RELEASE       = "https://github.com/ElectronicCats/CatSniffer-Firmware/releases/download/board-v3.x-v1.0.0"
+TMP_FILE                 = "firmware.hex"
 COMMAND_ENTER_BOOTLOADER = "ñÿ<boot>ÿñ"
-COMMAND_EXIT_BOOTLOADER = "ñÿ<exit>ÿñ"
-
-def show_ports():
-    for port in list_ports.comports():
-        print(f"- {port.device}")
-
-def create_command(payload: str):
-    return START_OF_FRAME.encode("utf-8") + payload + END_OF_FRAME.encode("utf-8")
-
-list_releases_version_3 = {
+COMMAND_EXIT_BOOTLOADER  = "ñÿ<exit>ÿñ"
+RELEASE_BOARD_V3         = {
     0: "airtag_scanner_CC1352P_7.hex",
     1: "airtag_spoofer_CC1352P_7.hex",
     2: "sniffer_fw_CC1352P_7.hex",
     3: "sniffle_CC1352P_7.hex"
 }
-list_releases_version_2 = {
-    0: "airtag_scanner_CC1352P_2.hex",
-    1: "airtag_spoofer_CC1352P_2.hex",
-    2: "sniffer_fw_CC1352P_2.hex",
-}
-def show_releases():
-    print("Version 2.x")
-    for i in list_releases_version_2:
-        print(f"{i}: {list_releases_version_2[i]}")
-    print("Version 3.x")
-    for i in list_releases_version_3:
-        print(f"{i}: {list_releases_version_3[i]}")
-    
 
-def load_firmware():
-    try:
-        #url = "https://github.com/ElectronicCats/CatSniffer-Firmware/releases/download/board-v3.x-v1.0.0/sniffer_fw_CC1352P_7.hex.hex"
-        if int(args.version) == 0:
-            print("Loading Firmware for version 2.x")
-            url = f"https://github.com/ElectronicCats/CatSniffer-Firmware/releases/download/board-v2.x-v1.0.0/{firmware_selected}"
-        elif int(args.version) == 1:
-            print("Loading Firmware for version 3.x")
-            url = f"https://github.com/ElectronicCats/CatSniffer-Firmware/releases/download/board-v3.x-v1.0.0/{firmware_selected}"
+
+class BoardUart:
+    def __init__(self, serial_port: str = DEFAULT_COMPORT):
+        self.serial_worker          = serial.Serial()
+        self.serial_worker.port     = serial_port
+        self.serial_worker.baudrate = 921600
+        self.firmware_selected      = ""
+        self.command_to_send        = f"cc2538.py -e -w -v -p {self.serial_worker.port} {TMP_FILE}"
+        self.python_command         = "python3"
+    
+    def validate_connection(self):
+        try:
+            self.serial_worker.open()
+            self.serial_worker.close()
+            return True
+        except serial.SerialException:
+            return False
+    
+    def set_firmware_selected(self, firmware_selected: str):
+        self.firmware_selected = firmware_selected
+
+    def send_connect_boot(self):
+        self.serial_worker.open()
+        self.serial_worker.write(COMMAND_ENTER_BOOTLOADER.encode())
+        self.serial_worker.close()
+    
+    def send_disconnect_boot(self):
+        self.serial_worker.open()
+        self.serial_worker.write(COMMAND_EXIT_BOOTLOADER.encode())
+        self.serial_worker.close()
+    
+    def send_firmware(self):
+        type.echo(f"Downloading {self.firmware_selected}")
+        url = f"{GITHUB_URL_RELEASE}/{self.firmware_selected}"
         response = requests.get(url)
         response.raise_for_status()
         content = response.content
         content_bytes = io.BytesIO(content)
+        self.create_tmp_file(content_bytes.read().decode())
 
+        typer.echo(f"Uploading {self.firmware_selected} to {self.serial_worker.port}")
+        self.send_connect_boot()
+        time.sleep(1)
+        os.system(f"{self.python_command} {self.command_to_send}")
+        time.sleep(1)
+        self.send_disconnect_boot()
+        self.remove_tmp_file()
+        typer.echo(f"Done uploading {self.firmware_selected} to {self.serial_worker.port}")
+    
+    def create_tmp_file(self, content_bytes):
         with open(TMP_FILE, "w") as f:
-            f.write(content_bytes.read().decode("utf-8"))
-        
-        command_firmware_loader = f"python3 cc2538.py -e -w -v -p {args.port} firmware.hex"
-        os.system(command_firmware_loader)
+            f.write(content_bytes)
 
+    def remove_tmp_file(self):
         os.remove(TMP_FILE)
-
-    except requests.exceptions.RequestException as e:
-        print("Error al hacer la solicitud:", e)
     
-def send_ping():
-    try:
-        ser = serial.Serial(args.port, 921600, timeout=1)
-        ser.write(create_command(b"P"))
-        print("Waiting for response:")
-        while True:
-            readline = ser.read_until("\n")
-            print(readline)
-            if readline == "BOOT":
-                break
-            time.sleep(1)
-        ser.close()
-        return True
-    except Exception as e:
-        print("Error al enviar ping", e)
-        return False
+def validate_firmware_selected(firmware_selected: int):
+    if firmware_selected not in RELEASE_BOARD_V3:
+        raise typer.BadParameter(f"Invalid firmware selected: {firmware_selected}")
 
-def send_bootloader_mode():
-    try:
-        ser = serial.Serial(args.port, 921600, timeout=1)
-        ser.write(bytes(COMMAND_ENTER_BOOTLOADER.encode()))
-        print("Waiting for response:")
-        while True:
-            readline = ser.read_until("\n")
-            print(readline)
-            if readline.find("BOOT") != -1:
-                break
-            time.sleep(1)
-        ser.close()
-    except Exception as e:
-        print("Error al enviar bootloader", e)
 
-def send_exit_bootloader_mode():
-    try:
-        ser = serial.Serial(args.port, 500000, timeout=1)
-        ser.write(bytes(COMMAND_EXIT_BOOTLOADER.encode()))
-        print("Waiting for response:")
-        while True:
-            readline = ser.read_until("\n")
-            print(readline)
-            if readline.find("PASSTRHOUGH") != -1:
-                break
-            time.sleep(1)
-        ser.close()
-    except Exception as e:
-        print("Error al enviar exit bootloader", e)
+app = typer.Typer(
+    name = "Catnip Uploader",
+    help = "Upload firmware to CatSniffer boards V3.",
+    add_completion = False,
+    no_args_is_help = True
+)
 
-def show_file_release():
-    request_release = requests.get("http://localhost:80/releases.json")
-    request_release.raise_for_status()
+@app.command("releases")
+def list_releases():
+    """List all releases available"""
+    typer.echo("Releases available:")
+    for release in RELEASE_BOARD_V3:
+        typer.echo(f"{release}: {RELEASE_BOARD_V3[release]}")
+
+@app.command("load")
+def load_firmware(firmware_selected: int = typer.Argument(
+        default=0,
+        help=f"Set the firmware to load.",
+    ),
+    comport: str = typer.Argument(
+        default=DEFAULT_COMPORT,
+        help="Serial port to use for uploading.",
+    ),
+):
+    """Load firmware to the board"""
+    validate_firmware_selected(firmware_selected)
+    serial_connection = BoardUart(comport)
+
+    serial_connection.set_firmware_selected(RELEASE_BOARD_V3[firmware_selected])
+
+    if not serial_connection.validate_connection():
+        raise typer.BadParameter(f"Invalid serial port: {comport}")
     
-    print("Releses: ", request_release.json())
-        
-
-def show_json_releases(release):
-    string_coso = ""
-    for i in release:
-        string_coso += f"{i}: {release[i]}"
-    return string_coso
-
-parser = argparse.ArgumentParser(description='CatSniffer Firmware Loader')
-parser.add_argument('-p', '--port', help='Serial port to use', required=True)
-parser.add_argument('-f', '--firmware', help='Firmware to load', required=False)
-parser.add_argument('-v', '--version', help='Version to load', required=False)
-args = parser.parse_args()
-version = int(args.version)
-
-show_file_release()
-
-if args.firmware:
-    if version== 0:
-        list_releases = list_releases_version_2
-    elif version== 1:
-        list_releases = list_releases_version_3
-    else:
-        print("Version not found")
-        sys.exit(1)
-    
-    if int(args.firmware) not in list_releases.keys():
-        print("Firmware not found")
-        sys.exit(1)
-    firmware_selected = list_releases[int(args.firmware)]
-    print(firmware_selected)
+    typer.echo(f"Uploading {RELEASE_BOARD_V3[firmware_selected]} to {comport}")
+    serial_connection.send_firmware()
 
 
 
-
-
-
-
-send_bootloader_mode()
-time.sleep(1)
-load_firmware()
-send_exit_bootloader_mode()
+if __name__ == "__main__":
+    app()
