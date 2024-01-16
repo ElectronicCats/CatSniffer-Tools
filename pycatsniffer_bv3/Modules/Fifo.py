@@ -140,31 +140,29 @@ class FifoWindows(Fifo):
             if self.fifo_worker is None:
                 self.open()
             while not self.fifo_recv_cancel:
-                if self.fifo_data:
-                    with self.fifo_data_lock:
-                        data = self.fifo_data.pop(0)
-
-                    if self.fifo_need_header:
-                        win32file.WriteFile(self.fifo_worker, Pcap.get_global_header())
-                        self.fifo_need_header = False
-                    
-                    win32file.WriteFile(self.fifo_worker, data)
-                    self.logger.debug("[FIFOWindows] Write %s bytes", len(data))
+                if self.fifo_packet:
+                    if self.fifo_packet != self.last_packet:
+                        if self.fifo_need_header:
+                            win32file.WriteFile(self.fifo_worker, Pcap.get_global_header())
+                            self.fifo_need_header = False
+                        
+                        win32file.WriteFile(self.fifo_worker, self.fifo_packet)
+                        self.last_packet = self.fifo_packet
+                        self.fifo_packet = None
 
                 else:
-                    time.sleep(0.1)
+                    time.sleep(0.01)
         except pywintypes.error as e:
             logging.error(e)
             pass
     
     def stop(self):
         self.fifo_recv_cancel = True
-        self.fifo_data = []
+        self.fifo_packet = None
         self.join()
     
     def add_data(self, data):
-        with self.fifo_data_lock:
-            self.fifo_data.append(data)
+        self.fifo_packet = data
         
     def set_fifo_filename(self, fifo_filname: str):
         self.fifo_filname = fifo_filname
