@@ -1,5 +1,5 @@
 --[[
-    This dissector is for the TI radio Packet Info Header which includes meta information
+    This dissector is for the CatSniffer radio Packet Info Header which includes meta information
     and is mean to be used with the TiWsPc2 packet sniffer software from TI
 ]]
 
@@ -11,39 +11,13 @@ TI_RPI_MIN_LENGTH  = 17
 INTERFACE_TYPE_COM   = 0
 INTERFACE_TYPE_CEBAL = 1
 
---  /* PHY type values */
+--  /* PHY type values */IEEE 802.15.4 
 PHY_TYPE_UNUSED                  = 0
-PHY_TYPE_50KBPS_GFSK             = 1
-PHY_TYPE_SLR                     = 2
 PHY_TYPE_OQPSK                   = 3
-PHY_TYPE_200KBPS_GFSK            = 4
 PHY_TYPE_BLE                     = 5
-PHY_TYPE_WBMS                    = 6
-PHY_TYPE_50KBPS_GFSK_WISUN_1A    = 7
-PHY_TYPE_50KBPS_GFSK_WISUN_1B    = 8
-PHY_TYPE_100KBPS_GFSK_WISUN_2A   = 9
-PHY_TYPE_100KBPS_GFSK_WISUN_2B   = 10
-PHY_TYPE_150KBPS_GFSK_WISUN_3    = 11
-PHY_TYPE_200KBPS_GFSK_WISUN_4A   = 12
-PHY_TYPE_200KBPS_GFSK_WISUN_4B   = 13
-PHY_TYPE_100KBPS_GFSK_ZIGBEE_R23 = 14
-PHY_TYPE_500KBPS_GFSK_ZIGBEE_R23 = 15
 
-PHY_50KBPS_GFSK_STRING             = "50 Kbps GFSK"
-PHY_SLR_STRING                     = "SLR"
 PHY_OQPSK_STRING                   = "O-QPSK"
-PHY_200KBPS_GFSK_STRING            = "200 Kbps GFSK"
 PHY_BLE_STRING                     = "BLE 1 Mbps"
-PHY_WBMS_STRING                    = "WBMS 2 Mbps"
-PHY_50KBPS_GFSK_WISUN_1A_STRING    = "50 Kbps GFSK (Wi-SUN mode 1a)"
-PHY_50KBPS_GFSK_WISUN_1B_STRING    = "50 Kbps GFSK (Wi-SUN mode 1b)"
-PHY_100KBPS_GFSK_WISUN_2A_STRING   = "100 Kbps GFSK (Wi-SUN mode 2a)"
-PHY_100KBPS_GFSK_WISUN_2B_STRING   = "100 Kbps GFSK (Wi-SUN mode 2b)"
-PHY_150KBPS_GFSK_WISUN_3_STRING    = "150 Kbps GFSK (Wi-SUN mode 3)"
-PHY_200KBPS_GFSK_WISUN_4A_STRING   = "200 Kbps GFSK (Wi-SUN mode 4a)"
-PHY_200KBPS_GFSK_WISUN_4B_STRING   = "200 Kbps GFSK (Wi-SUN mode 4b)"
-PHY_100KBPS_GFSK_ZIGBEE_R23_STRING = "100 Kbps GFSK (ZigBee R23)"
-PHY_500KBPS_GFSK_ZIGBEE_R23_STRING = "500 Kbps GFSK (ZigBee R23)"
 
 --  /* Protocol values */
 PROTOCOL_GENERIC         = 0
@@ -129,6 +103,8 @@ function build_catsniffer_rpi_p()
         phy = tvbuf(PHY_OFFSET, 1):le_uint()
         if protocol == PROTOCOL_BLE and phy == PHY_TYPE_BLE then
             subtree_radio_packet:add_le(cs_phy_protocol, PHY_BLE_STRING)
+        elseif protocol == PROTOCOL_IEEE_802_15_4 and phy == PHY_TYPE_OQPSK then
+            subtree_radio_packet:add_le(cs_phy_protocol, PHY_OQPSK_STRING)
         end
     
         -- Display RSSI
@@ -150,14 +126,20 @@ function build_catsniffer_rpi_p()
     
         -- Foward the packet to the BLE dissector
         local payloadTvb = tvbuf(PAYLOAD_OFFSET):tvb()
-        --if protocol == PROTOCOL_BLE then
+        if protocol == PROTOCOL_BLE then
+            -- TODO: Fix connection evenet count
+            local ble_dissector = Dissector.get("catsniffer_blepi")
+            ble_dissector:call(payloadTvb, pktinfo, root)
             
-        --end
-        local ble_dissector = Dissector.get("catsniffer_blepi")
-        ble_dissector:call(payloadTvb, pktinfo, root)
+            local dissector = Dissector.get("btle")
+            dissector:call(payloadTvb, pktinfo, root)
+        elseif protocol == PROTOCOL_IEEE_802_15_4 then
+            local wbms_dissector = Dissector.get("wpan")
+            wbms_dissector:call(payloadTvb, pktinfo, root)
+        end
         
-        local dissector = Dissector.get("btle")
-        dissector:call(payloadTvb, pktinfo, root)
+        
+        
         return tvbuf:captured_len()
     end
     return catsniffer_rpi_p

@@ -1,5 +1,5 @@
 --[[
-    This dissector is for the TI radio Packet Info Header which includes meta information
+    This dissector is for the CatSniffer radio Packet Info Header which includes meta information
     and is mean to be used with the TiWsPc2 packet sniffer software from TI
 ]]
 
@@ -31,7 +31,7 @@ function build_catsniffer_blepi_p()
 
     local cs_connection_evt = ProtoField.uint16("catsniffer.conn_event", "Connection Event", base.DEC)
     local cs_info           = ProtoField.uint8("catsniffer.info", "Info", base.HEX)
-    local cs_direction      = ProtoField.uint8("catsniffer.direction", "Direction", base.HEX, DIRECTION_VALUE_STRING)
+    local cs_direction      = ProtoField.uint8("catsniffer.direction", "Direction", base.HEX, DIRECTION_VALUE_STRING, 0x3)
 
     catsniffer_blepi_p.fields = { 
         cs_connection_evt,
@@ -39,7 +39,7 @@ function build_catsniffer_blepi_p()
         cs_direction
     }
 
-    function catsniffer_blepi_p.dissector(tvbuf, pkinfo, tree, _u_)
+    function catsniffer_blepi_p.dissector(tvbuf, pktinfo, tree, _u_)
         if tvbuf:len() < BLEPI_MIN_LENGTH then
             return 0
         end
@@ -57,16 +57,11 @@ function build_catsniffer_blepi_p()
         local info_tree = subtree_radio_packet:add(cs_direction, info)
         info_tree:add(cs_direction, tvbuf(INFO_OFFSET, INFO_SIZE):uint())
 
+        -- TODO: Dissect the information correctly
         -- Foward paload to BLE (btle) dissector
-        -- local dissector = Dissector.get("btle")
-        -- dissector:call(tvbuf(PAYLOAD_OFFSET):tvb(), pkinfo, tree)
+        --local dissector = Dissector.get("btle")
+        --dissector:call(tvbuf(2):tvb(), pktinfo, tree)
         
     end
     return catsniffer_blepi_p
 end
-
-
---local udp_port = DissectorTable.get("udp.port")
---udp_port:add(UDP_PORT_DISSECTOR, catsniffer_protocol_ble)
---local udp_port = DissectorTable.get("bluetooth.encap")
---udp_port:add(161, catsniffer_protocol)
