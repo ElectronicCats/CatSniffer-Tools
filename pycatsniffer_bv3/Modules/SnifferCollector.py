@@ -89,7 +89,7 @@ class SnifferCollector(threading.Thread, SnifferLogger):
             get_protocol_commands.insert(4, self.protocol.command_cfg_init_address(self.initiator_address))
         for command in get_protocol_commands:
             self.board_uart.send(command.raw_packet)
-            time.sleep(0.1)
+            time.sleep(0.1) 
     
     def handle_sniffer_data(self):
         while not self.sniffer_recv_cancel:
@@ -140,6 +140,7 @@ class SnifferCollector(threading.Thread, SnifferLogger):
         """Dissector the packet"""
         general_packet = GeneralUARTPacket(packet)
         if general_packet.is_command_response_packet():
+            print("Command response packet: ", general_packet.packet_bytes)
             return None
 
         packet = None
@@ -197,6 +198,7 @@ class SnifferCollector(threading.Thread, SnifferLogger):
         self.sniffer_recv_cancel = True
         for output_worker in self.output_workers:
             output_worker.stop()
+        print("STOPPING OUTPUT WORKER")
         self.sniffer_worker.stop_all_workers()
         self.output_workers = []
         

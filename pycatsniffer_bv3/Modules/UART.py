@@ -11,7 +11,7 @@ if platform.system() == "Windows":
 else:
     DEFAULT_COMPORT = "/dev/ttyACM0"
 
-DEFAULT_SERIAL_BAUDRATE = 2000000
+DEFAULT_SERIAL_BAUDRATE = 921600
 
 
 class UART(threading.Thread):
@@ -89,8 +89,8 @@ class UART(threading.Thread):
             sof_index = 0
             sof_index = bytestream.find(START_OF_FRAME, sof_index)
             if sof_index == -1:
-                #print(f"[UART] SOF - {sof_index} not found in {bytestream}")
-                bytestream += self.serial_worker.read(self.serial_worker.in_waiting)
+                print(f"[UART] SOF - {sof_index} not found in {bytestream}")
+                #bytestream += self.serial_worker.read(self.serial_worker.in_waiting)
             
             eof_index = bytestream.find(END_OF_FRAME, sof_index)
             if eof_index == -1:
@@ -98,6 +98,7 @@ class UART(threading.Thread):
                 return None
             
             bytestream = bytestream[sof_index:eof_index+2]
+            print(bytestream)
             return bytestream
         except serial.SerialException as e:
             print(e)
