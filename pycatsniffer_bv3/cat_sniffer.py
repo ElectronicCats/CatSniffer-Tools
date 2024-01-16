@@ -43,6 +43,11 @@ def signal_handler(sig, frame):
     sniffer_collector.delete_all_workers()
     sys.exit(0)
 
+@app.command("protocols")
+def list_protocols():
+    """List all protocols available"""
+    typer.echo(Protocols.PROTOCOLSLIST.get_str_list_protocols())
+
 @app.command("ld")
 def list_ports():
     """List all serial ports available"""
@@ -158,25 +163,27 @@ If you are running in Windows, you need first set the Environment Variable to ca
 def setup_sniffer(dumpfile, dumpfile_name, pcapfile, pcapfile_name, fifo, fifo_name, wireshark, verbose, comport, phy, channel, address):
     output_workers = []
     
+    if not sniffer_collector.set_board_uart(comport):
+        typer.echo("Error: Invalid serial port not connection found")
+        sys.exit(1)
+    
     sniffer_collector.set_protocol_phy(phy)
     sniffer_collector.set_protocol_channel(channel)
-    
+    sniffer_collector.set_verbose_mode(verbose)
+
     if dumpfile:
         output_workers.append(HexDumper.HexDumper(dumpfile_name))
     if pcapfile:
         output_workers.append(PcapDumper.PcapDumper(pcapfile_name))
-    # if fifo:
-    #     if platform.system() == "Windows":
-    #         output_workers.append(Fifo.FifoWindows(fifo_name))
-    #     else:
-    #         output_workers.append(Fifo.FifoLinux(fifo_name))
-    if wireshark:
-        output_workers.append(Wireshark.Wireshark(fifo_name))
+    if fifo:
+        if platform.system() == "Windows":
+            output_workers.append(Fifo.FifoWindows(fifo_name))
+        else:
+            output_workers.append(Fifo.FifoLinux(fifo_name))
+        if wireshark:
+            output_workers.append(Wireshark.Wireshark(fifo_name))
     
     sniffer_collector.set_output_workers(output_workers)
-
-    sniffer_collector.set_verbose_mode(verbose)
-    sniffer_collector.set_board_uart(comport)
 
     if address != DEFAULT_INIT_ADDRESS:
         if not validate_access_address(address):

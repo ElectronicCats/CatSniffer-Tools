@@ -5,6 +5,7 @@ import os
 import logging
 
 from . import Pcap, Logger
+from .Definitions import LINKTYPE_IEEE802_15_4_NOFCS
 
 if platform.system() == "Windows":
     try:
@@ -20,15 +21,18 @@ class Fifo(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
         
-        self.fifo_worker = None
+        self.fifo_worker      = None
         self.fifo_recv_cancel = False
         self.fifo_need_header = True
-        self.fifo_data = []
-        self.fifo_packet = None
-        self.fifo_dumped = 0
-        self.fifo_data_lock = threading.Lock()
-        self.logger = Logger.SnifferLogger().get_logger()
-
+        self.fifo_data        = []
+        self.fifo_packet      = None
+        self.last_packet      = None
+        self.linktype         = LINKTYPE_IEEE802_15_4_NOFCS
+        self.fifo_data_lock   = threading.Lock()
+        self.logger           = Logger.SnifferLogger().get_logger()
+    
+    def set_linktype(self, linktype: int):
+        self.linktype = linktype
 
 class FifoLinux(Fifo):
     
@@ -54,33 +58,31 @@ class FifoLinux(Fifo):
             print(e)
 
     def run(self):
-        try:
-            self.fifo_recv_cancel = False
-            if self.fifo_worker is None:
-                self.open()
-            while not self.fifo_recv_cancel:
+        #print("RUNNING FIFO")
+        self.fifo_recv_cancel = False
+        if self.fifo_worker is None:
+            self.open()
+        while not self.fifo_recv_cancel:
+            try:
                 if self.fifo_packet:
-                    #with self.fifo_data_lock:
-                    data = self.fifo_data.pop(0)
-
-                    if self.fifo_need_header:
-                        self.fifo_worker.write(Pcap.get_global_header())
+                    if self.fifo_packet != self.last_packet:
+                        if self.fifo_need_header:
+                            self.fifo_worker.write(Pcap.get_global_header(self.linktype))
+                            self.fifo_worker.flush()
+                            self.fifo_need_header = False
+                        #print("WRITING FIFO")
+                        self.fifo_worker.write(self.fifo_packet)
                         self.fifo_worker.flush()
-                        self.fifo_need_header = False
-                    
-                    self.fifo_worker.write(self.fifo_packet)
-                    self.fifo_worker.flush()
-                    self.fifo_dumped += 1
-                    self.fifo_packet = None
+                        self.last_packet = self.fifo_packet
+                        self.fifo_packet = None
+                        
                 else:
-                    time.sleep(0.0001)
-        except BrokenPipeError as e:
-            logging.error(e)
-            pass
+                    time.sleep(0.01)
+            except BrokenPipeError as e:
+                pass
     
     def stop(self):
-        print("="*10, "FIFO DUMPER", "="*10)
-        print("Data FIFO:", self.fifo_dumped)
+        print("FIFO CANCEL")
         self.fifo_recv_cancel = True
         self.fifo_data = []
         self.join()
@@ -90,24 +92,12 @@ class FifoLinux(Fifo):
             logging.error(e)
     
     def add_data(self, data):
-        self.fifo_data.append(data)
         self.fifo_packet = data
-        if self.fifo_worker is None:
-            self.open()
-        if self.fifo_need_header:
-            self.fifo_worker.write(Pcap.get_global_header())
-            self.fifo_worker.flush()
-            self.fifo_need_header = False
-        
-        self.fifo_worker.write(data)
-        self.fifo_worker.flush()
-        self.fifo_dumped += 1
-        self.fifo_packet = None
 
     def set_fifo_filename(self, fifo_filname: str):
         self.fifo_filname = fifo_filname
 
-
+#TODO: Modify to works with the new Fifo structure
 class FifoWindows(Fifo):
     def __init__(self, fifo_filname: str = DEFAULT_FILENAME):
         super().__init__()

@@ -6,15 +6,19 @@ START_OF_FRAME                      = b"\x40\x53"
 END_OF_FRAME                        = b"\x40\x45"
 # PCAP -> LinkType
 LINKTYPE_BLUETOOTH_LE_LL_WITH_PHDR  = 256
+LINKTYPE_IEEE802_15_4_WITHFCS       = 195
+LINKTYPE_IEEE802_15_4_NONASK_PHY    = 215
+LINKTYPE_IEEE802_15_4_NOFCS         = 230
 # PCAP
-PCAP_GLOBAL_HEADER_FORMAT   = '<LHHIILL'
-PCAP_PACKET_HEADER_FORMAT   = '<llll'
-PCAP_MAGIC_NUMBER           = 0xA1B2C3D4
-PCAP_VERSION_MAJOR          = 2
-PCAP_VERSION_MINOR          = 4
-PCAP_MAX_PACKET_SIZE        = 0x0000ffff
-DEFAULT_INIT_ADDRESS = "00:00:00:00:00:00"
+PCAP_GLOBAL_HEADER_FORMAT = '<LHHIILL'
+PCAP_PACKET_HEADER_FORMAT = '<llll'
+PCAP_MAGIC_NUMBER         = 0xA1B2C3D4
+PCAP_VERSION_MAJOR        = 2
+PCAP_VERSION_MINOR        = 4
+PCAP_MAX_PACKET_SIZE      = 0x0000ffff
+DEFAULT_INIT_ADDRESS      = "00:00:00:00:00:00"
 
+VERSION_NUMBER = "1"
 
 DEFAUTL_DUMP_PATH = "dumps"
 DEFAULT_PCAP_PATH = "pcaps"
@@ -115,7 +119,7 @@ class PacketCommand:
   
 # APP Information
 CLI_NAME       = "PyCat-Sniffer CLI"
-VERSION_STRING = "Cymric - 0.0.1"
+VERSION_NUMBER = "1Cymric - 0.0.1"
 AUTHOR         = "Electronic Cats - PWNLab"
 # Prompt
 PROMPT_ICON    = "󰄛"
@@ -126,8 +130,8 @@ PROMPT_HEADER  = f"""
       =+++++===++===++++++       |  
       -++++++++++++++++++-       |  Module:  PyCat-Sniffer CLI
  .:   =++---++++++++---++=   :.  |  Author:  {AUTHOR}
- ::---+++.   -++++-   .+++---::  |  Version: {VERSION_STRING}
-::..:-++++:   ++++   :++++-::.:: |
+ ::---+++.   -++++-   .+++---::  |  Version: {VERSION_NUMBER}
+::1..:-++++:   ++++   :++++-::.:: |
 .:...:=++++++++++++++++++=:...:. |
  :---.  -++++++++++++++-  .---:  |
  ..        .:------:.        ..  |\x1b[0m
