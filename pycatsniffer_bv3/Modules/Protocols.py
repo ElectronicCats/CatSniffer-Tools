@@ -151,11 +151,24 @@ PROTOCOL_BLE = Protocol(
     base_frequency=2402.0,
     spacing=2,
     channel_range=[(37, 2402), (38, 2426), (39, 2480)],
-    pcap_header=Definitions.LINKTYPE_BLUETOOTH_LE_LL_WITH_PHDR
+    #pcap_header=Definitions.LINKTYPE_BLUETOOTH_LE_LL_WITH_PHDR
+    pcap_header=147
+)
+
+PROTOCOL_IEEE = Protocol(
+    phy_index=bytearray([0x12]),
+    name="IEEE 802.15.4 QPSK",
+    phy_label="2405 MHz - Freq Band",
+    base_frequency=2405.0,
+    spacing=5,
+    channel_range=[(channel, (2405.0 + (5 * (channel-11)))) for channel in range(11, 27)],
+    #pcap_header=Definitions.LINKTYPE_IEEE802_15_4_NOFCS,
+    pcap_header=147
 )
 
 class PROTOCOLSLIST(Definitions.BaseEnum):
     PROTOCOL_BLE: Protocol = PROTOCOL_BLE
+    PROTOCOL_IEEE: Protocol = PROTOCOL_IEEE
 
     @classmethod
     def get_list_protocols(cls):
@@ -165,7 +178,7 @@ class PROTOCOLSLIST(Definitions.BaseEnum):
     def get_str_list_protocols(cls):
         str_list = ""
         for index, protocol in enumerate(cls):
-            str_list += f"[{index}] {protocol.name}"
+            str_list += f"[{index}] {protocol.name}\n"
         return str_list
     @classmethod
     def get_str_list_channels(cls, protocol_index: int):

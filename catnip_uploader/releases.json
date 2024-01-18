@@ -1,0 +1,13 @@
+{
+    "board_v1": {
+        "0": "airtag_scanner_CC1352P_2.hex",
+        "1": "airtag_spoofer_CC1352P_2.hex",
+        "2": "sniffer_fw_CC1352P_2.hex"
+    },
+    "board_v3": {
+        "0": "airtag_scanner_CC1352P_7.hex",
+        "1": "airtag_spoofer_CC1352P_7.hex",
+        "2": "sniffer_fw_CC1352P_7.hex",
+        "3": "sniffle_CC1352P_7.hex"
+    }
+}
