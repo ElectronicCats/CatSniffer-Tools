@@ -5,6 +5,8 @@ import platform
 try:
     import typer
     import serial
+    from rich.console import Console
+    from rich.table import Table
 except ImportError:
     print("\x1b[31;1mError: The required library's is not installed.\x1b[0m")
     print(
@@ -23,10 +25,9 @@ app = typer.Typer(
     name = "PyCat-Sniffer CLI",
     help = "PyCat-Sniffer CLI - For sniffing the TI CC1352 device communication inferfaces.",
     epilog = f"""\x1b[37:mFor more information, visit:\x1b[0m
-\x1b[36m  https://github.com/JahazielLem
-  https://github.com/ElectronicCats/CatSniffer/tree/master
-󰄛  https://electroniccats.com/
-󰖟  https://pwnlab.mx/\x1b[0m""",
+\x1b[36mhttps://github.com/ElectronicCats/CatSniffer/tree/master
+https://electroniccats.com/
+https://pwnlab.mx/\x1b[0m""",
     add_completion = False,
     no_args_is_help = True,
 )
@@ -42,6 +43,28 @@ def signal_handler(sig, frame):
     sniffer_collector.stop_workers()
     sniffer_collector.delete_all_workers()
     sys.exit(0)
+
+@app.command("protocols")
+def list_protocols():
+    """List all protocols available"""
+    table = Table(show_header=True, header_style="bold green")
+    table.add_column("Index", style="dim")
+    table.add_column("Protocol", justify="center")
+    table.add_column("Frequency", justify="center")
+    table.add_column("Channel Range (INDEX - Frequency)", justify="center")
+
+    protocols_list = Protocols.PROTOCOLSLIST.get_list_protocols()
+    for index, protocol in enumerate(protocols_list):
+        channel_range = protocol.value.get_channel_range()
+        channel_range_str = f"[{channel_range[0][0]}] {channel_range[0][1]} - [{channel_range[-1][0]}] {channel_range[-1][1]}"
+        table.add_row(
+            str(index),
+            protocol.value.get_name(),
+            str(protocol.value.get_phy_label()),
+            channel_range_str
+        )
+    console = Console()
+    console.print(table)
 
 @app.command("ld")
 def list_ports():
@@ -158,9 +181,14 @@ If you are running in Windows, you need first set the Environment Variable to ca
 def setup_sniffer(dumpfile, dumpfile_name, pcapfile, pcapfile_name, fifo, fifo_name, wireshark, verbose, comport, phy, channel, address):
     output_workers = []
     
+    if not sniffer_collector.set_board_uart(comport):
+        typer.echo("Error: Invalid serial port not connection found")
+        sys.exit(1)
+    
     sniffer_collector.set_protocol_phy(phy)
     sniffer_collector.set_protocol_channel(channel)
-    
+    sniffer_collector.set_verbose_mode(verbose)
+
     if dumpfile:
         output_workers.append(HexDumper.HexDumper(dumpfile_name))
     if pcapfile:
@@ -174,9 +202,6 @@ def setup_sniffer(dumpfile, dumpfile_name, pcapfile, pcapfile_name, fifo, fifo_n
             output_workers.append(Wireshark.Wireshark(fifo_name))
     
     sniffer_collector.set_output_workers(output_workers)
-
-    sniffer_collector.set_verbose_mode(verbose)
-    sniffer_collector.set_board_uart(comport)
 
     if address != DEFAULT_INIT_ADDRESS:
         if not validate_access_address(address):
