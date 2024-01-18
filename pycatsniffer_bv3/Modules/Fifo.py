@@ -113,9 +113,9 @@ class FifoWindows(Fifo):
             self.fifo_worker = win32pipe.CreateNamedPipe(
                 self.fifo_path,
                 win32pipe.PIPE_ACCESS_DUPLEX,
-                win32pipe.PIPE_TYPE_MESSAGE
-                | win32pipe.PIPE_READMODE_MESSAGE
-                | win32pipe.PIPE_WAIT,
+                win32pipe.PIPE_TYPE_MESSAGE | 
+                win32pipe.PIPE_READMODE_MESSAGE |
+                win32pipe.PIPE_WAIT,
                 1,
                 65536,
                 65536,
