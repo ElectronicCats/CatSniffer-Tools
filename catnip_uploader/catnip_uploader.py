@@ -54,7 +54,7 @@ class BoardUart:
         self.serial_worker.close()
     
     def send_firmware(self):
-        type.echo(f"Downloading {self.firmware_selected}")
+        typer.echo(f"Downloading {self.firmware_selected}")
         url = f"{GITHUB_URL_RELEASE}/{self.firmware_selected}"
         response = requests.get(url)
         response.raise_for_status()
