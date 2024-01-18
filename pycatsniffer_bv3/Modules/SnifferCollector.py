@@ -144,15 +144,19 @@ class SnifferCollector(threading.Thread, SnifferLogger):
             return None
 
         packet = None
-
-        if self.protocol == PROTOCOL_BLE:
-            data_packet = BLEUARTPacket(general_packet.packet_bytes)
-            #print("BLE Packet: ", data_packet)
-            packet = data_packet
-        else:
-            ieee_packet = IEEEUARTPacket(general_packet.packet_bytes)
-            #print("IEEE Packet: ", ieee_packet)
-            packet = ieee_packet
+        try:
+            if self.protocol == PROTOCOL_BLE:
+                data_packet = BLEUARTPacket(general_packet.packet_bytes)
+                #print("BLE Packet: ", data_packet)
+                packet = data_packet
+            else:
+                ieee_packet = IEEEUARTPacket(general_packet.packet_bytes)
+                #print("IEEE Packet: ", ieee_packet)
+                packet = ieee_packet
+        except Exception as e:
+            print("\nDissector Error -> ", e)
+            print("Packet -> ", general_packet)
+            return packet
 
         if self.verbose_mode:
             print("RECV -> ", packet)
