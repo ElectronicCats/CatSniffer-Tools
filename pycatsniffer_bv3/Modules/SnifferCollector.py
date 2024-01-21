@@ -1,13 +1,13 @@
 import time
 import struct
 import threading
-import binascii
+import typer
+import sys
 from .Worker import WorkerManager
 from .UART import UART
 from .Pcap import Pcap
-from .Fifo import FifoLinux
-from .Packets import GeneralUARTPacket, DataUARTPacket, IEEEUARTPacket, BLEUARTPacket
-from .Definitions import PCAP_MAX_PACKET_SIZE, VERSION_NUMBER
+from .Packets import GeneralUARTPacket, IEEEUARTPacket, BLEUARTPacket
+from .Definitions import DEFAULT_TIMEOUT_JOIN
 from .Protocols import PROTOCOL_BLE, PROTOCOL_IEEE, PROTOCOLSLIST
 from .Logger import SnifferLogger
 
@@ -83,7 +83,6 @@ class SnifferCollector(threading.Thread, SnifferLogger):
 
     def send_command_start(self):
         """Send the start command to the sniffer"""
-        self.logger.debug("Send start command")
         get_protocol_commands = self.protocol.command_startup(self.protocol_freq_channel)
         if self.initiator_address:
             get_protocol_commands.insert(4, self.protocol.command_cfg_init_address(self.initiator_address))
@@ -93,6 +92,8 @@ class SnifferCollector(threading.Thread, SnifferLogger):
     
     def handle_sniffer_data(self):
         while not self.sniffer_recv_cancel:
+            if self.sniffer_recv_cancel:
+                break
             if self.sniffer_data:
                 # Send to the dumpers
                 for output_worker in self.output_workers:
@@ -129,7 +130,7 @@ class SnifferCollector(threading.Thread, SnifferLogger):
                             output_worker.set_linktype(self.protocol_linktype)
                             output_worker.add_data(pcap_file.get_pcap())
                         except struct.error as e:
-                            print(e)
+                            typer.echo("Error: " + str(e) + " - " + str(self.sniffer_data))
                             continue
                     else:
                         continue
@@ -140,7 +141,6 @@ class SnifferCollector(threading.Thread, SnifferLogger):
         """Dissector the packet"""
         general_packet = GeneralUARTPacket(packet)
         if general_packet.is_command_response_packet():
-            print("Command response packet: ", general_packet.packet_bytes)
             return None
 
         packet = None
@@ -179,10 +179,6 @@ class SnifferCollector(threading.Thread, SnifferLogger):
                     packet_frame = self.dissector(frame)
                     if packet_frame:
                         self.sniffer_data = packet_frame
-                    #pcap_file = Pcap(data_packet.packet_bytes[12:-4], data_packet.timestamp)
-        
-                    #self.fifo_worker.set_linktype(self.protocol_linktype)
-                    #self.fifo_worker.add_data(pcap_file.get_pcap())
         except Exception as e:
             #TODO: Hanlde exception
             print(e)
@@ -199,15 +195,18 @@ class SnifferCollector(threading.Thread, SnifferLogger):
         self.sniffer_worker.start_all_workers()
     
     def stop_workers(self):
+        typer.echo("Stoping workers")
+        self.send_command_stop()
         self.sniffer_recv_cancel = True
+        time.sleep(0.2)
         for output_worker in self.output_workers:
-            output_worker.stop()
-        print("STOPPING OUTPUT WORKER")
+            output_worker.stop_worker()
         self.sniffer_worker.stop_all_workers()
-        self.output_workers = []
         
     def delete_all_workers(self):
+        typer.echo("Cleaning Workers")
         for output_worker in self.output_workers:
-            output_worker.join()
-        self.sniffer_worker.delete_all_workers()
-        self.output_workers = []
+            output_worker.stop_thread()
+            output_worker.join(DEFAULT_TIMEOUT_JOIN)
+        sys.exit(0)
+        
