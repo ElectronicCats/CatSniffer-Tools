@@ -35,7 +35,7 @@ class HexDumper(threading.Thread):
             else:
                 time.sleep(0.01)
     
-    def stop(self):
+    def stop_worker(self):
         self.running = False
         self.frame_packet = None
         self.join()
