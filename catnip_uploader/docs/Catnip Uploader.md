@@ -1,6 +1,6 @@
-This script works to upload firmware from the releases page to the CatSniffer Board V3.x.
+This script works to upload firmware from the releases page to the CatSniffer Board V3.x. 
 >[!IMPORTANT]
->The current version of the **Catnip** requires the lasted version of the **SerialPassthroughwithboot**
+>The current version of the **Catnip** requires the lasted version of the [**SerialPassthroughwithboot**](https://github.com/ElectronicCats/CatSniffer-Firmware/releases/download/board-v3.x-v1.1.0/SerialPassthroughwithboot_RP2040_v1.1.uf2)
 ## Getting Starter
 The struct files from the repo is:
 ``` bash
@@ -28,9 +28,10 @@ Requirements packets:
 >To install **python-magic** may have additional dependencies depending on your OS, [read more](https://github.com/ahupp/python-magic#dependencies): 
 
 ### Available commands
-![[Pasted image 20240117144905.png]]
+![Commands](commands.png "Commands")
+
 #### Releases
-![[Pasted image 20240117145949.png]]
+![Release commands](release_commands.png "Release commands")
 Show the current releases loaded from the board version 3
 ##### Usage
 To show the current releases run the next command:
@@ -43,7 +44,7 @@ Releases available:
 3: sniffle_CC1352P_7.hex
 ```
 #### Load
-![[Pasted image 20240117144947.png]]
+![load_commands](load_commands.png "Load commands")
 Load  the selected firmware to the board, this command have two options.
 - **Firmware**: This options is a integer value from the index of the available firmware releases
 - **Comport**: The Path to the board serial com
