@@ -4,9 +4,12 @@ import time
 import os
 import logging
 import sys
+import typer
 
 from . import Pcap, Logger
-from .Definitions import LINKTYPE_IEEE802_15_4_NOFCS
+from .Definitions import LINKTYPE_IEEE802_15_4_NOFCS, DEFAULT_TIMEOUT_JOIN
+
+JOIN_TIMEOUT = 1
 
 if platform.system() == "Windows":
     try:
@@ -31,9 +34,13 @@ class Fifo(threading.Thread):
         self.linktype         = LINKTYPE_IEEE802_15_4_NOFCS
         self.fifo_data_lock   = threading.Lock()
         self.logger           = Logger.SnifferLogger().get_logger()
+        self.daemon           = True
     
     def set_linktype(self, linktype: int):
         self.linktype = linktype
+    
+    def stop_thread(self):
+        self.join(DEFAULT_TIMEOUT_JOIN)
 
 class FifoLinux(Fifo):
     
@@ -80,18 +87,24 @@ class FifoLinux(Fifo):
                 else:
                     time.sleep(0.01)
             except BrokenPipeError as e:
+                self.fifo_need_header = True
                 pass
-    
-    def stop(self):
-        print("FIFO CANCEL")
+            except Exception as e:
+                typer.secho(f"[FIFOLINUX] - {e}", fg=typer.colors.BRIGHT_RED)
+                break
+
+    def stop_worker(self):
         self.fifo_recv_cancel = True
         self.fifo_data = []
-        self.join()
+        if self.fifo_worker : 
+            self.fifo_worker.close()
         try:
             os.remove(self.fifo_path)
         except FileNotFoundError as e:
             logging.error(e)
             sys.exit(0)
+        finally:
+            self.join(JOIN_TIMEOUT)
     
     def add_data(self, data):
         self.fifo_packet = data
@@ -123,16 +136,16 @@ class FifoWindows(Fifo):
                 None,
             )
         except pywintypes.error as e:
-            print(e)
+            typer.secho(f"[FIFOWINDOWS] - {e}", fg=typer.colors.BRIGHT_RED)
     
     def open(self):
         if self.fifo_worker is None:
             self.create()
         try:
             win32pipe.ConnectNamedPipe(self.fifo_worker, None)
-            logging.info(f"[FIFO] Open {self.fifo_path}")
+            logging.info(f"[FIFOWINDOWS] Open {self.fifo_path}")
         except pywintypes.error as e:
-            print(e)
+            typer.secho(f"[FIFOWINDOWS] - {e}", fg=typer.colors.BRIGHT_RED)
     
     def run(self):
         try:
@@ -155,11 +168,11 @@ class FifoWindows(Fifo):
         except pywintypes.error as e:
             logging.error(e)
             pass
-    
-    def stop(self):
+
+    def stop_worker(self):
         self.fifo_recv_cancel = True
         self.fifo_packet = None
-        self.join()
+        self.join(DEFAULT_TIMEOUT_JOIN)
     
     def add_data(self, data):
         self.fifo_packet = data

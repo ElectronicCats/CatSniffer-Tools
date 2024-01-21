@@ -5,6 +5,7 @@ from rich.console import Console
 from rich.table import Table
 from . import Definitions
 from . import Utils
+from . import Wireshark
 
 class CMDInterface(cmd.Cmd):
     intro  = f'{Definitions.PROMPT_DESCRIPTION}\nType help or ? to list commands.\n'
@@ -22,7 +23,7 @@ class CMDInterface(cmd.Cmd):
         """ Stop the sniffing."""
         print("Stop the sniffing")
         self.sniffer_collector.send_command_stop()
-    
+
     def do_start(self, args):
         """ Start the sniffing."""
         print("Start the sniffing")
