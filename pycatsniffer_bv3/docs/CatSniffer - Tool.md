@@ -55,11 +55,17 @@ To use wireshark and show the information we need to configure the USER DLT valu
 - Click in *Ok* button
 ## Available Commands
 ### List Devices - ld
-![[Pasted image 20240117162334.png]]
+
+```bash
+$ python cat_sniffer.py ld
+```
+
+![List devices](ports.png "List devices")
 This commands show the available com ports, running this command we can view what port is available and if our CatSniffer is connected.
 
 ### Protocols - protocols
-![[Pasted image 20240117163842.png]]
+
+![physical Layer](physical-layer.png "protocols")
 This command show the available protocols and description about the supported channels.
 
 The command show a table with the information about the protocol support.
@@ -72,7 +78,7 @@ The command show a table with the information about the protocol support.
 >The Channel Range is showed in the min value and max value of the channel range available in the protocol.
 
 ### Sniffer - sniff
-![[Pasted image 20240117164315.png]]
+![sniff](sniff_help.png "Sniff Help")
 
 This commands initialize the sniff communication with the board, to start the sniffing the command requires some initial configuration.
 
@@ -99,13 +105,22 @@ When a different *phy* is selected, we need to specify the channel to sniffing.
 >[!IMPORTANT]
 >If your are in windows to call Wireshark from the terminal you need to set the installation path to the Environmental Variables
 
-##### Examples calls
+### Examples calls
+
+$SERIAL_PORT will be depending on your OS please check your serial port name by: 
+
+```bash
+$ python cat_sniffer.py ld
+```
+![List devices](ports.png "List devices")
+
+
 Default sniffing
 - Protocol: BLE
 - Channel: 37
 - Verbose
 ```bash
-python3 cat_sniffer.py /dev/cu.usbmodem101 -v
+$ python3 cat_sniffer.py sniff $SERIAL_PORT -v
 ```
 
 Dump a pcap file with different BLE channel
@@ -113,16 +128,24 @@ Dump a pcap file with different BLE channel
 - Channel: 39
 - Dump File
 ```bash
-python3 cat_sniffer.py /dev/cu.usbmodem101 -ch 39 -df
+$ python3 cat_sniffer.py sniff $SERIAL_PORT -ch 39 -df
+```
+
+Default sniffing
+- Protocol: BLE
+- Channel: 37
+- Wireshark
+```bash
+$ python3 cat_sniffer.py sniff $SERIAL_PORT -phy 0 -ch 39 -ff -ws 
 ```
 
 Dump a pcap file, hex file with custom name and IEEE 802.15.4 protocol
 ```bash
-python3 cat_sniffer.py /dev/cu.usbmodem101 -phy 1 -ch 11 -pf -df -dfn test.pcap
+$ python3 cat_sniffer.py sniff $SERIAL_PORT -phy 1 -ch 11 -pf -df -dfn test.pcap
 ```
 
 Dump a pcap file, hex file, verbose mode and show the packets on wireshark
 ```bash
-python3 cat_sniffer.py /dev/cu.usbmodem101 -df -pf -ff -ws
+$ python3 cat_sniffer.py sniff $SERIAL_PORT -df -pf -ff -ws
 ```
 
