@@ -1,4 +1,5 @@
 import threading
+from .Definitions import DEFAULT_TIMEOUT_JOIN
 
 # Worker API to handle the communications with the Modules
 class Worker(threading.Thread):
@@ -16,8 +17,8 @@ class Worker(threading.Thread):
 
     def stop(self):
         self.running = False
-        self.module.stop_module()
-        self.worker.join()
+        self.module.stop_worker()
+        self.worker.join(1)
 
 
 class WorkerManager:
@@ -45,7 +46,7 @@ class WorkerManager:
 
     def stop_all_workers(self):
         for worker in self.workers:
-            worker.join()
+            worker.join(DEFAULT_TIMEOUT_JOIN)
         
     def delete_all_workers(self):
         self.workers = []
@@ -57,7 +58,7 @@ class WorkerManager:
 
     def join(self):
         for worker in self.workers:
-            worker.join()
+            worker.join(1)
     
     def get_workers(self):
         return self.workers

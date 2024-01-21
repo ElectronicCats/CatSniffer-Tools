@@ -1,4 +1,3 @@
-import binascii
 from enum import Enum
 from typing import Optional
 # Frame
@@ -19,7 +18,9 @@ PCAP_MAX_PACKET_SIZE      = 0x0000ffff
 DEFAULT_INIT_ADDRESS      = "00:00:00:00:00:00"
 
 VERSION_NUMBER = "1"
+DEFAULT_TIMEOUT_JOIN = 1
 
+# FileNames
 DEFAUTL_DUMP_PATH = "dumps"
 DEFAULT_PCAP_PATH = "pcaps"
 DEFAULT_HEX_PATH  = "hexdumps"
@@ -118,9 +119,10 @@ class PacketCommand:
   
   
 # APP Information
-CLI_NAME       = "PyCat-Sniffer CLI"
-VERSION_NUMBER = "1Cymric - 0.0.1"
-AUTHOR         = "Electronic Cats - PWNLab"
+CLI_NAME       = "PycatSniffer CLI"
+VERSION_NUMBER = "Cymric - 0.0.1"
+AUTHOR         = "JahazielLem"
+COMPANY        = "Electronic Cats - PWNLab"
 # Prompt
 PROMPT_ICON    = "󰄛"
 PROMPT_DESCRIPTION = "PyCat-Sniffer CLI - For sniffing the TI CC1352 device communication inferfaces."
@@ -128,10 +130,10 @@ PROMPT_HEADER  = f"""
 \x1b[36;1m      :-:              :--       |  
       ++++=.        .=++++       |  
       =+++++===++===++++++       |  
-      -++++++++++++++++++-       |  Module:  PyCat-Sniffer CLI
+      -++++++++++++++++++-       |  Module:  {CLI_NAME}
  .:   =++---++++++++---++=   :.  |  Author:  {AUTHOR}
  ::---+++.   -++++-   .+++---::  |  Version: {VERSION_NUMBER}
-::1..:-++++:   ++++   :++++-::.:: |
+::1..:-++++:   ++++   :++++-::.::|  Company: {COMPANY}
 .:...:=++++++++++++++++++=:...:. |
  :---.  -++++++++++++++-  .---:  |
  ..        .:------:.        ..  |\x1b[0m
