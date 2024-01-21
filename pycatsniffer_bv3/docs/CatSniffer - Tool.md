@@ -1,5 +1,8 @@
-![[Pasted image 20240117161126.png]]
-This tools is Command Line Interface (CLI) to communicate with the **Sniffer_fw_CC1352P_7 firmware**.
+# PyCatsniffer tool
+
+![commands](commands.png "commands")
+This tools is Command Line Interface (CLI) to communicate with the [**Sniffer_fw_CC1352P_7 firmware**](https://github.com/ElectronicCats/CatSniffer-Firmware/releases/) that you can upload with out catnip tool.
+
 # Features
 - This tool actually supports the next protocols:
 	- Bluetooth Low Energy (BLE)
@@ -64,7 +67,9 @@ $ python cat_sniffer.py ld
 This commands show the available com ports, running this command we can view what port is available and if our CatSniffer is connected.
 
 ### Protocols - protocols
-
+```bash
+$ python cat_sniffer.py protocols
+```
 ![physical Layer](physical-layer.png "protocols")
 This command show the available protocols and description about the supported channels.
 
@@ -78,6 +83,11 @@ The command show a table with the information about the protocol support.
 >The Channel Range is showed in the min value and max value of the channel range available in the protocol.
 
 ### Sniffer - sniff
+
+```bash
+$ python cat_sniffer.py sniff --help
+```
+
 ![sniff](sniff_help.png "Sniff Help")
 
 This commands initialize the sniff communication with the board, to start the sniffing the command requires some initial configuration.
