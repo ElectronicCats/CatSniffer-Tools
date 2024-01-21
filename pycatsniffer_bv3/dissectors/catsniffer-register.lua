@@ -26,12 +26,6 @@ DTL0_LINKLAYER = 147
 local catsniffer_blepi_p = build_catsniffer_blepi_p()
 local catsniffer_rpi_p = build_catsniffer_rpi_p()
 
-local udp_port = DissectorTable.get("udp.port")
-udp_port:add(UDP_PORT_DISSECTOR, catsniffer_rpi_p)
-local udp_port = DissectorTable.get("bluetooth.encap")
-udp_port:add(161, catsniffer_rpi_p)
-udp_port:add(156, catsniffer_rpi_p)
 -- For User DLT to controll the information of all the CatSniffer packets
 local user_dtls = DissectorTable.get("dtls.port")
 user_dtls:add(147, catsniffer_rpi_p)
-print(DissectorTable.get("dtls.port"))
