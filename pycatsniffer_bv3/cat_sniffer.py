@@ -30,6 +30,9 @@ https://electroniccats.com/
 https://pwnlab.mx/\x1b[0m""",
     add_completion = False,
     no_args_is_help = True,
+    rich_help_panel=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+    rich_markup_mode="markdown",
 )
 
 sniffer_logger = Logger.SnifferLogger()
@@ -39,14 +42,13 @@ sniffer_collector = SCollector.SnifferCollector()
 
 
 def signal_handler(sig, frame):
-    logger.info("You pressed Ctrl+C!")
     sniffer_collector.stop_workers()
     sniffer_collector.delete_all_workers()
     sys.exit(0)
 
 @app.command("protocols")
 def list_protocols():
-    """List all protocols available"""
+    """List all protocols available and their respective channel range. **For more information**: python cat_sniffer.py protocols"""
     table = Table(show_header=True, header_style="bold green")
     table.add_column("Index", style="dim")
     table.add_column("Protocol", justify="center")
@@ -68,7 +70,7 @@ def list_protocols():
 
 @app.command("ld")
 def list_ports():
-    """List all serial ports available"""
+    """List all serial ports available in the system. **For more information**: python cat_sniffer.py ld --help"""
     ports = serial.tools.list_ports.comports()
     if len(ports) == 0:
         typer.echo("No ports found")
@@ -76,7 +78,7 @@ def list_ports():
         for port in ports:
             typer.echo(port)
 
-@app.command("sniff")
+@app.command("sniff", no_args_is_help=True)
 def cli_sniff(
     comport: str = typer.Argument(
         default="/dev/ttyACM0",
@@ -99,13 +101,13 @@ def cli_sniff(
         0,
         "-phy",
         "--phy",
-        help="Set the Phy Protocol.",
+        help="Set the Phy Protocol. *To know the available protocols, run: python cat_sniffer.py protocols*",
     ),
     channel: int = typer.Option(
         37,
         "-ch",
         "--channel",
-        help=f"Set the Protocol Channel.",
+        help=f"Set the Protocol Channel to sniff.",
     ),
     dumpfile: bool = typer.Option(
         False,
@@ -162,21 +164,17 @@ def cli_sniff(
         "-ws",
         "--wireshark",
         is_flag=True,
-        help="""Open Wireshark with the direct link to the FIFO.
-Note: If you have wireshark installed, you can open it with the command: wireshark -k -i /tmp/pipe_sniffer.
+        help=f"""Open Wireshark with the direct link to the FIFO.
+**Note**: If you have wireshark installed, you can open it with the command: wireshark -k -i /tmp/{Fifo.DEFAULT_FILENAME}.
 If you are running in Windows, you need first set the Environment Variable to call wireshark as command.""",
         rich_help_panel=HELP_PANEL_OUTPUT,
     ),
 ):
-    """Start sniffing the selected serial port."""
+    """Create a sniffer instance to sniff the communication between the TI CC1352 device and the target device. **For more information**: python cat_sniffer.py sniff --help"""
     
     setup_sniffer(dumpfile, dumpfile_name, pcapfile, pcapfile_name, fifo, fifo_name, wireshark, verbose, comport, phy, channel, address)
     # Wait for a user interaction
     Cmd.CMDInterface(sniffer_collector).cmdloop()
-    
-    sniffer_collector.stop_workers()
-    sniffer_collector.delete_all_workers()
-
 
 def setup_sniffer(dumpfile, dumpfile_name, pcapfile, pcapfile_name, fifo, fifo_name, wireshark, verbose, comport, phy, channel, address):
     output_workers = []
@@ -193,7 +191,7 @@ def setup_sniffer(dumpfile, dumpfile_name, pcapfile, pcapfile_name, fifo, fifo_n
         output_workers.append(HexDumper.HexDumper(dumpfile_name))
     if pcapfile:
         output_workers.append(PcapDumper.PcapDumper(pcapfile_name))
-    if fifo:
+    if fifo or fifo_name != Fifo.DEFAULT_FILENAME:
         if platform.system() == "Windows":
             output_workers.append(Fifo.FifoWindows(fifo_name))
         else:

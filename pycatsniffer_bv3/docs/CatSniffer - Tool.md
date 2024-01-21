@@ -49,7 +49,7 @@ To use wireshark and show the information we need to configure the USER DLT valu
 - Create new entry
 - The entry value are defined as:
 	- DLT: User 0 (DLT=147)
-	- Payload dissector: catnisffer_rpi
+	- Payload dissector: catsniffer_rpi
 	- Header size: 0
 - Click in *Ok* button
 - Click in *Ok* button
