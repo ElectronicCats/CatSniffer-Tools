@@ -23,6 +23,9 @@ class HexDumper(threading.Thread):
         self.filename = filename
     
     def run(self):
+        if not os.path.exists(self.get_filename()):
+            os.makedirs(os.path.dirname(self.get_filename()), exist_ok=True)
+        
         dumper_file = open(self.get_filename(), "ab")
         while self.running:
             if self.frame_packet:
@@ -34,6 +37,9 @@ class HexDumper(threading.Thread):
                     self.frame_packet = None
             else:
                 time.sleep(0.01)
+    
+    def stop_thread(self):
+        self.join()
     
     def stop_worker(self):
         self.running = False

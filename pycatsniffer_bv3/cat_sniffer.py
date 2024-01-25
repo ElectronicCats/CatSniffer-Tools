@@ -187,10 +187,12 @@ def setup_sniffer(dumpfile, dumpfile_name, pcapfile, pcapfile_name, fifo, fifo_n
     sniffer_collector.set_protocol_channel(channel)
     sniffer_collector.set_verbose_mode(verbose)
 
-    if dumpfile:
+    if dumpfile or dumpfile_name != HexDumper.HexDumper.DEFAULT_FILENAME:
         output_workers.append(HexDumper.HexDumper(dumpfile_name))
-    if pcapfile:
+    
+    if pcapfile or pcapfile_name != PcapDumper.PcapDumper.DEFAULT_FILENAME:
         output_workers.append(PcapDumper.PcapDumper(pcapfile_name))
+    
     if fifo or fifo_name != Fifo.DEFAULT_FILENAME:
         if platform.system() == "Windows":
             output_workers.append(Fifo.FifoWindows(fifo_name))
