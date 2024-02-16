@@ -126,13 +126,15 @@ function build_catsniffer_rpi_p()
     
         -- Foward the packet to the BLE dissector
         local payloadTvb = tvbuf(PAYLOAD_OFFSET):tvb()
+        
         if protocol == PROTOCOL_BLE then
             -- TODO: Fix connection evenet count
             local ble_dissector = Dissector.get("catsniffer_blepi")
             ble_dissector:call(payloadTvb, pktinfo, root)
             
             local dissector = Dissector.get("btle")
-            dissector:call(payloadTvb, pktinfo, root)
+            dissector:call(tvbuf((PAYLOAD_OFFSET+2)):tvb(), pktinfo, root)
+        
         elseif protocol == PROTOCOL_IEEE_802_15_4 then
             local wbms_dissector = Dissector.get("wpan")
             wbms_dissector:call(payloadTvb, pktinfo, root)
@@ -144,7 +146,3 @@ function build_catsniffer_rpi_p()
     end
     return catsniffer_rpi_p
 end
---local udp_port = DissectorTable.get("udp.port")
---udp_port:add(UDP_PORT_DISSECTOR, catsniffer_rpi_p)
---local udp_port = DissectorTable.get("bluetooth.encap")
---udp_port:add(161, catsniffer_rpi_p)

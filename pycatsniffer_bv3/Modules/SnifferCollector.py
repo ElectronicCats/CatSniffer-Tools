@@ -114,7 +114,6 @@ class SnifferCollector(threading.Thread, SnifferLogger):
                             elif self.protocol == PROTOCOL_IEEE:
                                 protocol = b"\x02"
                             phy = bytes.fromhex("05")
-                            freq = bytes.fromhex("62090000")
 
                             packet = (
                                 version
@@ -123,22 +122,22 @@ class SnifferCollector(threading.Thread, SnifferLogger):
                                 + interfaceId
                                 + protocol
                                 + phy
-                                + freq
-                                + self.sniffer_data.channel
+                                + int(self.protocol.get_channel_range_bytes(self.protocol_freq_channel)[1]).to_bytes(4, "little")
+                                + self.sniffer_data.channel.to_bytes(2, "little")
                                 + self.sniffer_data.rssi.to_bytes(1, "little")
                                 + self.sniffer_data.status.to_bytes(1, "little")
-                                +
-                                # self.sniffer_data.connect_evt +
-                                # self.sniffer_data.conn_info.to_bytes(1) +
-                                self.sniffer_data.payload
+                                + self.sniffer_data.connect_evt
+                                + self.sniffer_data.conn_info.to_bytes(1, "little")
+                                + self.sniffer_data.payload
                             )
                             pcap_file = Pcap(packet, self.sniffer_data.timestamp)
                             output_worker.set_linktype(self.protocol_linktype)
                             output_worker.add_data(pcap_file.get_pcap())
                         except struct.error as e:
-                            typer.echo(
+                            self.logger.error(
                                 "Error: " + str(e) + " - " + str(self.sniffer_data)
                             )
+                            print(self.sniffer_data.packet_bytes)
                             continue
                     else:
                         continue
@@ -157,17 +156,20 @@ class SnifferCollector(threading.Thread, SnifferLogger):
                 data_packet = BLEUARTPacket(general_packet.packet_bytes)
                 # print("BLE Packet: ", data_packet)
                 packet = data_packet
-            else:
+            elif self.protocol == PROTOCOL_IEEE:
                 ieee_packet = IEEEUARTPacket(general_packet.packet_bytes)
                 # print("IEEE Packet: ", ieee_packet)
                 packet = ieee_packet
+            else:
+                print("Protocol not supported yet")
+                print("Packet -> ", general_packet)
         except Exception as e:
             print("\nDissector Error -> ", e)
             print("Packet -> ", general_packet)
             return packet
 
         if self.verbose_mode:
-            print("RECV -> ", packet)
+            print(f"\nRECV -> {packet}\n")
 
         return packet
 

@@ -69,6 +69,7 @@ class UART(threading.Thread):
             sof_index = bytestream.find(START_OF_FRAME, sof_index)
             if sof_index == -1:
                 print(f"[UART] SOF - {sof_index} not found in {bytestream}")
+                return None
             
             eof_index = bytestream.find(END_OF_FRAME, sof_index)
             if eof_index == -1:
