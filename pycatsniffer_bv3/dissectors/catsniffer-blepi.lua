@@ -39,7 +39,7 @@ function build_catsniffer_blepi_p()
         cs_direction
     }
 
-    function catsniffer_blepi_p.dissector(tvbuf, pktinfo, tree, _u_)
+    function catsniffer_blepi_p.dissector(tvbuf, pktinfo, tree)
         if tvbuf:len() < BLEPI_MIN_LENGTH then
             return 0
         end
@@ -59,9 +59,9 @@ function build_catsniffer_blepi_p()
 
         -- TODO: Dissect the information correctly
         -- Foward paload to BLE (btle) dissector
-        --local dissector = Dissector.get("btle")
-        --dissector:call(tvbuf(2):tvb(), pktinfo, tree)
-        
+        -- local dissector = Dissector.get("btle")
+        -- dissector:call(tvbuf(PAYLOAD_OFFSET):tvb(), pktinfo, tree)
+        return tvbuf:len()
     end
     return catsniffer_blepi_p
 end

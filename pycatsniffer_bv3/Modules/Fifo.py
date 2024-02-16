@@ -156,10 +156,12 @@ class FifoWindows(Fifo):
                 if self.fifo_packet:
                     if self.fifo_packet != self.last_packet:
                         if self.fifo_need_header:
-                            win32file.WriteFile(self.fifo_worker, Pcap.get_global_header())
+                            win32file.WriteFile(self.fifo_worker, Pcap.get_global_header(self.linktype))
+                            win32file.FlushFileBuffers(self.fifo_worker)
                             self.fifo_need_header = False
                         
                         win32file.WriteFile(self.fifo_worker, self.fifo_packet)
+                        win32file.FlushFileBuffers(self.fifo_worker)
                         self.last_packet = self.fifo_packet
                         self.fifo_packet = None
 
