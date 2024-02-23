@@ -109,11 +109,13 @@ class SnifferCollector(threading.Thread, SnifferLogger):
                             interfaceType = b"\x00"
                             interfaceId = bytes.fromhex("0300")
                             protocol = b"\x03"
+                            phy = bytes.fromhex("05")
                             if self.protocol == PROTOCOL_BLE:
                                 protocol = b"\x03"
+                                phy = bytes.fromhex("05")
                             elif self.protocol == PROTOCOL_IEEE:
                                 protocol = b"\x02"
-                            phy = bytes.fromhex("05")
+                                phy = bytes.fromhex("03")
 
                             packet = (
                                 version

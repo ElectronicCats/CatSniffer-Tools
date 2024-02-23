@@ -128,7 +128,6 @@ function build_catsniffer_rpi_p()
         local payloadTvb = tvbuf(PAYLOAD_OFFSET):tvb()
         
         if protocol == PROTOCOL_BLE then
-            -- TODO: Fix connection evenet count
             local ble_dissector = Dissector.get("catsniffer_blepi")
             ble_dissector:call(payloadTvb, pktinfo, root)
             
@@ -137,7 +136,7 @@ function build_catsniffer_rpi_p()
         
         elseif protocol == PROTOCOL_IEEE_802_15_4 then
             local wbms_dissector = Dissector.get("wpan")
-            wbms_dissector:call(payloadTvb, pktinfo, root)
+            wbms_dissector:call(tvbuf((PAYLOAD_OFFSET+4)):tvb(), pktinfo, root)
         end
         
         
