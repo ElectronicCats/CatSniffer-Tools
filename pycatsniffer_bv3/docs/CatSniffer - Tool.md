@@ -14,7 +14,7 @@ This tools is Command Line Interface (CLI) to communicate with the **Sniffer_fw_
 # Getting Starter
 ## Requirements
 To install the requirements we need first [**Python 3**](https://www.python.org) installed and the environment variable to call python.
-To initialize first we need to install de dependencies packets from the *requirements.txt*. 
+To initialize first we need to install de dependencies packets from the *requirements.txt*.
 
 >[!NOTE]
 >We recommend use virtual environment to avoid dependencies errors.
@@ -125,4 +125,3 @@ Dump a pcap file, hex file, verbose mode and show the packets on wireshark
 ```bash
 python3 cat_sniffer.py /dev/cu.usbmodem101 -df -pf -ff -ws
 ```
-

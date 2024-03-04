@@ -9,15 +9,13 @@ from .Pcap import Pcap
 from .Packets import GeneralUARTPacket, IEEEUARTPacket, BLEUARTPacket
 from .Definitions import DEFAULT_TIMEOUT_JOIN
 from .Protocols import PROTOCOL_BLE, PROTOCOL_IEEE, PROTOCOLSLIST
-from .Logger import SnifferLogger
 
 
-class SnifferCollector(threading.Thread, SnifferLogger):
+class SnifferCollector(threading.Thread):
     """Worker class for the sniffer collector"""
 
     def __init__(self):
         super().__init__()
-        self.logger = SnifferLogger().get_logger()
         self.sniffer_data = None
         self.sniffer_worker = WorkerManager()
         self.board_uart = UART()
@@ -124,8 +122,16 @@ class SnifferCollector(threading.Thread, SnifferLogger):
                                 + interfaceId
                                 + protocol
                                 + phy
-                                + int(self.protocol.get_channel_range_bytes(self.protocol_freq_channel)[1]).to_bytes(4, "little")
-                                + self.sniffer_data.channel.to_bytes(2, "little")
+                                + int(
+                                    self.protocol.get_channel_range_bytes(
+                                        self.protocol_freq_channel
+                                    )[1]
+                                ).to_bytes(4, "little")
+                                + int(
+                                    self.protocol.get_channel_range_bytes(
+                                        self.protocol_freq_channel
+                                    )[0]
+                                ).to_bytes(2, "little")
                                 + self.sniffer_data.rssi.to_bytes(1, "little")
                                 + self.sniffer_data.status.to_bytes(1, "little")
                                 + self.sniffer_data.connect_evt
@@ -136,10 +142,13 @@ class SnifferCollector(threading.Thread, SnifferLogger):
                             output_worker.set_linktype(self.protocol_linktype)
                             output_worker.add_data(pcap_file.get_pcap())
                         except struct.error as e:
-                            self.logger.error(
-                                "Error: " + str(e) + " - " + str(self.sniffer_data)
+                            print(
+                                "Error: "
+                                + str(e)
+                                + " - "
+                                + str(self.sniffer_data)
+                                + self.sniffer_data.packet_bytes
                             )
-                            print(self.sniffer_data.packet_bytes)
                             continue
                     else:
                         continue
@@ -190,7 +199,6 @@ class SnifferCollector(threading.Thread, SnifferLogger):
                     if packet_frame:
                         self.sniffer_data = packet_frame
         except Exception as e:
-            # TODO: Hanlde exception
             print(e)
         finally:
             self.close_board_uart()
