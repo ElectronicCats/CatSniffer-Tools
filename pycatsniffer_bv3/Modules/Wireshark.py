@@ -4,11 +4,11 @@ import subprocess
 
 from .Fifo import DEFAULT_FILENAME
 from .Definitions import DEFAULT_TIMEOUT_JOIN
-from .Logger import SnifferLogger
+
+
 class Wireshark(threading.Thread):
     def __init__(self, fifo_name: str = DEFAULT_FILENAME):
         super().__init__()
-        self.logger = SnifferLogger().get_logger()
         self.fifo_name = fifo_name
         self.running = True
         self.type_worker = "wireshark"
@@ -24,11 +24,11 @@ class Wireshark(threading.Thread):
                     f"\\\\.\\pipe\\{self.fifo_name}",
                 ]
             )
-            
+
         elif platform.system() == "Linux":
             self.wireshark_process = subprocess.Popen(
                 [
-                    #"sudo",
+                    # "sudo",
                     "/usr/bin/wireshark",
                     "-k",
                     "-i",
@@ -49,14 +49,12 @@ class Wireshark(threading.Thread):
             return
         self.running = False
 
-
     def stop_thread(self):
         self.running = False
         self.join(DEFAULT_TIMEOUT_JOIN)
         if self.wireshark_process:
             self.wireshark_process = None
-    
+
     def stop_worker(self):
         self.stop_thread()
         self.wireshark_process = None
-    
