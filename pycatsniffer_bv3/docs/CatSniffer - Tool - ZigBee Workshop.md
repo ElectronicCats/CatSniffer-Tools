@@ -78,6 +78,3 @@ To decrypt the packet information we need to add the key to the protocols sectio
 - Copy the Key value
 - Add
 - Close the protocols window
-
-
-

@@ -1,46 +1,49 @@
 from enum import Enum
 from . import Definitions
 
+
 class Protocol:
     CONST_FRECUENCY = 65536  # 2^16 -> 16 bits -> MHz
-    
-    def __init__(self,
-                 phy_index: bytes = 0,
-                 name: str = "Base Protocol",
-                 phy_label: str = "Base Protocol",
-                 base_frequency: float = 0,
-                 spacing: float = 0,
-                 channel_range: list = [0, 0],
-                 pcap_header: int = 0):
-        self.phy_index      = phy_index
-        self.name           = name
-        self.phy_label      = phy_label
+
+    def __init__(
+        self,
+        phy_index: bytes = 0,
+        name: str = "Base Protocol",
+        phy_label: str = "Base Protocol",
+        base_frequency: float = 0,
+        spacing: float = 0,
+        channel_range: list = [0, 0],
+        pcap_header: int = 147,
+    ):
+        self.phy_index = phy_index
+        self.name = name
+        self.phy_label = phy_label
         self.base_frequency = base_frequency
-        self.spacing        = spacing
-        self.channel_range  = channel_range
-        self.pcap_header    = pcap_header
-    
+        self.spacing = spacing
+        self.channel_range = channel_range
+        self.pcap_header = pcap_header
+
     def get_phy_index(self):
         return self.phy_index
-    
+
     def get_name(self):
         return self.name
-    
+
     def get_phy_label(self):
         return self.phy_label
-    
+
     def get_base_frequency(self):
         return self.base_frequency
-    
+
     def get_spacing(self):
         return self.spacing
-    
+
     def get_channel_range(self):
         return self.channel_range
-    
+
     def get_pcap_header(self):
         return self.pcap_header
-      
+
     def __calculate_fractional_frequency(self, frequency: int) -> (int, int):
         """Calculate the fractional frequency"""
         # The fractional frequency is calculated as
@@ -50,7 +53,7 @@ class Protocol:
         integer_value = int(frequency)
         fractional_value = int((integer_value - integer_value) * self.CONST_FRECUENCY)
         return integer_value, fractional_value
-        
+
     def calculate_frequency(self, frequency: int) -> bytes:
         """
         Return the frequency in bytes.
@@ -97,7 +100,7 @@ class Protocol:
     def command_start(self) -> bytes:
         """Return the start command of the protocol"""
         return Definitions.PacketCommand(Definitions.SnifferCommands.CMD_START.value)
-    
+
     def command_stop(self) -> bytes:
         """Return the start command of the protocol"""
         return Definitions.PacketCommand(Definitions.SnifferCommands.CMD_STOP.value)
@@ -105,29 +108,26 @@ class Protocol:
     def command_ping(self) -> bytes:
         """Return the ping command of the protocol"""
         return Definitions.PacketCommand(Definitions.SnifferCommands.CMD_PING.value)
-    
+
     def command_cfg_phy(self) -> bytes:
         """Return the command for configure the PHY"""
         return Definitions.PacketCommand(
-            Definitions.SnifferCommands.CMD_CFG_PHY.value,
-            bytes(self.phy_index)
+            Definitions.SnifferCommands.CMD_CFG_PHY.value, bytes(self.phy_index)
         )
-    
+
     def command_cfg_frequency(self, channel: int) -> bytes:
         """Return the command for configure the frequency"""
         get_channel = self.get_channel_bytes(channel)
         get_frequency = self.calculate_frequency(get_channel)
-        
+
         return Definitions.PacketCommand(
-            Definitions.SnifferCommands.CMD_CFG_FREQUENCY.value,
-            get_frequency
+            Definitions.SnifferCommands.CMD_CFG_FREQUENCY.value, get_frequency
         )
 
     def command_cfg_init_address(self, address: bytes) -> bytes:
         """Return the command for configure the initiator address"""
         return Definitions.PacketCommand(
-            Definitions.SnifferCommands.CMD_CFG_BLE_INITIATOR_ADDRESS.value,
-            address
+            Definitions.SnifferCommands.CMD_CFG_BLE_INITIATOR_ADDRESS.value, address
         )
 
     def command_startup(self, channel: int) -> list:
@@ -137,12 +137,12 @@ class Protocol:
             self.command_stop(),
             self.command_cfg_phy(),
             self.command_cfg_frequency(channel),
-            self.command_start()
+            self.command_start(),
         ]
 
     def __str__(self):
         return f"PHY Index: {self.phy_index}\nName: {self.name}\nPHY Label: {self.phy_label}\nBase Frequency: {self.base_frequency}\nSpacing: {self.spacing}\nChannel Range: {self.channel_range}\nPCAP Header: {self.pcap_header}"
-    
+
 
 PROTOCOL_BLE = Protocol(
     phy_index=bytearray([0x13]),
@@ -151,8 +151,7 @@ PROTOCOL_BLE = Protocol(
     base_frequency=2402.0,
     spacing=2,
     channel_range=[(37, 2402), (38, 2426), (39, 2480)],
-    #pcap_header=Definitions.LINKTYPE_BLUETOOTH_LE_LL_WITH_PHDR
-    pcap_header=147
+    pcap_header=147,
 )
 
 PROTOCOL_IEEE = Protocol(
@@ -161,10 +160,12 @@ PROTOCOL_IEEE = Protocol(
     phy_label="2405 MHz - Freq Band",
     base_frequency=2405.0,
     spacing=5,
-    channel_range=[(channel, (2405.0 + (5 * (channel-11)))) for channel in range(11, 27)],
-    #pcap_header=Definitions.LINKTYPE_IEEE802_15_4_NOFCS,
-    pcap_header=147
+    channel_range=[
+        (channel, (2405.0 + (5 * (channel - 11)))) for channel in range(11, 27)
+    ],
+    pcap_header=147,
 )
+
 
 class PROTOCOLSLIST(Definitions.BaseEnum):
     PROTOCOL_BLE: Protocol = PROTOCOL_BLE
@@ -180,6 +181,7 @@ class PROTOCOLSLIST(Definitions.BaseEnum):
         for index, protocol in enumerate(cls):
             str_list += f"[{index}] {protocol.name}\n"
         return str_list
+
     @classmethod
     def get_str_list_channels(cls, protocol_index: int):
         get_protocol = cls.get_by_index(protocol_index)
@@ -187,6 +189,6 @@ class PROTOCOLSLIST(Definitions.BaseEnum):
         for channel in get_protocol.value.channel_range:
             str_list += f"[{channel[0]}] {channel[1]}\n"
         return str_list
-    
+
     def __str__(self):
         return super().__str__()

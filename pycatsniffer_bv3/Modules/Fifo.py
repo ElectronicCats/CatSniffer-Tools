@@ -6,7 +6,7 @@ import logging
 import sys
 import typer
 
-from . import Pcap, Logger
+from . import Pcap
 from .Definitions import LINKTYPE_IEEE802_15_4_NOFCS, DEFAULT_TIMEOUT_JOIN
 
 JOIN_TIMEOUT = 1
@@ -21,29 +21,30 @@ if platform.system() == "Windows":
         exit(1)
 
 DEFAULT_FILENAME = "fcatsniffer"
+
+
 class Fifo(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
-        
-        self.fifo_worker      = None
+
+        self.fifo_worker = None
         self.fifo_recv_cancel = False
         self.fifo_need_header = True
-        self.fifo_data        = []
-        self.fifo_packet      = None
-        self.last_packet      = None
-        self.linktype         = LINKTYPE_IEEE802_15_4_NOFCS
-        self.fifo_data_lock   = threading.Lock()
-        self.logger           = Logger.SnifferLogger().get_logger()
-        self.daemon           = True
-    
+        self.fifo_data = []
+        self.fifo_packet = None
+        self.last_packet = None
+        self.linktype = LINKTYPE_IEEE802_15_4_NOFCS
+        self.fifo_data_lock = threading.Lock()
+        self.daemon = True
+
     def set_linktype(self, linktype: int):
         self.linktype = linktype
-    
+
     def stop_thread(self):
         self.join(DEFAULT_TIMEOUT_JOIN)
 
+
 class FifoLinux(Fifo):
-    
     def __init__(self, fifo_filname: str = DEFAULT_FILENAME):
         super().__init__()
         self.fifo_filname = fifo_filname
@@ -56,7 +57,7 @@ class FifoLinux(Fifo):
             os.mkfifo(self.fifo_path)
         except OSError as e:
             print(e)
-    
+
     def open(self):
         if os.path.exists(self.fifo_path) == False:
             self.create()
@@ -66,7 +67,7 @@ class FifoLinux(Fifo):
             print(e)
 
     def run(self):
-        #print("RUNNING FIFO")
+        # print("RUNNING FIFO")
         self.fifo_recv_cancel = False
         if self.fifo_worker is None:
             self.open()
@@ -75,15 +76,17 @@ class FifoLinux(Fifo):
                 if self.fifo_packet:
                     if self.fifo_packet != self.last_packet:
                         if self.fifo_need_header:
-                            self.fifo_worker.write(Pcap.get_global_header(self.linktype))
+                            self.fifo_worker.write(
+                                Pcap.get_global_header(self.linktype)
+                            )
                             self.fifo_worker.flush()
                             self.fifo_need_header = False
-                        #print("WRITING FIFO")
+                        # print("WRITING FIFO")
                         self.fifo_worker.write(self.fifo_packet)
                         self.fifo_worker.flush()
                         self.last_packet = self.fifo_packet
                         self.fifo_packet = None
-                        
+
                 else:
                     time.sleep(0.01)
             except BrokenPipeError as e:
@@ -96,7 +99,7 @@ class FifoLinux(Fifo):
     def stop_worker(self):
         self.fifo_recv_cancel = True
         self.fifo_data = []
-        if self.fifo_worker : 
+        if self.fifo_worker:
             self.fifo_worker.close()
         try:
             os.remove(self.fifo_path)
@@ -105,14 +108,13 @@ class FifoLinux(Fifo):
             sys.exit(0)
         finally:
             self.join(JOIN_TIMEOUT)
-    
+
     def add_data(self, data):
         self.fifo_packet = data
 
     def set_fifo_filename(self, fifo_filname: str):
         self.fifo_filname = fifo_filname
 
-#TODO: Modify to works with the new Fifo structure
 class FifoWindows(Fifo):
     def __init__(self, fifo_filname: str = DEFAULT_FILENAME):
         super().__init__()
@@ -126,9 +128,9 @@ class FifoWindows(Fifo):
             self.fifo_worker = win32pipe.CreateNamedPipe(
                 self.fifo_path,
                 win32pipe.PIPE_ACCESS_DUPLEX,
-                win32pipe.PIPE_TYPE_MESSAGE | 
-                win32pipe.PIPE_READMODE_MESSAGE |
-                win32pipe.PIPE_WAIT,
+                win32pipe.PIPE_TYPE_MESSAGE
+                | win32pipe.PIPE_READMODE_MESSAGE
+                | win32pipe.PIPE_WAIT,
                 1,
                 65536,
                 65536,
@@ -137,7 +139,7 @@ class FifoWindows(Fifo):
             )
         except pywintypes.error as e:
             typer.secho(f"[FIFOWINDOWS] - {e}", fg=typer.colors.BRIGHT_RED)
-    
+
     def open(self):
         if self.fifo_worker is None:
             self.create()
@@ -146,7 +148,7 @@ class FifoWindows(Fifo):
             logging.info(f"[FIFOWINDOWS] Open {self.fifo_path}")
         except pywintypes.error as e:
             typer.secho(f"[FIFOWINDOWS] - {e}", fg=typer.colors.BRIGHT_RED)
-    
+
     def run(self):
         try:
             self.fifo_recv_cancel = False
@@ -156,10 +158,14 @@ class FifoWindows(Fifo):
                 if self.fifo_packet:
                     if self.fifo_packet != self.last_packet:
                         if self.fifo_need_header:
-                            win32file.WriteFile(self.fifo_worker, Pcap.get_global_header())
+                            win32file.WriteFile(
+                                self.fifo_worker, Pcap.get_global_header(self.linktype)
+                            )
+                            win32file.FlushFileBuffers(self.fifo_worker)
                             self.fifo_need_header = False
-                        
+
                         win32file.WriteFile(self.fifo_worker, self.fifo_packet)
+                        win32file.FlushFileBuffers(self.fifo_worker)
                         self.last_packet = self.fifo_packet
                         self.fifo_packet = None
 
@@ -173,10 +179,10 @@ class FifoWindows(Fifo):
         self.fifo_recv_cancel = True
         self.fifo_packet = None
         self.join(DEFAULT_TIMEOUT_JOIN)
-    
+
     def add_data(self, data):
         self.fifo_packet = data
-        
+
     def set_fifo_filename(self, fifo_filname: str):
         self.fifo_filname = fifo_filname
         self.fifo_path = f"\\\\.\\pipe\\{self.fifo_filname}"
