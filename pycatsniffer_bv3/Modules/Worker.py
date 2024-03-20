@@ -22,7 +22,7 @@ class Worker(threading.Thread):
 
 
 class WorkerManager:
-    def __init__(self, modules = []):
+    def __init__(self, modules=[]):
         self.modules = modules
         self.workers = []
         self.running = False
@@ -32,7 +32,7 @@ class WorkerManager:
 
     def add_worker(self, worker):
         self.workers.append(worker)
-    
+
     def start(self):
         self.running = True
         for module in self.modules:
@@ -47,7 +47,7 @@ class WorkerManager:
     def stop_all_workers(self):
         for worker in self.workers:
             worker.join(DEFAULT_TIMEOUT_JOIN)
-        
+
     def delete_all_workers(self):
         self.workers = []
 
@@ -59,22 +59,22 @@ class WorkerManager:
     def join(self):
         for worker in self.workers:
             worker.join(1)
-    
+
     def get_workers(self):
         return self.workers
-    
+
     def get_modules(self):
         return self.modules
-    
+
     def get_running(self):
         return self.running
-    
+
     def get_worker(self, module):
         for worker in self.workers:
             if worker.module == module:
                 return worker
         return None
-    
+
     def get_module(self, worker):
         for module in self.modules:
             if worker.module == module:

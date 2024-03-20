@@ -33,13 +33,13 @@ function build_catsniffer_blepi_p()
     local cs_info           = ProtoField.uint8("catsniffer.info", "Info", base.HEX)
     local cs_direction      = ProtoField.uint8("catsniffer.direction", "Direction", base.HEX, DIRECTION_VALUE_STRING, 0x3)
 
-    catsniffer_blepi_p.fields = { 
+    catsniffer_blepi_p.fields = {
         cs_connection_evt,
         cs_info,
         cs_direction
     }
 
-    function catsniffer_blepi_p.dissector(tvbuf, pktinfo, tree, _u_)
+    function catsniffer_blepi_p.dissector(tvbuf, pktinfo, tree)
         if tvbuf:len() < BLEPI_MIN_LENGTH then
             return 0
         end
@@ -57,11 +57,7 @@ function build_catsniffer_blepi_p()
         local info_tree = subtree_radio_packet:add(cs_direction, info)
         info_tree:add(cs_direction, tvbuf(INFO_OFFSET, INFO_SIZE):uint())
 
-        -- TODO: Dissect the information correctly
-        -- Foward paload to BLE (btle) dissector
-        --local dissector = Dissector.get("btle")
-        --dissector:call(tvbuf(2):tvb(), pktinfo, tree)
-        
+        return tvbuf:len()
     end
     return catsniffer_blepi_p
 end

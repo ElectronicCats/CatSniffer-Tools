@@ -1,10 +1,7 @@
 import platform
 import serial
-import time
 import serial.tools.list_ports
 import threading
-import sys
-import typer
 
 from .Definitions import START_OF_FRAME, END_OF_FRAME
 
@@ -48,7 +45,7 @@ class UART(threading.Thread):
     def open(self):
         self.serial_worker.open()
         self.reset_buffer()
-    
+
     def close(self):
         self.reset_buffer()
         self.serial_worker.close()
@@ -58,24 +55,25 @@ class UART(threading.Thread):
 
     def send(self, data):
         self.serial_worker.write(data)
-    
+
     def recv(self):
         if not self.is_connected():
             self.open()
         try:
-            time.sleep(0.01)
+            # time.sleep(0.01)
             bytestream = self.serial_worker.read_until(END_OF_FRAME)
             sof_index = 0
-            sof_index = bytestream.find(START_OF_FRAME, sof_index)
+            sof_index = bytestream.find(START_OF_FRAME)
             if sof_index == -1:
                 print(f"[UART] SOF - {sof_index} not found in {bytestream}")
-            
+                return None
+
             eof_index = bytestream.find(END_OF_FRAME, sof_index)
             if eof_index == -1:
                 print(f"[UART] EOF - {eof_index} not found in {bytestream}")
                 return None
-            
-            bytestream = bytestream[sof_index:eof_index+2]
+
+            bytestream = bytestream[sof_index : eof_index + 2]
             return bytestream
         except serial.SerialException as e:
             print(e)
