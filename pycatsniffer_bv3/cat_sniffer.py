@@ -2,6 +2,7 @@ import binascii
 import signal
 import sys
 import platform
+
 try:
     import typer
     import serial
@@ -14,7 +15,7 @@ except ImportError:
     )
     sys.exit(1)
 
-from Modules import Logger, HexDumper, PcapDumper, Protocols, Fifo, Wireshark, Cmd
+from Modules import HexDumper, PcapDumper, Protocols, Fifo, Wireshark, Cmd
 import Modules.SnifferCollector as SCollector
 from Modules.Definitions import PROMPT_HEADER, DEFAULT_INIT_ADDRESS
 from Modules.Utils import validate_access_address
@@ -22,21 +23,18 @@ from Modules.Utils import validate_access_address
 HELP_PANEL_OUTPUT = "Output Options"
 
 app = typer.Typer(
-    name = "PyCat-Sniffer CLI",
-    help = "PyCat-Sniffer CLI - For sniffing the TI CC1352 device communication inferfaces.",
-    epilog = f"""\x1b[37:mFor more information, visit:\x1b[0m
+    name="PyCat-Sniffer CLI",
+    help="PyCat-Sniffer CLI - For sniffing the TI CC1352 device communication inferfaces.",
+    epilog=f"""\x1b[37:mFor more information, visit:\x1b[0m
 \x1b[36mhttps://github.com/ElectronicCats/CatSniffer/tree/master
 https://electroniccats.com/
 https://pwnlab.mx/\x1b[0m""",
-    add_completion = False,
-    no_args_is_help = True,
+    add_completion=False,
+    no_args_is_help=True,
     rich_help_panel=True,
     context_settings={"help_option_names": ["-h", "--help"]},
     rich_markup_mode="markdown",
 )
-
-sniffer_logger = Logger.SnifferLogger()
-logger = sniffer_logger.get_logger()
 
 sniffer_collector = SCollector.SnifferCollector()
 
@@ -45,6 +43,7 @@ def signal_handler(sig, frame):
     sniffer_collector.stop_workers()
     sniffer_collector.delete_all_workers()
     sys.exit(0)
+
 
 @app.command("protocols")
 def list_protocols():
@@ -63,10 +62,11 @@ def list_protocols():
             str(index),
             protocol.value.get_name(),
             str(protocol.value.get_phy_label()),
-            channel_range_str
+            channel_range_str,
         )
     console = Console()
     console.print(table)
+
 
 @app.command("ld")
 def list_ports():
@@ -78,11 +78,11 @@ def list_ports():
         for port in ports:
             typer.echo(port)
 
+
 @app.command("sniff", no_args_is_help=True)
 def cli_sniff(
     comport: str = typer.Argument(
-        default="/dev/ttyACM0",
-        help="Serial port to use for sniffing."
+        default="/dev/ttyACM0", help="Serial port to use for sniffing."
     ),
     address: str = typer.Argument(
         default=DEFAULT_INIT_ADDRESS,
@@ -171,26 +171,55 @@ If you are running in Windows, you need first set the Environment Variable to ca
     ),
 ):
     """Create a sniffer instance to sniff the communication between the TI CC1352 device and the target device. **For more information**: python cat_sniffer.py sniff --help"""
-    
-    setup_sniffer(dumpfile, dumpfile_name, pcapfile, pcapfile_name, fifo, fifo_name, wireshark, verbose, comport, phy, channel, address)
+
+    setup_sniffer(
+        dumpfile,
+        dumpfile_name,
+        pcapfile,
+        pcapfile_name,
+        fifo,
+        fifo_name,
+        wireshark,
+        verbose,
+        comport,
+        phy,
+        channel,
+        address,
+    )
     # Wait for a user interaction
     Cmd.CMDInterface(sniffer_collector).cmdloop()
 
-def setup_sniffer(dumpfile, dumpfile_name, pcapfile, pcapfile_name, fifo, fifo_name, wireshark, verbose, comport, phy, channel, address):
+
+def setup_sniffer(
+    dumpfile,
+    dumpfile_name,
+    pcapfile,
+    pcapfile_name,
+    fifo,
+    fifo_name,
+    wireshark,
+    verbose,
+    comport,
+    phy,
+    channel,
+    address,
+):
     output_workers = []
-    
+
     if not sniffer_collector.set_board_uart(comport):
         typer.echo("Error: Invalid serial port not connection found")
         sys.exit(1)
-    
+
     sniffer_collector.set_protocol_phy(phy)
     sniffer_collector.set_protocol_channel(channel)
     sniffer_collector.set_verbose_mode(verbose)
 
-    if dumpfile:
+    if dumpfile or dumpfile_name != HexDumper.HexDumper.DEFAULT_FILENAME:
         output_workers.append(HexDumper.HexDumper(dumpfile_name))
-    if pcapfile:
+
+    if pcapfile or pcapfile_name != PcapDumper.PcapDumper.DEFAULT_FILENAME:
         output_workers.append(PcapDumper.PcapDumper(pcapfile_name))
+
     if fifo or fifo_name != Fifo.DEFAULT_FILENAME:
         if platform.system() == "Windows":
             output_workers.append(Fifo.FifoWindows(fifo_name))
@@ -198,7 +227,7 @@ def setup_sniffer(dumpfile, dumpfile_name, pcapfile, pcapfile_name, fifo, fifo_n
             output_workers.append(Fifo.FifoLinux(fifo_name))
         if wireshark:
             output_workers.append(Wireshark.Wireshark(fifo_name))
-    
+
     sniffer_collector.set_output_workers(output_workers)
 
     if address != DEFAULT_INIT_ADDRESS:
@@ -207,8 +236,9 @@ def setup_sniffer(dumpfile, dumpfile_name, pcapfile, pcapfile_name, fifo, fifo_n
             sys.exit(1)
         address = address.replace(":", "")
         address = binascii.unhexlify(address)
-    
+
     sniffer_collector.run_workers()
+
 
 if __name__ == "__main__":
     typer.echo(PROMPT_HEADER)

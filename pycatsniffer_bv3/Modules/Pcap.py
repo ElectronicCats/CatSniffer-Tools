@@ -1,6 +1,15 @@
 import struct
 import binascii
-from .Definitions import LINKTYPE_BLUETOOTH_LE_LL_WITH_PHDR, PCAP_GLOBAL_HEADER_FORMAT, PCAP_MAGIC_NUMBER, PCAP_VERSION_MAJOR, PCAP_VERSION_MINOR, PCAP_MAX_PACKET_SIZE, PCAP_PACKET_HEADER_FORMAT
+from .Definitions import (
+    LINKTYPE_BLUETOOTH_LE_LL_WITH_PHDR,
+    PCAP_GLOBAL_HEADER_FORMAT,
+    PCAP_MAGIC_NUMBER,
+    PCAP_VERSION_MAJOR,
+    PCAP_VERSION_MINOR,
+    PCAP_MAX_PACKET_SIZE,
+    PCAP_PACKET_HEADER_FORMAT,
+)
+
 
 def get_global_header(interface=LINKTYPE_BLUETOOTH_LE_LL_WITH_PHDR):
     global_header = struct.pack(
@@ -14,6 +23,7 @@ def get_global_header(interface=LINKTYPE_BLUETOOTH_LE_LL_WITH_PHDR):
         interface,
     )
     return global_header
+
 
 class Pcap:
     def __init__(self, packet: bytes, timestamp_seconds: float):
