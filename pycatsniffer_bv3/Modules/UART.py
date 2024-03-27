@@ -2,8 +2,10 @@ import platform
 import serial
 import serial.tools.list_ports
 import threading
-
+import time
+import sys
 from .Definitions import START_OF_FRAME, END_OF_FRAME
+from .Utils import LOG_ERROR, LOG_WARNING
 
 if platform.system() == "Windows":
     DEFAULT_COMPORT = "COM1"
@@ -11,7 +13,6 @@ else:
     DEFAULT_COMPORT = "/dev/ttyACM0"
 
 DEFAULT_SERIAL_BAUDRATE = 921600
-
 
 class UART(threading.Thread):
     def __init__(self, serial_port: str = DEFAULT_COMPORT):
@@ -35,46 +36,49 @@ class UART(threading.Thread):
             self.close()
             return True
         except serial.SerialException as e:
-            print(e)
+            LOG_ERROR(e)
             return False
 
     def reset_buffer(self):
-        self.serial_worker.reset_input_buffer()
-        self.serial_worker.reset_output_buffer()
+        if self.serial_worker.is_open:
+            self.serial_worker.reset_input_buffer()
+            self.serial_worker.reset_output_buffer()
 
     def open(self):
         self.serial_worker.open()
         self.reset_buffer()
 
     def close(self):
-        self.reset_buffer()
-        self.serial_worker.close()
+        if self.serial_worker.is_open:
+            self.reset_buffer()
+            self.serial_worker.close()
 
     def is_connected(self):
         return self.serial_worker.is_open
 
     def send(self, data):
-        self.serial_worker.write(data)
+        if self.serial_worker.is_open:
+            self.serial_worker.write(data)
 
     def recv(self):
         if not self.is_connected():
             self.open()
         try:
-            # time.sleep(0.01)
-            bytestream = self.serial_worker.read_until(END_OF_FRAME)
+            time.sleep(0.01)
+            bytestream = self.serial_worker.read_until((END_OF_FRAME+START_OF_FRAME))
             sof_index = 0
-            sof_index = bytestream.find(START_OF_FRAME)
-            if sof_index == -1:
-                print(f"[UART] SOF - {sof_index} not found in {bytestream}")
-                return None
+            #sof_index = bytestream.find(START_OF_FRAME)
+            # if sof_index == -1:
+            #     print(f"[UART] SOF - {sof_index} not found in {bytestream}")
+            #     return None
 
-            eof_index = bytestream.find(END_OF_FRAME, sof_index)
+            eof_index = bytestream.find((END_OF_FRAME+START_OF_FRAME), sof_index)
             if eof_index == -1:
-                print(f"[UART] EOF - {eof_index} not found in {bytestream}")
+                LOG_WARNING(f"[UART] EOF - {eof_index} not found in {bytestream}")
                 return None
 
-            bytestream = bytestream[sof_index : eof_index + 2]
+            bytestream = START_OF_FRAME + bytestream[sof_index : eof_index + 2]
             return bytestream
         except serial.SerialException as e:
-            print(e)
-            return None
+            LOG_ERROR("Error reading from serial port")
+            sys.exit(1)
