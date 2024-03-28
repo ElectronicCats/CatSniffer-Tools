@@ -67,10 +67,6 @@ class UART(threading.Thread):
             time.sleep(0.01)
             bytestream = self.serial_worker.read_until((END_OF_FRAME+START_OF_FRAME))
             sof_index = 0
-            #sof_index = bytestream.find(START_OF_FRAME)
-            # if sof_index == -1:
-            #     print(f"[UART] SOF - {sof_index} not found in {bytestream}")
-            #     return None
 
             eof_index = bytestream.find((END_OF_FRAME+START_OF_FRAME), sof_index)
             if eof_index == -1:
