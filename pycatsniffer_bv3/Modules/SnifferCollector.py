@@ -143,6 +143,7 @@ class SnifferCollector(threading.Thread):
                             output_worker.add_data(pcap_file.get_pcap())
                         except struct.error as e:
                             LOG_ERROR(f"Error: {str(e)}")
+                            LOG_ERROR(f"Packet: {self.sniffer_data}")
                             continue
                     else:
                         continue
@@ -159,11 +160,9 @@ class SnifferCollector(threading.Thread):
         try:
             if self.protocol == PROTOCOL_BLE:
                 data_packet = BLEUARTPacket(general_packet.packet_bytes)
-                # print("BLE Packet: ", data_packet)
                 packet = data_packet
             elif self.protocol == PROTOCOL_IEEE:
                 ieee_packet = IEEEUARTPacket(general_packet.packet_bytes)
-                # print("IEEE Packet: ", ieee_packet)
                 packet = ieee_packet
             else:
                 LOG_WARNING("Protocol not supported yet")
