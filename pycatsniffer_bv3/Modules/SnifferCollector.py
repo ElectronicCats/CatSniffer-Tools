@@ -9,7 +9,7 @@ from .Pcap import Pcap
 from .Packets import GeneralUARTPacket, IEEEUARTPacket, BLEUARTPacket
 from .Definitions import DEFAULT_TIMEOUT_JOIN
 from .Protocols import PROTOCOL_BLE, PROTOCOL_IEEE, PROTOCOLSLIST
-
+from .Utils import LOG_ERROR, LOG_WARNING, LOG_INFO
 
 class SnifferCollector(threading.Thread):
     """Worker class for the sniffer collector"""
@@ -142,13 +142,8 @@ class SnifferCollector(threading.Thread):
                             output_worker.set_linktype(self.protocol_linktype)
                             output_worker.add_data(pcap_file.get_pcap())
                         except struct.error as e:
-                            print(
-                                "Error: "
-                                + str(e)
-                                + " - "
-                                + str(self.sniffer_data)
-                                + self.sniffer_data.packet_bytes
-                            )
+                            LOG_ERROR(f"Error: {str(e)}")
+                            LOG_ERROR(f"Packet: {self.sniffer_data}")
                             continue
                     else:
                         continue
@@ -165,22 +160,20 @@ class SnifferCollector(threading.Thread):
         try:
             if self.protocol == PROTOCOL_BLE:
                 data_packet = BLEUARTPacket(general_packet.packet_bytes)
-                # print("BLE Packet: ", data_packet)
                 packet = data_packet
             elif self.protocol == PROTOCOL_IEEE:
                 ieee_packet = IEEEUARTPacket(general_packet.packet_bytes)
-                # print("IEEE Packet: ", ieee_packet)
                 packet = ieee_packet
             else:
-                print("Protocol not supported yet")
-                print("Packet -> ", general_packet)
+                LOG_WARNING("Protocol not supported yet")
+                LOG_WARNING(f"Packet -> {general_packet}")
         except Exception as e:
-            print("\nDissector Error -> ", e)
-            print("Packet -> ", general_packet)
+            LOG_WARNING(f"\nDissector Error -> {e}")
+            LOG_WARNING(f"Packet -> {general_packet}")
             return packet
 
         if self.verbose_mode:
-            print(f"\nRECV -> {packet}\n")
+            LOG_INFO(f"\nRECV -> {packet}\n")
 
         return packet
 
@@ -192,14 +185,14 @@ class SnifferCollector(threading.Thread):
             self.send_command_start()
 
             while not self.sniffer_recv_cancel:
-                time.sleep(0.01)
                 frame = self.board_uart.recv()
                 if frame is not None:
                     packet_frame = self.dissector(frame)
                     if packet_frame:
                         self.sniffer_data = packet_frame
+                time.sleep(0.01)
         except Exception as e:
-            print(e)
+            LOG_ERROR(e)
         finally:
             self.close_board_uart()
 
