@@ -1,3 +1,13 @@
+# Catnip Uploader is a Python script that allows you to upload firmware to CatSniffer boards V3.
+# This file is part of the CatSniffer project, http://electroniccats.com/
+# GNU GENERAL PUBLIC LICENSE
+# Version 3, 29 June 2007
+
+# Copyright (C) 2007 Free Software Foundation, Inc. https://fsf.org/
+# Everyone is permitted to copy and distribute verbatim copies
+# of this license document, but changing it is not allowed.
+
+
 import typer
 import serial
 import platform
@@ -10,10 +20,12 @@ import sys
 
 if platform.system() == "Windows":
     DEFAULT_COMPORT = "COM1"
+elif platform.system() == "Darwin":
+    DEFAULT_COMPORT = "/dev/tty.usbmodem0001"
 else:
     DEFAULT_COMPORT = "/dev/ttyACM0"
 
-GITHUB_RELEASE_URL               = "https://api.github.com/repos/ElectronicCats/CatSniffer-Firmware/releases/latest"
+GITHUB_RELEASE_URL               = "https://api.github.com/repos/JahazielLem/CatSniffer-Firmware/releases/latest"
 RELEASE_JSON_FILENAME = "board_release.json"
 TMP_FILE                 = "firmware.hex"
 COMMAND_ENTER_BOOTLOADER = "ñÿ<boot>ÿñ"
@@ -51,9 +63,9 @@ def validate_python_call():
 
 def validate_firmware_selected(firmware_selected: int):
     get_release = release_handler.get_release()
-    LOG_INFO(f"Validating firmware selected: {firmware_selected}")
+    LOG_INFO(f"Validating selected firmware: {firmware_selected}")
     if firmware_selected not in get_release:
-        LOG_ERROR(f"Invalid firmware selected: {firmware_selected}")
+        LOG_ERROR(f"Selected firmware invalid: {firmware_selected}")
         sys.exit(1)
     
     LOG_SUCCESS(f"Valid firmware selected: {firmware_selected}")
@@ -188,8 +200,8 @@ app = typer.Typer(
 
 @app.command("releases")
 def list_releases():
-    """List all releases available"""
-    typer.echo("Releases available:")
+    """List all available releases"""
+    typer.echo("Available releases:")
     get_release = release_handler.get_release()
     for release in get_release:
         typer.echo(f"{release}: {get_release[release]}")
