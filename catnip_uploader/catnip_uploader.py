@@ -25,7 +25,7 @@ elif platform.system() == "Darwin":
 else:
     DEFAULT_COMPORT = "/dev/ttyACM0"
 
-GITHUB_RELEASE_URL               = "https://api.github.com/repos/JahazielLem/CatSniffer-Firmware/releases/latest"
+GITHUB_RELEASE_URL               = "https://api.github.com/repos/ElectronicCats/CatSniffer-Firmware/releases/latest"
 RELEASE_JSON_FILENAME = "board_release.json"
 TMP_FILE                 = "firmware.hex"
 COMMAND_ENTER_BOOTLOADER = "ñÿ<boot>ÿñ"
