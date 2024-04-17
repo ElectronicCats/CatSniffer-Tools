@@ -49,7 +49,7 @@ class GeneralUARTPacket:
         )
 
     def is_command_response_packet(self) -> bool:
-        return self.get_packet_category() == PacketCategories.COMMAND_RESPONSE.value
+        return self.get_packet_category() == PacketCategories.COMMAND_RESPONSE.value or self.get_packet_category() == PacketCategories.COMMAND.value
 
     def __unpack_packet_info(self) -> tuple:
         """Unpack the packet info.

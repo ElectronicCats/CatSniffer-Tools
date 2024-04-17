@@ -1,13 +1,1 @@
-{
-    "board_v1": {
-        "0": "airtag_scanner_CC1352P_2.hex",
-        "1": "airtag_spoofer_CC1352P_2.hex",
-        "2": "sniffer_fw_CC1352P_2.hex"
-    },
-    "board_v3": {
-        "0": "airtag_scanner_CC1352P_7.hex",
-        "1": "airtag_spoofer_CC1352P_7.hex",
-        "2": "sniffer_fw_CC1352P_7.hex",
-        "3": "sniffle_CC1352P_7.hex"
-    }
-}
+"{\n    \"board_v3\": [\n        \"sniffer_fw_Catsniffer_v3.x.hex\",\n        \"airtag_spoofer_CC1352P_7.hex\",\n        \"sniffle.hex\",\n        \"airtag_scanner_CC1352P_7.hex\"\n    ]\n}"
