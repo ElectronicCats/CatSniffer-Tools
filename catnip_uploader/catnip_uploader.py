@@ -101,6 +101,9 @@ class Release:
             LOG_ERROR("Error. You need internet connection for the first use to download the firmware")
             sys.exit(1)
         except Exception as e:
+            has_local_release = self.find_folder_releases()
+            if has_local_release is not None:
+                return None
             LOG_ERROR(f"Error fetching assets: {e}")
             sys.exit(1)
 
