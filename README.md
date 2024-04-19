@@ -7,6 +7,24 @@ Here you will find all the tools supported by Electronic Cats and PWNLab associa
 * cc2538-bsl : Cross-platform (Windows, Mac and Linux) script to upload firmware files (.hex) into the CatSniffer. For usage instructions, please read the wiki section about [uploading firmware to the catsniffer](https://github.com/ElectronicCats/CatSniffer/wiki/05.-Upload-Firmware#python-tool-cc2538-bslpy).
 * pycatsniffer_bv3: Cross-platform (Windows, Mac and Linux) modular script for packet sniffing supporting the following protocols: BLE, IEEE 802.15, Zigbee.
 
+## Wiki and Getting Started
+
+[Getting Started in our Wiki](https://github.com/ElectronicCats/CatSniffer/wiki)
+
+[![WIKI](https://user-images.githubusercontent.com/40640735/217364175-6e3af8df-e6b4-4fcd-9515-09ff02639f64.jpg)](https://github.com/ElectronicCats/CatSniffer/wiki)
+
+## Firmware Repository
+All Catsniffer Firmware has been moved to a different repository, to have a better version control, and issue tracking you will find it here:
+
+https://github.com/ElectronicCats/CatSniffer-Firmware
+
+All catsniffer versions are supported in this repository, you will need to check what version you own and select the proper branch to develop or release for just program your board.
+
+## Software Repository
+All Catsniffer Software has been moved to a different repository, to have a better version control, and issue tracking you will find it here:
+
+https://github.com/ElectronicCats/CatSniffer-Tools
+
 ## Contribute 
 <img width="1354" alt="image" src="https://github.com/ElectronicCats/CatSniffer-Tools/assets/15166625/f3d1a1a2-caf5-496f-bc4d-8c7614c8af62">
 
