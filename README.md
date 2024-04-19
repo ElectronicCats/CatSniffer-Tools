@@ -20,10 +20,10 @@ https://github.com/ElectronicCats/CatSniffer-Firmware
 
 All catsniffer versions are supported in this repository, you will need to check what version you own and select the proper branch to develop or release for just program your board.
 
-## Software Repository
-All Catsniffer Software has been moved to a different repository, to have a better version control, and issue tracking you will find it here:
+## Hardware Repository
+All Catsniffer Hardware has been moved to a different repository, to have a better version control, and issue tracking you will find it here:
 
-https://github.com/ElectronicCats/CatSniffer-Tools
+https://github.com/ElectronicCats/CatSniffer
 
 ## Contribute 
 <img width="1354" alt="image" src="https://github.com/ElectronicCats/CatSniffer-Tools/assets/15166625/f3d1a1a2-caf5-496f-bc4d-8c7614c8af62">
