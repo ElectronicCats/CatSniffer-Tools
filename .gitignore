@@ -4,3 +4,4 @@
 *.pcap
 *.hexdump
 *.pyc
+*.hex
