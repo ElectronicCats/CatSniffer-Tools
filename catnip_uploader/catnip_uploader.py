@@ -25,11 +25,13 @@ elif platform.system() == "Darwin":
 else:
     DEFAULT_COMPORT = "/dev/ttyACM0"
 
-GITHUB_RELEASE_URL               = "https://api.github.com/repos/ElectronicCats/CatSniffer-Firmware/releases/latest"
-RELEASE_JSON_FILENAME = "board_release.json"
-TMP_FILE                 = "firmware.hex"
-COMMAND_ENTER_BOOTLOADER = "ñÿ<boot>ÿñ"
-COMMAND_EXIT_BOOTLOADER  = "ñÿ<exit>ÿñ"
+GITHUB_RELEASE_URL         = "https://api.github.com/repos/ElectronicCats/CatSniffer-Firmware/releases/latest"
+GITHUB_RELEASE_URL_SNIFFLE = "https://api.github.com/repos/nccgroup/Sniffle/releases/latest"
+GITHUB_SNIFFLE_HEX         = "sniffle_cc1352p7_1M"
+RELEASE_JSON_FILENAME      = "board_release.json"
+TMP_FILE                   = "firmware.hex"
+COMMAND_ENTER_BOOTLOADER   = "ñÿ<boot>ÿñ"
+COMMAND_EXIT_BOOTLOADER    = "ñÿ<exit>ÿñ"
 
 def LOG_INFO(message):
     """Function to log information."""
@@ -93,6 +95,14 @@ class Release:
 
             self.tag_version = req_release_data['tag_name']
 
+            # Sniffle
+            request_release_sniffle = requests.get(f"{GITHUB_RELEASE_URL_SNIFFLE}")
+            request_release_sniffle.raise_for_status()
+            req_release_data_sniffle = request_release_sniffle.json()
+            LOG_INFO(f"Fetching assets from {GITHUB_RELEASE_URL_SNIFFLE}")
+            LOG_INFO(f"Release: {req_release_data_sniffle['tag_name']}")
+            req_release_data["assets"].extend(req_release_data_sniffle["assets"])
+
             return req_release_data["assets"]
         except requests.exceptions.ConnectionError as e:
             has_local_release = self.find_folder_releases()
@@ -122,9 +132,14 @@ class Release:
                 LOG_INFO(f"Found local release: {has_local_release}")
                 has_lasted_release = self.has_lasted_release(self.tag_version)
                 if has_lasted_release:
-                    LOG_SUCCESS(f"Local release is up to date: {self.tag_version}")
-                    firmware_releases = self.get_local_releases_dict()
-                    return firmware_releases
+                    if self.is_empty_release_folder():
+                        LOG_INFO(f"A local folder is empty, updating to {self.tag_version}")
+                        self.remove_local_files_releases(has_local_release)
+                        os.rmdir(has_local_release)
+                    else:
+                        LOG_SUCCESS(f"Local release is up to date: {self.tag_version}")
+                        firmware_releases = self.get_local_releases_dict()
+                        return firmware_releases
                 else:
                     LOG_WARNING(f"Updating local release: {has_local_release} to {self.tag_version}")
 
@@ -144,6 +159,16 @@ class Release:
                     self.release_data = self.read_json_file(self.temp_filename)
                 else:
                     # To avoid the uf3 files until we have a way to upload them
+                    if asset["url"].find("nccgroup") != -1 and asset["name"] != f"{GITHUB_SNIFFLE_HEX}.hex":
+                        continue
+                    if asset["url"].find("nccgroup") != -1 and asset["name"] == f"{GITHUB_SNIFFLE_HEX}.hex":
+                        firmware_name = f"nccgroup_{asset['browser_download_url'].split('/')[-2]}_{asset['name']}"
+                        with open(os.path.join(f"releases_{self.tag_version}", firmware_name), "wb") as f:
+                            request_release = requests.get(asset["browser_download_url"])
+                            content_bytes = io.BytesIO(request_release.content)
+                            f.write(content_bytes.read())
+                            firmware_releases.append(firmware_name)
+                        continue
                     if asset["name"].endswith(".hex"):
                         with open(os.path.join(f"releases_{self.tag_version}", asset["name"]), "wb") as f:
                             request_release = requests.get(asset["browser_download_url"])
@@ -188,6 +213,16 @@ class Release:
         for dir_name in dir_files:
             if dir_name.startswith("releases_"):
                 if dir_name.replace("releases_", "") == lasted_release:
+                    return True
+        return False
+
+    def is_empty_release_folder(self) -> bool:
+        """Check if the release folder is empty."""
+        dir_files = os.listdir(os.getcwd())
+        for dir_name in dir_files:
+            if dir_name.startswith("releases_"):
+                list_files = os.listdir(dir_name)
+                if len(list_files) == 0:
                     return True
         return False
 
