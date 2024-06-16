@@ -84,7 +84,7 @@ class Protocol:
         return b""
 
     def get_channel_range_bytes(self, channel: int) -> int:
-        """Return the channel range in bytes"""
+        """Return the channel range in bytes"""        
         for _channel in self.channel_range:
             if _channel[0] == channel:
                 return _channel
@@ -140,6 +140,14 @@ class Protocol:
             self.command_start(),
         ]
 
+
+    @property
+    def list_channel_range(self):
+        channels = []
+        for channel in self.channel_range:
+            channels.append(channel[0])
+        return channels
+    
     def __str__(self):
         return f"PHY Index: {self.phy_index}\nName: {self.name}\nPHY Label: {self.phy_label}\nBase Frequency: {self.base_frequency}\nSpacing: {self.spacing}\nChannel Range: {self.channel_range}\nPCAP Header: {self.pcap_header}"
 

@@ -30,6 +30,13 @@ class SnifferCollector(threading.Thread):
         # QUEUE
         self.data_queue_lock = threading.Lock()
         self.sniffer_recv_cancel = False
+        # Hopping
+        self.last_timestamp = None
+        self.time_hopper = 0.2 # Seconds
+        self.last_channel_index = 0
+        self.hopping_channel = False
+        self.hopp_channels = []
+
 
     def set_output_workers(self, output_workers):
         self.output_workers = output_workers
@@ -41,6 +48,12 @@ class SnifferCollector(threading.Thread):
     def set_verbose_mode(self, verbose_mode: bool):
         self.verbose_mode = verbose_mode
 
+    def get_protocol_channels(self):
+        return self.protocol.get_channel_range()
+    
+    def get_protocol_channels_str(self):
+        return self.protocol.get_channel_range_bytes()
+
     def get_protocol_phy(self):
         return self.protocol
 
@@ -49,6 +62,9 @@ class SnifferCollector(threading.Thread):
 
     def open_board_uart(self):
         self.board_uart.open()
+
+    def set_channel_hopping(self, hopping: bool):
+        self.hopping_channel = hopping
 
     def set_protocol_phy(self, phy: int):
         """Set the phy protocol for the sniffer"""
@@ -158,8 +174,10 @@ class SnifferCollector(threading.Thread):
         general_packet = GeneralUARTPacket(packet)
         if general_packet.is_command_response_packet():
             return None
-        print("Packet ->", general_packet)
-        print("Hex ->", general_packet.get_payload_hex())
+        
+        print(f"Packet -> {general_packet}")
+        print(f"Packet HEX -> {general_packet.get_payload_hex()}")
+
         packet = None
         try:
             if self.protocol == PROTOCOL_BLE:
@@ -182,13 +200,33 @@ class SnifferCollector(threading.Thread):
 
         return packet
 
+    def hopper_worker(self):
+        while not self.sniffer_recv_cancel:
+            if self.hopping_channel:
+                if self.last_timestamp is None:
+                    self.last_timestamp = time.time()
+                if (time.time() - self.last_timestamp) >= self.time_hopper:
+                    self.last_timestamp = time.time()
+                    if len(self.hopp_channels) == 0:
+                        self.hopp_channels = self.protocol.get_channel_range()
+                        print(self.hopp_channels)
+
+                    if self.last_channel_index > (len(self.hopp_channels) - 1):
+                        self.last_channel_index = 0
+                    self.set_protocol_channel(self.hopp_channels[self.last_channel_index][0])
+                    #self.send_command_stop()
+                    print("Channel: ", self.protocol_freq_channel)
+                    self.last_channel_index += 1
+                    self.send_command_start()
+            time.sleep(0.1)
+
+
     def recv_worker(self):
         try:
             if self.board_uart.is_connected() == False:
                 self.board_uart.open()
 
-            # self.send_command_start()
-            self.board_uart.set_serial_baudrate(115200)
+            self.send_command_start()
 
             while not self.sniffer_recv_cancel:
                 frame = self.board_uart.recv()
@@ -214,13 +252,18 @@ class SnifferCollector(threading.Thread):
         self.sniffer_worker.add_worker(
             threading.Thread(target=self.handle_sniffer_data, daemon=True)
         )
+        if self.hopping_channel:
+            self.sniffer_worker.add_worker(
+                threading.Thread(target=self.hopper_worker, daemon=True)
+            )
+        #threading.Thread(target=self.hopper_worker, daemon=True).start()
         self.sniffer_worker.start_all_workers()
 
     def stop_workers(self):
         typer.echo("Stoping workers")
         self.send_command_stop()
         self.sniffer_recv_cancel = True
-        time.sleep(0.2)
+        time.sleep(0.5)
         for output_worker in self.output_workers:
             output_worker.stop_worker()
         self.sniffer_worker.stop_all_workers()
