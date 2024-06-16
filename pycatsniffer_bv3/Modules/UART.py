@@ -14,12 +14,14 @@ else:
 
 DEFAULT_SERIAL_BAUDRATE = 921600
 
+
 class UART(threading.Thread):
     def __init__(self, serial_port: str = DEFAULT_COMPORT):
         self.serial_worker = serial.Serial()
         self.serial_worker.port = serial_port
         self.serial_worker.baudrate = DEFAULT_SERIAL_BAUDRATE
         self.recv_cancel = False
+        self.is_catsniffer = True
 
     def __del__(self):
         self.serial_worker.close()
@@ -29,6 +31,12 @@ class UART(threading.Thread):
 
     def set_serial_port(self, serial_port: str):
         self.serial_worker.port = serial_port
+
+    def set_serial_baudrate(self, baudrate: int):
+        self.serial_worker.baudrate = baudrate
+    
+    def set_is_catsniffer(self, board) -> bool:
+        self.is_catsniffer = board
 
     def is_valid_connection(self) -> bool:
         try:
@@ -60,9 +68,7 @@ class UART(threading.Thread):
         if self.serial_worker.is_open:
             self.serial_worker.write(data)
 
-    def recv(self):
-        if not self.is_connected():
-            self.open()
+    def recv_catsniffer(self):
         try:
             time.sleep(0.01)
             bytestream = self.serial_worker.read_until((END_OF_FRAME+START_OF_FRAME))
@@ -70,11 +76,30 @@ class UART(threading.Thread):
 
             eof_index = bytestream.find((END_OF_FRAME+START_OF_FRAME), sof_index)
             if eof_index == -1:
-                LOG_WARNING(f"[UART] EOF - {eof_index} not found in {bytestream}")
-                return None
+               LOG_WARNING(f"[UART] EOF - {eof_index} not found in {bytestream}")
+               return None
 
             bytestream = START_OF_FRAME + bytestream[sof_index : eof_index + 2]
             return bytestream
         except serial.SerialException as e:
             LOG_ERROR("Error reading from serial port")
             sys.exit(1)
+
+    def recv_boards(self):
+        try:
+            time.sleep(0.01)
+            bytestream = self.serial_worker.readline()
+            print("Bytes: ", bytestream)
+            return bytestream
+        except serial.SerialException as e:
+            LOG_ERROR("Error reading from serial port")
+            sys.exit(1)
+
+    def recv(self):
+        if not self.is_connected():
+            self.open()
+        if not self.is_catsniffer:
+            return self.recv_catsniffer()
+        else:
+            return self.recv_boards()
+
