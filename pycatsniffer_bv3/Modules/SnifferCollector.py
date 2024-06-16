@@ -11,6 +11,7 @@ from .Definitions import DEFAULT_TIMEOUT_JOIN
 from .Protocols import PROTOCOL_BLE, PROTOCOL_IEEE, PROTOCOLSLIST
 from .Utils import LOG_ERROR, LOG_WARNING, LOG_INFO
 
+
 class SnifferCollector(threading.Thread):
     """Worker class for the sniffer collector"""
 
@@ -138,7 +139,7 @@ class SnifferCollector(threading.Thread):
                                 + self.sniffer_data.conn_info.to_bytes(1, "little")
                                 + self.sniffer_data.payload
                             )
-                            pcap_file = Pcap(packet, self.sniffer_data.timestamp)
+                            pcap_file = Pcap(packet, time.time())
                             output_worker.set_linktype(self.protocol_linktype)
                             output_worker.add_data(pcap_file.get_pcap())
                         except struct.error as e:
@@ -146,7 +147,9 @@ class SnifferCollector(threading.Thread):
                             LOG_ERROR(f"Packet: {self.sniffer_data}")
                             continue
                     else:
+                        time.sleep(0.01)
                         continue
+                self.sniffer_data = None
             else:
                 time.sleep(0.01)
 
@@ -155,7 +158,8 @@ class SnifferCollector(threading.Thread):
         general_packet = GeneralUARTPacket(packet)
         if general_packet.is_command_response_packet():
             return None
-
+        print("Packet ->", general_packet)
+        print("Hex ->", general_packet.get_payload_hex())
         packet = None
         try:
             if self.protocol == PROTOCOL_BLE:
@@ -163,6 +167,7 @@ class SnifferCollector(threading.Thread):
                 packet = data_packet
             elif self.protocol == PROTOCOL_IEEE:
                 ieee_packet = IEEEUARTPacket(general_packet.packet_bytes)
+                print("IEEE Packet ->", ieee_packet)
                 packet = ieee_packet
             else:
                 LOG_WARNING("Protocol not supported yet")
@@ -182,12 +187,14 @@ class SnifferCollector(threading.Thread):
             if self.board_uart.is_connected() == False:
                 self.board_uart.open()
 
-            self.send_command_start()
+            # self.send_command_start()
+            self.board_uart.set_serial_baudrate(115200)
 
             while not self.sniffer_recv_cancel:
                 frame = self.board_uart.recv()
                 if frame is not None:
-                    packet_frame = self.dissector(frame)
+                    packet_frame = self.dissector(frame[:-2])
+                    #print(packet_frame)
                     if packet_frame:
                         self.sniffer_data = packet_frame
                 time.sleep(0.01)
