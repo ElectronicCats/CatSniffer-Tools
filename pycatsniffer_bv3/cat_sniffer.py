@@ -109,6 +109,15 @@ def cli_sniff(
         "--channel",
         help=f"Set the Protocol Channel to sniff.",
     ),
+
+    hopping: bool = typer.Option(False,
+        "-chop",
+        "--hopp",
+        is_flag=True,
+        show_default=True,
+        help="Enable Hopping channel for IEEE 802.15.4.",
+        rich_help_panel=HELP_PANEL_OUTPUT,
+    ),
     dumpfile: bool = typer.Option(
         False,
         "-df",
@@ -185,6 +194,7 @@ If you are running in Windows, you need first set the Environment Variable to ca
         phy,
         channel,
         address,
+        hopping
     )
     # Wait for a user interaction
     Cmd.CMDInterface(sniffer_collector).cmdloop()
@@ -203,6 +213,7 @@ def setup_sniffer(
     phy,
     channel,
     address,
+    hopping
 ):
     output_workers = []
 
@@ -211,6 +222,17 @@ def setup_sniffer(
         sys.exit(1)
 
     sniffer_collector.set_protocol_phy(phy)
+    # if hopping:
+    #     if int(phy) == 0:
+    #         typer.echo("BLE Hopping not supported")
+    #     else:
+    sniffer_collector.set_channel_hopping(hopping=hopping)
+    
+    if not hopping:
+        if channel not in sniffer_collector.get_protocol_phy().list_channel_range:
+            typer.echo(f"Error: Invalid channel: {channel}.")
+            sys.exit(1)
+    
     sniffer_collector.set_protocol_channel(channel)
     sniffer_collector.set_verbose_mode(verbose)
 
