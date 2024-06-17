@@ -88,9 +88,10 @@ class UART(threading.Thread):
     def recv_boards(self):
         try:
             time.sleep(0.01)
-            bytestream = self.serial_worker.readline()
-            print("Bytes: ", bytestream)
-            return bytestream
+            bytestream = self.serial_worker.read_until(END_OF_FRAME)
+            print(len(bytestream), len(bytestream.replace(b'\n', b'').replace(b'\r', b'')))
+            print("Bytes: ", bytestream.replace(b'\n', b'').replace(b'\r', b''))
+            return bytestream.replace(b'\n', b'').replace(b'\r', b'')
         except serial.SerialException as e:
             LOG_ERROR("Error reading from serial port")
             sys.exit(1)
@@ -98,7 +99,7 @@ class UART(threading.Thread):
     def recv(self):
         if not self.is_connected():
             self.open()
-        if not self.is_catsniffer:
+        if self.is_catsniffer:
             return self.recv_catsniffer()
         else:
             return self.recv_boards()
