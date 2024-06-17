@@ -30,6 +30,8 @@ class SnifferCollector(threading.Thread):
         # QUEUE
         self.data_queue_lock = threading.Lock()
         self.sniffer_recv_cancel = False
+        # Boards
+        self.is_catsniffer = True
         # Hopping
         self.last_timestamp = None
         self.time_hopper = 0.2 # Seconds
@@ -37,6 +39,8 @@ class SnifferCollector(threading.Thread):
         self.hopping_channel = False
         self.hopp_channels = []
 
+    def set_is_catsniffer(self, is_catsniffer: bool):   
+        self.is_catsniffer = is_catsniffer
 
     def set_output_workers(self, output_workers):
         self.output_workers = output_workers
@@ -174,9 +178,6 @@ class SnifferCollector(threading.Thread):
         general_packet = GeneralUARTPacket(packet)
         if general_packet.is_command_response_packet():
             return None
-        
-        print(f"Packet -> {general_packet}")
-        print(f"Packet HEX -> {general_packet.get_payload_hex()}")
 
         packet = None
         try:
@@ -185,7 +186,6 @@ class SnifferCollector(threading.Thread):
                 packet = data_packet
             elif self.protocol == PROTOCOL_IEEE:
                 ieee_packet = IEEEUARTPacket(general_packet.packet_bytes)
-                print("IEEE Packet ->", ieee_packet)
                 packet = ieee_packet
             else:
                 LOG_WARNING("Protocol not supported yet")
@@ -226,13 +226,19 @@ class SnifferCollector(threading.Thread):
             if self.board_uart.is_connected() == False:
                 self.board_uart.open()
 
-            self.send_command_start()
+            self.board_uart.set_is_catsniffer(self.is_catsniffer)
+
+            if self.is_catsniffer:
+                self.send_command_start()
+            else:
+                self.board_uart.set_serial_baudrate(115200)
 
             while not self.sniffer_recv_cancel:
                 frame = self.board_uart.recv()
+                print(f"FRAME -> {frame}")
                 if frame is not None:
-                    packet_frame = self.dissector(frame[:-2])
-                    #print(packet_frame)
+                    packet_frame = self.dissector(frame)
+                    print(f"PACKET -> {packet_frame}")
                     if packet_frame:
                         self.sniffer_data = packet_frame
                 time.sleep(0.01)

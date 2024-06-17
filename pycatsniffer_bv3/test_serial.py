@@ -2,7 +2,7 @@ import serial
 import time
 
 ser = serial.Serial()
-ser.port = "/dev/tty.usbserial-10"
+ser.port = "COM4"
 ser.baudrate = 115200
 ser.open()
 try:

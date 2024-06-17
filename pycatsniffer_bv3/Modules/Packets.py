@@ -38,7 +38,7 @@ class GeneralUARTPacket:
             self.start_of_frame,
             self.packet_info,
             self.packet_length,
-        ) = struct.unpack_from("<HBH", self.packet_bytes)
+        ) = struct.unpack_from("<HBB", self.packet_bytes)
         self.bytes_payload = self.packet_bytes[5:-2]
         (self.end_of_frame,) = struct.unpack_from("<H", self.packet_bytes[-2:])
 

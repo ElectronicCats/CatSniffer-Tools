@@ -78,6 +78,105 @@ def list_ports():
         for port in ports:
             typer.echo(port)
 
+@app.command("bsniff", no_args_is_help=True)
+def board_sniff(comport: str = typer.Argument(
+        default="/dev/ttyACM0", help="Serial port to use for sniffing."
+    ),
+    phy: str = typer.Option(
+        0,
+        "-phy",
+        "--phy",
+        help="Set the Phy Protocol. *To know the available protocols, run: python cat_sniffer.py protocols*",
+    ),
+    dumpfile: bool = typer.Option(
+        False,
+        "-df",
+        "--dump",
+        is_flag=True,
+        show_default=True,
+        help="Enable Hex Dump output to file.",
+        rich_help_panel=HELP_PANEL_OUTPUT,
+    ),
+    dumpfile_name: str = typer.Option(
+        HexDumper.HexDumper().DEFAULT_FILENAME,
+        "-dfn",
+        "--dump-name",
+        show_default=True,
+        help="If the dumpfile is True, set the Hexfile name.",
+        rich_help_panel=HELP_PANEL_OUTPUT,
+    ),
+    pcapfile: bool = typer.Option(
+        False,
+        "-pf",
+        "--pcap",
+        show_default=True,
+        help="Enable PCAP output to file.",
+        rich_help_panel=HELP_PANEL_OUTPUT,
+    ),
+    pcapfile_name: str = typer.Option(
+        PcapDumper.PcapDumper().DEFAULT_FILENAME,
+        "-pfn",
+        "--pcap-name",
+        show_default=True,
+        help="If the pcapfile is True, set the PCAP file name.",
+        rich_help_panel=HELP_PANEL_OUTPUT,
+    ),
+    fifo: bool = typer.Option(
+        False,
+        "-ff",
+        "--fifo",
+        is_flag=True,
+        show_default=True,
+        help="Enable FIFO pipeline to communicate with wireshark.",
+        rich_help_panel=HELP_PANEL_OUTPUT,
+    ),
+    fifo_name: str = typer.Option(
+        Fifo.DEFAULT_FILENAME,
+        "-ffn",
+        "--fifo-name",
+        show_default=True,
+        help="If the fifo is True, set the FIFO file name.",
+        rich_help_panel=HELP_PANEL_OUTPUT,
+    ),
+    wireshark: bool = typer.Option(
+        False,
+        "-ws",
+        "--wireshark",
+        is_flag=True,
+        help=f"""Open Wireshark with the direct link to the FIFO.
+**Note**: If you have wireshark installed, you can open it with the command: wireshark -k -i /tmp/{Fifo.DEFAULT_FILENAME}.
+If you are running in Windows, you need first set the Environment Variable to call wireshark as command.""",
+        rich_help_panel=HELP_PANEL_OUTPUT,
+    )):
+    """Create a sniffer instance to sniff the communication between a compatible board and Wireshark. **For more information**: python cat_sniffer.py sniff --help"""
+    if not sniffer_collector.set_board_uart(comport):
+        typer.echo("Error: Invalid serial port not connection found")
+        sys.exit(1)
+
+    sniffer_collector.set_is_catsniffer(False)
+    sniffer_collector.set_protocol_phy(phy)
+    sniffer_collector.set_protocol_channel(11)
+    output_workers = []
+    
+    if dumpfile or dumpfile_name != HexDumper.HexDumper.DEFAULT_FILENAME:
+        output_workers.append(HexDumper.HexDumper(dumpfile_name))
+
+    if pcapfile or pcapfile_name != PcapDumper.PcapDumper.DEFAULT_FILENAME:
+        output_workers.append(PcapDumper.PcapDumper(pcapfile_name))
+
+    if fifo or fifo_name != Fifo.DEFAULT_FILENAME:
+        if platform.system() == "Windows":
+            output_workers.append(Fifo.FifoWindows(fifo_name))
+        else:
+            output_workers.append(Fifo.FifoLinux(fifo_name))
+        if wireshark:
+            output_workers.append(Wireshark.Wireshark(fifo_name))
+
+    sniffer_collector.set_output_workers(output_workers)
+    sniffer_collector.run_workers()
+    Cmd.CMDInterface(sniffer_collector).cmdloop()
+
+
 
 @app.command("sniff", no_args_is_help=True)
 def cli_sniff(
