@@ -174,10 +174,20 @@ PROTOCOL_IEEE = Protocol(
     pcap_header=147,
 )
 
+PROTOCOL_LORA = Protocol(
+    phy_index=bytearray([0x14]),
+    name="LoRa",
+    phy_label="433 MHz - Freq Band",
+    base_frequency=433.0,
+    spacing=125,
+    channel_range=[(0, 433), (1, 434), (2, 435)],
+    pcap_header=147,
+)
 
 class PROTOCOLSLIST(Definitions.BaseEnum):
     PROTOCOL_BLE: Protocol = PROTOCOL_BLE
     PROTOCOL_IEEE: Protocol = PROTOCOL_IEEE
+    PROTOCOL_LORA: Protocol = PROTOCOL_LORA
 
     @classmethod
     def get_list_protocols(cls):

@@ -17,9 +17,11 @@ INTERFACE_TYPE_CEBAL = 1
 PHY_TYPE_UNUSED                  = 0
 PHY_TYPE_OQPSK                   = 3
 PHY_TYPE_BLE                     = 5
+PHY_TYPE_LORA                    = 6
 
 PHY_OQPSK_STRING                   = "O-QPSK"
 PHY_BLE_STRING                     = "BLE 1 Mbps"
+PHY_LORA_STRING                    = "LoRa"
 
 --  /* Protocol values */
 PROTOCOL_GENERIC         = 0
@@ -27,6 +29,7 @@ PROTOCOL_IEEE_802_15_4_G = 1
 PROTOCOL_IEEE_802_15_4   = 2
 PROTOCOL_BLE             = 3
 PROTOCOL_WBMS            = 4
+PROTOCOL_LORA            = 5
 
 --  /* Header field offset values */
 INTERFACE_TYPE_OFFSET       = 3

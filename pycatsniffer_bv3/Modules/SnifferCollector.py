@@ -6,9 +6,9 @@ import sys
 from .Worker import WorkerManager
 from .UART import UART
 from .Pcap import Pcap
-from .Packets import GeneralUARTPacket, IEEEUARTPacket, BLEUARTPacket
+from .Packets import GeneralUARTPacket, IEEEUARTPacket, BLEUARTPacket, LoraUARTPacket
 from .Definitions import DEFAULT_TIMEOUT_JOIN
-from .Protocols import PROTOCOL_BLE, PROTOCOL_IEEE, PROTOCOLSLIST
+from .Protocols import PROTOCOL_BLE, PROTOCOL_IEEE, PROTOCOL_LORA, PROTOCOLSLIST
 from .Utils import LOG_ERROR, LOG_WARNING, LOG_INFO
 
 
@@ -135,30 +135,59 @@ class SnifferCollector(threading.Thread):
                             elif self.protocol == PROTOCOL_IEEE:
                                 protocol = b"\x02"
                                 phy = bytes.fromhex("03")
+                            elif self.protocol == PROTOCOL_LORA:
+                                protocol = b"\x05"
+                                phy = bytes.fromhex("06")
 
-                            packet = (
-                                version
-                                + self.sniffer_data.packet_length.to_bytes(2, "little")
-                                + interfaceType
-                                + interfaceId
-                                + protocol
-                                + phy
-                                + int(
-                                    self.protocol.get_channel_range_bytes(
-                                        self.protocol_freq_channel
-                                    )[1]
-                                ).to_bytes(4, "little")
-                                + int(
-                                    self.protocol.get_channel_range_bytes(
-                                        self.protocol_freq_channel
-                                    )[0]
-                                ).to_bytes(2, "little")
-                                + self.sniffer_data.rssi.to_bytes(1, "little")
-                                + self.sniffer_data.status.to_bytes(1, "little")
-                                + self.sniffer_data.connect_evt
-                                + self.sniffer_data.conn_info.to_bytes(1, "little")
-                                + self.sniffer_data.payload
-                            )
+                            if self.protocol == PROTOCOL_LORA:
+                                self.protocol_linktype = 146
+                                packet = (
+                                    version
+                                    + self.sniffer_data.packet_length.to_bytes(2, "little")
+                                    + interfaceType
+                                    + interfaceId
+                                    + protocol
+                                    + phy
+                                    + int(
+                                        self.protocol.get_channel_range_bytes(
+                                            self.protocol_freq_channel
+                                        )[1]
+                                    ).to_bytes(4, "little")
+                                    + int(
+                                        self.protocol.get_channel_range_bytes(
+                                            self.protocol_freq_channel
+                                        )[0]
+                                    ).to_bytes(2, "little")
+                                    + self.sniffer_data.rssi
+                                    + b"\x80"
+                                    # + self.sniffer_data.connect_evt
+                                    # + self.sniffer_data.conn_info.to_bytes(1, "little")
+                                    + self.sniffer_data.payload
+                                )
+                            else:
+                                packet = (
+                                    version
+                                    + self.sniffer_data.packet_length.to_bytes(2, "little")
+                                    + interfaceType
+                                    + interfaceId
+                                    + protocol
+                                    + phy
+                                    + int(
+                                        self.protocol.get_channel_range_bytes(
+                                            self.protocol_freq_channel
+                                        )[1]
+                                    ).to_bytes(4, "little")
+                                    + int(
+                                        self.protocol.get_channel_range_bytes(
+                                            self.protocol_freq_channel
+                                        )[0]
+                                    ).to_bytes(2, "little")
+                                    + self.sniffer_data.rssi.to_bytes(1, "little")
+                                    + self.sniffer_data.status.to_bytes(1, "little")
+                                    + self.sniffer_data.connect_evt
+                                    + self.sniffer_data.conn_info.to_bytes(1, "little")
+                                    + self.sniffer_data.payload
+                                )
                             pcap_file = Pcap(packet, time.time())
                             output_worker.set_linktype(self.protocol_linktype)
                             output_worker.add_data(pcap_file.get_pcap())
@@ -175,6 +204,10 @@ class SnifferCollector(threading.Thread):
 
     def dissector(self, packet: bytes) -> bytes:
         """Dissector the packet"""
+        if self.protocol == PROTOCOL_LORA:
+            data_packet = LoraUARTPacket(packet)
+            return data_packet
+        
         general_packet = GeneralUARTPacket(packet)
         if general_packet.is_command_response_packet():
             return None
@@ -232,6 +265,8 @@ class SnifferCollector(threading.Thread):
                 self.send_command_start()
             else:
                 self.board_uart.set_serial_baudrate(115200)
+            
+            self.board_uart.send(b"set_rx\r\n")
 
             while not self.sniffer_recv_cancel:
                 frame = self.board_uart.recv()
