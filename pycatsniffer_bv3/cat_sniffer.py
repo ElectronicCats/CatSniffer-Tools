@@ -83,10 +83,16 @@ def board_sniff(comport: str = typer.Argument(
         default="/dev/ttyACM0", help="Serial port to use for sniffing."
     ),
     phy: str = typer.Option(
-        0,
+        1,
         "-phy",
         "--phy",
         help="Set the Phy Protocol. *To know the available protocols, run: python cat_sniffer.py protocols*",
+    ),
+    channel: int = typer.Option(
+        11,
+        "-ch",
+        "--channel",
+        help=f"Set the Protocol Channel to sniff.",
     ),
     dumpfile: bool = typer.Option(
         False,
@@ -155,7 +161,7 @@ If you are running in Windows, you need first set the Environment Variable to ca
 
     sniffer_collector.set_is_catsniffer(False)
     sniffer_collector.set_protocol_phy(phy)
-    sniffer_collector.set_protocol_channel(11)
+    sniffer_collector.set_protocol_channel(channel)
     output_workers = []
     
     if dumpfile or dumpfile_name != HexDumper.HexDumper.DEFAULT_FILENAME:

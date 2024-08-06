@@ -4,6 +4,7 @@ import serial.tools.list_ports
 import threading
 import time
 import sys
+import re
 from .Definitions import START_OF_FRAME, END_OF_FRAME
 from .Utils import LOG_ERROR, LOG_WARNING
 
@@ -80,6 +81,7 @@ class UART(threading.Thread):
                return None
 
             bytestream = START_OF_FRAME + bytestream[sof_index : eof_index + 2]
+            print("recv_catsniffer" ,bytestream)
             return bytestream
         except serial.SerialException as e:
             LOG_ERROR("Error reading from serial port")
@@ -89,9 +91,15 @@ class UART(threading.Thread):
         try:
             time.sleep(0.01)
             bytestream = self.serial_worker.read_until(END_OF_FRAME)
-            print(len(bytestream), len(bytestream.replace(b'\n', b'').replace(b'\r', b'')))
-            print("Bytes: ", bytestream.replace(b'\n', b'').replace(b'\r', b''))
-            return bytestream.replace(b'\n', b'').replace(b'\r', b'')
+            # print(bytestream)
+            # print(len(bytestream), len(bytestream.replace(b'\n', b'').replace(b'\r', b'')))
+            # print("Bytes: ", bytestream.replace(b'\n', b'').replace(b'\r', b''))
+            # If the bytestream is a LoRa Packet, remove the unnecessary string
+            filter_bytes = bytestream.replace(b'\n', b'').replace(b'\r', b'')
+            sof_index = filter_bytes.find(START_OF_FRAME)
+            if sof_index != -1:
+                filter_bytes = filter_bytes[sof_index:]
+            return filter_bytes
         except serial.SerialException as e:
             LOG_ERROR("Error reading from serial port")
             sys.exit(1)
