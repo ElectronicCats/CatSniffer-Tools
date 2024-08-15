@@ -2,6 +2,7 @@ import binascii
 import signal
 import sys
 import platform
+import enum
 
 try:
     import typer
@@ -77,6 +78,121 @@ def list_ports():
     else:
         for port in ports:
             typer.echo(port)
+
+# 10:41:42.800 -> Frequency = 915.00 MHz
+# 10:41:42.800 -> Bandwidth = 125 kHz
+# 10:41:42.800 -> Spreading Factor = 7
+# 10:41:42.800 -> Coding Rate = 4/5
+# 10:41:42.800 -> Sync Word = 0x12
+# 10:41:42.800 -> Preamble Length = 8
+# 10:41:42.800 -> InvertIQ = disabled
+# 10:41:42.800 -> Output Power = 20
+# 10:41:42.800 -> Rx active = 0
+
+@app.command("lora", no_args_is_help=True, short_help="Sniff LoRa communication. 915MHz, 125kHz, SF7, CR 4/5")
+def lora_sniff(comport: str = typer.Argument(
+        default="/dev/ttyACM0", help="Serial port to use for sniffing."
+    ),freq: float = typer.Option(
+        915.0,
+        "-frq",
+        "--frequency",
+        show_default=True,
+        help="Set the Frequency in MHz. Range: 150 - 960 MHz.",
+    ), channel: int = typer.Option(
+        0,
+        "-ch",
+        "--channel",
+        show_default=True,
+        help="Set the Channel. Value between 0 and 63"
+    ), bandwidth: int = typer.Option(
+        7,
+        "-bw",
+        "--bandwidth",
+        show_default=True,
+        help="Set the Bandwidth in kHz. Index-Range: 0:7.8 1:10.4 2:15.6 3:20.8 4:31.25 5:41.7 6:62.5 7:125 8:250.0 9:500.0 kHz.",
+    ), spread_factor: int = typer.Option(
+        7,
+        "-sf",
+        "--spread-factor",
+        show_default=True,
+        help="Set the Spreading Factor. Range: 6 - 12.",
+    ), coding_rate: int = typer.Option(
+        5,
+        "-cr",
+        "--coding-rate",
+        show_default=True,
+        help="Set the Coding Rate. Range: 5 - 8",
+    ),
+    fifo: bool = typer.Option(
+        False,
+        "-ff",
+        "--fifo",
+        is_flag=True,
+        show_default=True,
+        help="Enable FIFO pipeline to communicate with wireshark.",
+        rich_help_panel=HELP_PANEL_OUTPUT,
+    ),
+    fifo_name: str = typer.Option(
+        Fifo.DEFAULT_FILENAME,
+        "-ffn",
+        "--fifo-name",
+        show_default=True,
+        help="If the fifo is True, set the FIFO file name.",
+        rich_help_panel=HELP_PANEL_OUTPUT,
+    ),
+    wireshark: bool = typer.Option(
+        False,
+        "-ws",
+        "--wireshark",
+        is_flag=True,
+        help=f"""Open Wireshark with the direct link to the FIFO.
+**Note**: If you have wireshark installed, you can open it with the command: wireshark -k -i /tmp/{Fifo.DEFAULT_FILENAME}.
+If you are running in Windows, you need first set the Environment Variable to call wireshark as command.""",
+        rich_help_panel=HELP_PANEL_OUTPUT,
+    )):
+    if not sniffer_collector.set_board_uart(comport):
+        typer.echo("Error: Invalid serial port not connection found")
+        sys.exit(1)
+
+    if freq < 150 or freq > 960:
+        typer.echo("Error: Invalid frequency range")
+        sys.exit(1)
+    
+    if bandwidth > 9:
+        typer.echo("Error: Invalid bandwidth range")
+        sys.exit(1)
+    
+    if spread_factor < 6 or spread_factor > 12:
+        typer.echo("Error: Invalid spread factor range")
+        sys.exit(1)
+
+    if coding_rate < 5 or coding_rate > 8:
+        typer.echo("Error: Invalid coding rate range")
+        sys.exit(1)
+
+    if channel < 0 and channel > 63:
+        typer.echo("Error: Invalid channel range")
+        sys.exit(1)
+
+    sniffer_collector.set_is_catsniffer(2)
+    sniffer_collector.set_lora_bandwidth(bandwidth)
+    sniffer_collector.set_lora_channel(channel)
+    sniffer_collector.set_lora_frequency(freq)
+    sniffer_collector.set_lora_spread_factor(spread_factor)
+    sniffer_collector.set_lora_coding_rate(coding_rate)
+    output_workers = []
+
+    if fifo or fifo_name != Fifo.DEFAULT_FILENAME:
+        if platform.system() == "Windows":
+            output_workers.append(Fifo.FifoWindows(fifo_name))
+        else:
+            output_workers.append(Fifo.FifoLinux(fifo_name))
+        if wireshark:
+            output_workers.append(Wireshark.Wireshark(fifo_name))
+
+    sniffer_collector.set_output_workers(output_workers)
+    sniffer_collector.run_workers()
+    Cmd.CMDInterface(sniffer_collector).cmdloop()
 
 @app.command("bsniff", no_args_is_help=True)
 def board_sniff(comport: str = typer.Argument(
@@ -159,7 +275,7 @@ If you are running in Windows, you need first set the Environment Variable to ca
         typer.echo("Error: Invalid serial port not connection found")
         sys.exit(1)
 
-    sniffer_collector.set_is_catsniffer(False)
+    sniffer_collector.set_is_catsniffer(1)
     sniffer_collector.set_protocol_phy(phy)
     sniffer_collector.set_protocol_channel(channel)
     output_workers = []

@@ -30,13 +30,16 @@ class UART(threading.Thread):
     def __str__(self):
         return f"Serial port: {self.serial_worker.port}"
 
+    def get_serial_port(self) -> str:
+        return self.serial_worker.port
+
     def set_serial_port(self, serial_port: str):
         self.serial_worker.port = serial_port
 
     def set_serial_baudrate(self, baudrate: int):
         self.serial_worker.baudrate = baudrate
     
-    def set_is_catsniffer(self, board) -> bool:
+    def set_is_catsniffer(self, board) -> int:
         self.is_catsniffer = board
 
     def is_valid_connection(self) -> bool:
@@ -91,7 +94,7 @@ class UART(threading.Thread):
         try:
             time.sleep(0.01)
             bytestream = self.serial_worker.read_until(END_OF_FRAME)
-            # print(bytestream)
+            print(bytestream)
             # print(len(bytestream), len(bytestream.replace(b'\n', b'').replace(b'\r', b'')))
             # print("Bytes: ", bytestream.replace(b'\n', b'').replace(b'\r', b''))
             # If the bytestream is a LoRa Packet, remove the unnecessary string
@@ -107,7 +110,7 @@ class UART(threading.Thread):
     def recv(self):
         if not self.is_connected():
             self.open()
-        if self.is_catsniffer:
+        if self.is_catsniffer == 0:
             return self.recv_catsniffer()
         else:
             return self.recv_boards()

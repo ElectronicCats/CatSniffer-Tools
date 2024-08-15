@@ -46,7 +46,7 @@ class LoraGeneralUARTPacket:
     def digiest(self) -> str:
         return f"""{self.type_packet}:
 SOF    : {self.start_of_frame} - EOF: {self.end_of_frame}
-Packet Length : {self.packet_length}
+Packet Length : {self.packet_length} {int(self.packet_length).to_bytes(2, byteorder="little")}
 Bytes  Payload: {self.bytes_payload}"""
 
     def hex_digiest(self, packet_bytes: bytes) -> str:
@@ -68,9 +68,10 @@ class LoraUARTPacket(LoraGeneralUARTPacket):
 
     def unpack(self) -> None:
         super().unpack()
-        self.payload = self.bytes_payload[:-11]
-        self.rssi = self.bytes_payload[-11:-5]
-        self.snr = self.bytes_payload[-5:]
+        self.payload = self.bytes_payload[:-2]
+        (self.rssi, ) = struct.unpack_from("<H", self.bytes_payload[-2:])
+        #self.rssi = self.bytes_payload[-2:]
+        # self.snr = self.bytes_payload[-1:]
 
     def digiest(self) -> str:
         return (
@@ -79,7 +80,7 @@ class LoraUARTPacket(LoraGeneralUARTPacket):
 RSSI     : {self.rssi}
 SNR      : {self.snr}
 Payload  : {self.payload}
-DATA     : {binascii.hexlify(self.payload)}
+DATA     : {binascii.hexlify(self.packet_bytes)}
 """
         )
 

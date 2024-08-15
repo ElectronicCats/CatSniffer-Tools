@@ -174,14 +174,23 @@ PROTOCOL_IEEE = Protocol(
     pcap_header=147,
 )
 
+
+class LoraProtocol(Protocol):
+    def __init__(self, packet_bytes: bytes) -> None:
+        super().__init__(packet_bytes)
+        self.badwidth_range = [7.8, 10.4, 15.6, 20.8, 31.25, 41.7, 62.5, 125, 250.0, 500.0]
+
+    def set_badwidth(self, badwidth_index: int) -> None:
+        self.badwidth = self.badwidth_range[badwidth_index]
+
 PROTOCOL_LORA = Protocol(
     phy_index=bytearray([0x14]),
     name="LoRa",
-    phy_label="433 MHz - Freq Band",
-    base_frequency=433.0,
+    phy_label="915 MHz - Freq Band",
+    base_frequency=915.0,
     spacing=125,
     channel_range=[(0, 433), (1, 434), (2, 435)],
-    pcap_header=147,
+    pcap_header=148,
 )
 
 class PROTOCOLSLIST(Definitions.BaseEnum):
