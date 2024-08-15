@@ -70,6 +70,11 @@ class SnifferCommands(BaseEnum):
     CMD_CFG_BLE_INITIATOR_ADDRESS = 0x70
 
 
+class SnifferBoards(BaseEnum):
+    CATSNIFFER_IEEE = 0
+    CATSNIFFER_LORA = 1
+    BADGE = 2
+
 class PacketCommand:
     def __init__(self, packet_info, payload=b""):
         self.start_of_frame = START_OF_FRAME

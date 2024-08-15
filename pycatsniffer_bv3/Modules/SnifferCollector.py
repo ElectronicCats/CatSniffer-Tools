@@ -3,6 +3,7 @@ import struct
 import threading
 import typer
 import sys
+import platform
 from .Worker import WorkerManager
 from .UART import UART
 from .Pcap import Pcap
@@ -31,16 +32,36 @@ class SnifferCollector(threading.Thread):
         self.data_queue_lock = threading.Lock()
         self.sniffer_recv_cancel = False
         # Boards
-        self.is_catsniffer = True
+        self.is_catsniffer = 0
         # Hopping
         self.last_timestamp = None
         self.time_hopper = 0.2 # Seconds
         self.last_channel_index = 0
         self.hopping_channel = False
         self.hopp_channels = []
+        self.lora_bandwidth = 0
+        self.lora_channel = 0
+        self.lora_frequency = 0
+        self.lora_spreading_factor = 0
+        self.lora_coding_rate = 0
 
-    def set_is_catsniffer(self, is_catsniffer: bool):   
+    def set_is_catsniffer(self, is_catsniffer: int):   
         self.is_catsniffer = is_catsniffer
+    
+    def set_lora_bandwidth(self, bandwidth: int):
+        self.lora_bandwidth = bandwidth
+    
+    def set_lora_frequency(self, frequency: float):
+        self.lora_frequency = frequency
+    
+    def set_lora_spread_factor(self, spreading_factor: int):
+        self.lora_spreading_factor = spreading_factor
+    
+    def set_lora_coding_rate(self, coding_rate: int):
+        self.lora_coding_rate = coding_rate
+    
+    def set_lora_channel(self, channel: int):
+        self.lora_channel = channel
 
     def set_output_workers(self, output_workers):
         self.output_workers = output_workers
@@ -112,6 +133,18 @@ class SnifferCollector(threading.Thread):
         for command in get_protocol_commands:
             self.board_uart.send(command.raw_packet)
             time.sleep(0.1)
+    
+    def get_interface(self):
+        interface_bytes = self.board_uart.get_serial_port()
+        if platform.system() == "Windows":
+            interface_bytes = interface_bytes.encode('utf-8').ljust(8, b'\x00')
+        else:
+            interface_bytes = interface_bytes.split("tty")[1]
+            if len(interface_bytes) > 8:
+                interface_bytes = interface_bytes[-8:].encode('utf-8')
+            else:
+                interface_bytes = interface_bytes.encode('utf-8')
+        return interface_bytes
 
     def handle_sniffer_data(self):
         while not self.sniffer_recv_cancel:
@@ -135,35 +168,30 @@ class SnifferCollector(threading.Thread):
                             elif self.protocol == PROTOCOL_IEEE:
                                 protocol = b"\x02"
                                 phy = bytes.fromhex("03")
-                            elif self.protocol == PROTOCOL_LORA:
+                            
+                            if self.is_catsniffer == PROTOCOL_LORA:
                                 protocol = b"\x05"
                                 phy = bytes.fromhex("06")
 
-                            if self.protocol == PROTOCOL_LORA:
-                                self.protocol_linktype = 146
+                            if self.is_catsniffer == 2:
+                                self.protocol_linktype = 148
                                 packet = (
                                     version
                                     + self.sniffer_data.packet_length.to_bytes(2, "little")
                                     + interfaceType
-                                    + interfaceId
+                                    + interfaceId #self.get_interface()
                                     + protocol
                                     + phy
-                                    + int(
-                                        self.protocol.get_channel_range_bytes(
-                                            self.protocol_freq_channel
-                                        )[1]
-                                    ).to_bytes(4, "little")
-                                    + int(
-                                        self.protocol.get_channel_range_bytes(
-                                            self.protocol_freq_channel
-                                        )[0]
-                                    ).to_bytes(2, "little")
-                                    + self.sniffer_data.rssi
-                                    + b"\x80"
+                                    + int(self.lora_frequency).to_bytes(4, "little")
+                                    + int(self.lora_channel).to_bytes(2, "little")
+                                    + int(self.sniffer_data.rssi).to_bytes(2, "little")
+                                    #+ self.sniffer_data.snr #.to_bytes(2, "little")
+                                    # + b"\x80"
                                     # + self.sniffer_data.connect_evt
                                     # + self.sniffer_data.conn_info.to_bytes(1, "little")
                                     + self.sniffer_data.payload
                                 )
+                                print("PACKER ->", packet)
                             else:
                                 packet = (
                                     version
@@ -204,7 +232,8 @@ class SnifferCollector(threading.Thread):
 
     def dissector(self, packet: bytes) -> bytes:
         """Dissector the packet"""
-        if self.protocol == PROTOCOL_LORA:
+        if self.is_catsniffer == 2:
+            print("Is lora")
             data_packet = LoraUARTPacket(packet)
             return data_packet
         
@@ -261,12 +290,25 @@ class SnifferCollector(threading.Thread):
 
             self.board_uart.set_is_catsniffer(self.is_catsniffer)
 
-            if self.is_catsniffer:
+            if self.is_catsniffer == 0:
                 self.send_command_start()
             else:
+                if self.is_catsniffer == 2:
+                    print("Setting up Lora")
+                    lora_cmd_bandwidth = f"set_bw {self.lora_bandwidth}\r\n"
+                    lora_cmd_channel = f"set_ch {self.lora_channel}\r\n"
+                    lora_cmd_frequency = f"set_freq {self.lora_frequency}\r\n"
+                    lora_cmd_spreading_factor = f"set_sf {self.lora_spreading_factor}\r\n"
+                    lora_cmd_coding_rate = f"set_cr {self.lora_coding_rate}\r\n"
+                    self.board_uart.send(bytes(lora_cmd_bandwidth, "utf-8"))
+                    self.board_uart.send(bytes(lora_cmd_channel, "utf-8"))
+                    self.board_uart.send(bytes(lora_cmd_frequency, "utf-8"))
+                    self.board_uart.send(bytes(lora_cmd_coding_rate, "utf-8"))
+                    self.board_uart.send(bytes(lora_cmd_spreading_factor, "utf-8"))
+                    self.board_uart.send(b"set_rx\r\n")
                 self.board_uart.set_serial_baudrate(115200)
             
-            self.board_uart.send(b"set_rx\r\n")
+            
 
             while not self.sniffer_recv_cancel:
                 frame = self.board_uart.recv()
