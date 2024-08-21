@@ -19,7 +19,7 @@ PHY_TYPE_OQPSK  = 3
 PHY_TYPE_BLE    = 5
 PHY_TYPE_LORA   = 6
 
-PHY_OQPSK_STRING = "O-QPSK"
+PHY_OQPSK_STRING = "IEEE 802.15.4 O-QPSK"
 PHY_BLE_STRING   = "BLE 1 Mbps"
 PHY_LORA_STRING  = "LoRa"
 
@@ -91,8 +91,11 @@ function build_catsniffer_rpi_p()
         interface_subtree = subtree_radio_packet:add_le(cs_version, VERSION_RELEASE)
 
         -- Display interface information
-        interface_subtree = subtree_radio_packet:add_le(cs_interface_id, "COM " .. tvbuf(INTERFACE_ID_OFFSET, INTERFACE_ID_SIZE):le_uint())
-
+        if tvbuf(INTERFACE_ID_OFFSET, INTERFACE_ID_SIZE):le_uint() == 3 then
+            interface_subtree = subtree_radio_packet:add_le(cs_interface_id, "Catsniffer")
+        else
+            interface_subtree = subtree_radio_packet:add_le(cs_interface_id, "Board")
+        end
         -- Display frequency and fractional frequency in MHz
         freq =  tvbuf(FREQUENCY_OFFSET, FREQUENCY_SIZE):le_uint()
         fractFrq = tvbuf(FRACTIONAL_FREQUENCY_OFFSET, FREQUENCY_SIZE):float()

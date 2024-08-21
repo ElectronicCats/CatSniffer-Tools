@@ -169,6 +169,9 @@ class SnifferCollector(threading.Thread):
                                 protocol = b"\x02"
                                 phy = bytes.fromhex("03")
                             
+                            if self.is_catsniffer == 1:
+                                interfaceId = bytes.fromhex("0200")
+
                             if self.is_catsniffer == PROTOCOL_LORA:
                                 protocol = b"\x05"
                                 phy = bytes.fromhex("06")
@@ -179,19 +182,14 @@ class SnifferCollector(threading.Thread):
                                     version
                                     + self.sniffer_data.packet_length.to_bytes(2, "little")
                                     + interfaceType
-                                    + interfaceId #self.get_interface()
+                                    + interfaceId
                                     + protocol
                                     + phy
                                     + int(self.lora_frequency).to_bytes(4, "little")
                                     + int(self.lora_channel).to_bytes(2, "little")
                                     + int(self.sniffer_data.rssi).to_bytes(2, "little")
-                                    #+ self.sniffer_data.snr #.to_bytes(2, "little")
-                                    # + b"\x80"
-                                    # + self.sniffer_data.connect_evt
-                                    # + self.sniffer_data.conn_info.to_bytes(1, "little")
                                     + self.sniffer_data.payload
                                 )
-                                print("PACKER ->", packet)
                             else:
                                 packet = (
                                     version
@@ -233,7 +231,6 @@ class SnifferCollector(threading.Thread):
     def dissector(self, packet: bytes) -> bytes:
         """Dissector the packet"""
         if self.is_catsniffer == 2:
-            print("Is lora")
             data_packet = LoraUARTPacket(packet)
             return data_packet
         
@@ -276,8 +273,6 @@ class SnifferCollector(threading.Thread):
                     if self.last_channel_index > (len(self.hopp_channels) - 1):
                         self.last_channel_index = 0
                     self.set_protocol_channel(self.hopp_channels[self.last_channel_index][0])
-                    #self.send_command_stop()
-                    print("Channel: ", self.protocol_freq_channel)
                     self.last_channel_index += 1
                     self.send_command_start()
             time.sleep(0.1)
@@ -294,7 +289,6 @@ class SnifferCollector(threading.Thread):
                 self.send_command_start()
             else:
                 if self.is_catsniffer == 2:
-                    print("Setting up Lora")
                     lora_cmd_bandwidth = f"set_bw {self.lora_bandwidth}\r\n"
                     lora_cmd_channel = f"set_ch {self.lora_channel}\r\n"
                     lora_cmd_frequency = f"set_freq {self.lora_frequency}\r\n"
@@ -312,10 +306,8 @@ class SnifferCollector(threading.Thread):
 
             while not self.sniffer_recv_cancel:
                 frame = self.board_uart.recv()
-                print(f"FRAME -> {frame}")
                 if frame is not None:
                     packet_frame = self.dissector(frame)
-                    print(f"PACKET -> {packet_frame}")
                     if packet_frame:
                         self.sniffer_data = packet_frame
                 time.sleep(0.01)
