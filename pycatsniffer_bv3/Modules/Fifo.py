@@ -67,7 +67,6 @@ class FifoLinux(Fifo):
             print(e)
 
     def run(self):
-        # print("RUNNING FIFO")
         self.fifo_recv_cancel = False
         if self.fifo_worker is None:
             self.open()
