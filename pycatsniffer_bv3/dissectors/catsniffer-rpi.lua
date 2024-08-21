@@ -14,14 +14,14 @@ INTERFACE_TYPE_COM   = 0
 INTERFACE_TYPE_CEBAL = 1
 
 --  /* PHY type values */IEEE 802.15.4
-PHY_TYPE_UNUSED                  = 0
-PHY_TYPE_OQPSK                   = 3
-PHY_TYPE_BLE                     = 5
-PHY_TYPE_LORA                    = 6
+PHY_TYPE_UNUSED = 0
+PHY_TYPE_OQPSK  = 3
+PHY_TYPE_BLE    = 5
+PHY_TYPE_LORA   = 6
 
-PHY_OQPSK_STRING                   = "O-QPSK"
-PHY_BLE_STRING                     = "BLE 1 Mbps"
-PHY_LORA_STRING                    = "LoRa"
+PHY_OQPSK_STRING = "O-QPSK"
+PHY_BLE_STRING   = "BLE 1 Mbps"
+PHY_LORA_STRING  = "LoRa"
 
 --  /* Protocol values */
 PROTOCOL_GENERIC         = 0

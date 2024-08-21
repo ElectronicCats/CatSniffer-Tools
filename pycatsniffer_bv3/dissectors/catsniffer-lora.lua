@@ -2,7 +2,7 @@ require("catsniffer-blepi")
 require("catsniffer-rpi")
 
 VERSION_RELEASE = "1.0.0"
-DTL0_LINKLAYER = 148
+DTL0_LINKLAYER  = 148
 
 UDP_PORT_DISSECTOR = 17760
 FRACT_CONSTANT     = 65535
@@ -11,8 +11,8 @@ TI_RPI_MIN_LENGTH  = 17
 
 INTERFACE_TYPE_COM   = 0
 INTERFACE_TYPE_CEBAL = 1
-PHY_TYPE_LORA                    = 6
-PHY_LORA_STRING                    = "LoRa"
+PHY_TYPE_LORA        = 6
+PHY_LORA_STRING      = "LoRa"
 
 --  /* Protocol values */
 PROTOCOL_LORA            = 5
@@ -50,9 +50,8 @@ function build_catsniffer_rpi_lora()
     local cs_frequency      = ProtoField.float("catsniffer.freq", "Frequency", base.NONE)
     local cs_channel        = ProtoField.uint16("catsniffer.channel", "Channel", base.DEC)
     local cs_rssi           = ProtoField.int32("catsniffer.rssi", "RSSI", base.DEC)
-    -- local cs_snr            = ProtoField.uint16("catsniffer.snr", "Signal-to-Noise", base.DEC)
     local cs_payload_length = ProtoField.int32("catsniffer.length", "Payload Length", base.DEC)
-    local cs_payload_data = ProtoField.bytes("catsniffer.payload", "Payload")
+    local cs_payload_data   = ProtoField.bytes("catsniffer.payload", "Payload")
 
     catsniffer_rpi_lora_p.fields = {
         cs_version,
@@ -104,18 +103,6 @@ function build_catsniffer_rpi_lora()
         rssi = tvbuf(RSSI_OFFSET, RSSI_SIZE)
         subtree_radio_packet:add_le(cs_rssi, rssi):append_text(" dBm")
 
-        -- Display SNR
-        -- snr = tvbuf(STATUS_OFFSET, STATUS_SIZE)
-        -- subtree_radio_packet:add_le(cs_snr, snr):append_text(" dB")
-        -- Display Status
-        -- status = tvbuf(STATUS_OFFSET, STATUS_SIZE):le_uint()
-        -- status_subtree = subtree_radio_packet:add_le(cs_status, status)
-        -- if status == STATUS_OK then
-        --     status_subtree:append_text(" - OK")
-        -- else
-        --     status_subtree:append_text(" - BAD FCS")
-        -- end
-
         -- Foward the packet to the BLE dissector
         local payloadTvb = tvbuf(PAYLOAD_OFFSET) -- :tvb()
         local subtree_data_packet = root:add(catsniffer_rpi_lora_p, payloadTvb, "LoRa Data")
@@ -123,14 +110,7 @@ function build_catsniffer_rpi_lora()
         payload_length = tvbuf:reported_len() - PAYLOAD_OFFSET
         subtree_data_packet:add(cs_payload_length, payload_length):set_generated(true):append_text(" Bytes")
 
-        -- subtree_data_packet:add_packet_field(cs_payload_data, tvbuf(PAYLOAD_OFFSET, payload_length))
-        -- subtree_data_packet:add(cs_payload_data, tostring(tvbuf(PAYLOAD_OFFSET)))
         subtree_data_packet:add(cs_payload_data, payloadTvb)
-        -- local ble_dissector = Dissector.get("catsniffer_blepi")
-        -- ble_dissector:call(payloadTvb, pktinfo, root)
-
-        -- local lora_dissector = Dissector.get("catsniffer_lorapi")
-        -- lora_dissector:call(payloadTvb, pktinfo, root)
 
         return tvbuf:captured_len()
     end
