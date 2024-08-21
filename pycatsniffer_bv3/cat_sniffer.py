@@ -79,15 +79,6 @@ def list_ports():
         for port in ports:
             typer.echo(port)
 
-# 10:41:42.800 -> Frequency = 915.00 MHz
-# 10:41:42.800 -> Bandwidth = 125 kHz
-# 10:41:42.800 -> Spreading Factor = 7
-# 10:41:42.800 -> Coding Rate = 4/5
-# 10:41:42.800 -> Sync Word = 0x12
-# 10:41:42.800 -> Preamble Length = 8
-# 10:41:42.800 -> InvertIQ = disabled
-# 10:41:42.800 -> Output Power = 20
-# 10:41:42.800 -> Rx active = 0
 
 @app.command("lora", no_args_is_help=True, short_help="Sniff LoRa communication. 915MHz, 125kHz, SF7, CR 4/5")
 def lora_sniff(comport: str = typer.Argument(
@@ -194,6 +185,7 @@ If you are running in Windows, you need first set the Environment Variable to ca
     sniffer_collector.run_workers()
     Cmd.CMDInterface(sniffer_collector).cmdloop()
 
+
 @app.command("bsniff", no_args_is_help=True)
 def board_sniff(comport: str = typer.Argument(
         default="/dev/ttyACM0", help="Serial port to use for sniffing."
@@ -277,6 +269,10 @@ If you are running in Windows, you need first set the Environment Variable to ca
 
     sniffer_collector.set_is_catsniffer(1)
     sniffer_collector.set_protocol_phy(phy)
+    if channel not in sniffer_collector.get_protocol_phy().list_channel_range:
+        typer.echo(f"Error: Invalid channel: {channel}.")
+        sys.exit(1)
+    
     sniffer_collector.set_protocol_channel(channel)
     output_workers = []
     
