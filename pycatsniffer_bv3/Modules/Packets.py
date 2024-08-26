@@ -20,6 +20,69 @@ class PacketResponsesTypes(BaseEnum):
     DATA = 0xC0
     ERROR = 0xC1
 
+class LoraGeneralUARTPacket:
+    def __init__(self, packet_bytes: bytes) -> None:
+        self.type_packet = "LoraUARTPacket"
+        self.packet_bytes = packet_bytes
+        # Packet Components
+        self.start_of_frame = b""
+        self.packet_info = b""
+        self.packet_length = b""
+        self.bytes_payload = b""
+        self.end_of_frame = b""
+        self.unpack()
+    
+    def unpack(self) -> None:
+        (
+            self.start_of_frame,
+            self.packet_length,
+        ) = struct.unpack_from("<HH", self.packet_bytes)
+        self.bytes_payload = self.packet_bytes[4:-2]
+        (self.end_of_frame,) = struct.unpack_from("<H", self.packet_bytes[-2:])
+    
+    def get_payload_hex(self) -> str:
+        return binascii.hexlify(self.packet_bytes)
+
+    def digiest(self) -> str:
+        return f"""{self.type_packet}:
+SOF    : {self.start_of_frame} - EOF: {self.end_of_frame}
+Packet Length : {self.packet_length} {int(self.packet_length).to_bytes(2, byteorder="little")}
+Bytes  Payload: {self.bytes_payload}"""
+
+    def hex_digiest(self, packet_bytes: bytes) -> str:
+        string_hex = packet_bytes.hex()
+        return " ".join([string_hex[i : i + 2] for i in range(0, len(string_hex), 2)])
+
+    def __str__(self) -> str:
+        return self.digiest()
+
+
+class LoraUARTPacket(LoraGeneralUARTPacket):
+    def __init__(self, packet_bytes: bytes) -> None:
+        super().__init__(packet_bytes)
+        self.type_packet = "LoraUARTPacket"
+        self.payload = b""
+        self.rssi = b""
+        self.snr = b""
+        self.unpack()
+
+    def unpack(self) -> None:
+        super().unpack()
+        self.payload = self.bytes_payload[:-2]
+        (self.rssi, ) = struct.unpack_from("<H", self.bytes_payload[-2:])
+        #self.rssi = self.bytes_payload[-2:]
+        # self.snr = self.bytes_payload[-1:]
+
+    def digiest(self) -> str:
+        return (
+            super().digiest()
+            + f"""
+RSSI     : {self.rssi}
+SNR      : {self.snr}
+Payload  : {self.payload}
+DATA     : {binascii.hexlify(self.packet_bytes)}
+"""
+        )
 
 class GeneralUARTPacket:
     def __init__(self, packet_bytes: bytes) -> None:
@@ -49,7 +112,10 @@ class GeneralUARTPacket:
         )
 
     def is_command_response_packet(self) -> bool:
-        return self.get_packet_category() == PacketCategories.COMMAND_RESPONSE.value or self.get_packet_category() == PacketCategories.COMMAND.value
+        return (
+            self.get_packet_category() == PacketCategories.COMMAND_RESPONSE.value
+            or self.get_packet_category() == PacketCategories.COMMAND.value
+        )
 
     def __unpack_packet_info(self) -> tuple:
         """Unpack the packet info.
