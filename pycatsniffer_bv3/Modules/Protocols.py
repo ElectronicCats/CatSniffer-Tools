@@ -84,7 +84,7 @@ class Protocol:
         return b""
 
     def get_channel_range_bytes(self, channel: int) -> int:
-        """Return the channel range in bytes"""
+        """Return the channel range in bytes"""        
         for _channel in self.channel_range:
             if _channel[0] == channel:
                 return _channel
@@ -140,6 +140,14 @@ class Protocol:
             self.command_start(),
         ]
 
+
+    @property
+    def list_channel_range(self):
+        channels = []
+        for channel in self.channel_range:
+            channels.append(channel[0])
+        return channels
+    
     def __str__(self):
         return f"PHY Index: {self.phy_index}\nName: {self.name}\nPHY Label: {self.phy_label}\nBase Frequency: {self.base_frequency}\nSpacing: {self.spacing}\nChannel Range: {self.channel_range}\nPCAP Header: {self.pcap_header}"
 
@@ -167,9 +175,28 @@ PROTOCOL_IEEE = Protocol(
 )
 
 
+class LoraProtocol(Protocol):
+    def __init__(self, packet_bytes: bytes) -> None:
+        super().__init__(packet_bytes)
+        self.badwidth_range = [7.8, 10.4, 15.6, 20.8, 31.25, 41.7, 62.5, 125, 250.0, 500.0]
+
+    def set_badwidth(self, badwidth_index: int) -> None:
+        self.badwidth = self.badwidth_range[badwidth_index]
+
+PROTOCOL_LORA = Protocol(
+    phy_index=bytearray([0x14]),
+    name="LoRa",
+    phy_label="915 MHz - Freq Band",
+    base_frequency=915.0,
+    spacing=125,
+    channel_range=[(0, 433), (1, 434), (2, 435)],
+    pcap_header=148,
+)
+
 class PROTOCOLSLIST(Definitions.BaseEnum):
     PROTOCOL_BLE: Protocol = PROTOCOL_BLE
     PROTOCOL_IEEE: Protocol = PROTOCOL_IEEE
+    PROTOCOL_LORA: Protocol = PROTOCOL_LORA
 
     @classmethod
     def get_list_protocols(cls):

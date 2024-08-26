@@ -6,4 +6,4 @@ pyserial==3.5
 rich==13.7.0
 typer==0.9.0
 typing_extensions==4.9.0
-pywin32
+pywin32; sys_platform == 'windows'
