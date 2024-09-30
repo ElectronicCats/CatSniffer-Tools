@@ -17,6 +17,7 @@ import os
 import time
 import json
 import sys
+import subprocess
 
 if platform.system() == "Windows":
     DEFAULT_COMPORT = "COM1"
@@ -50,22 +51,25 @@ def LOG_SUCCESS(message):
     print(f"\x1b[32;1m[SUCCESS] {message}\x1b[0m")
 
 def validate_python_call():
-    command = "python --version"
-    output = os.popen(command).read()
-    if output.find("Python 3.") == -1:
-        command = "python3 --version"
-        output = os.popen(command).read()
-        if output.find("Python 3.") == -1:
-            LOG_ERROR("Python 3 is required to run this program.")
-            sys.exit(1)
-        
-        return "python3"
-    
-    return "python"
+    try:
+        output = subprocess.check_output(["python", "--version"], stderr=subprocess.STDOUT)
+        output = output.decode("utf-8").strip()
+        if output.startswith("Python 3."):
+            return "python"
+    except Exception:
+        pass
+    try:
+        output = subprocess.check_output(["python3", "--version"], stderr=subprocess.STDOUT)
+        output = output.decode("utf-8").strip()
+        if output.startswith("Python 3."):
+            return "python3"
+    except Exception:
+        pass
+    print("Error: Python 3 is required to run this program.")
+    sys.exit(1)
 
 def validate_firmware_selected(firmware_selected: int):
     get_release = release_handler.get_local_releases_dict()
-    #get_release = release_handler.get_release()
     LOG_INFO(f"Validating selected firmware: {firmware_selected} - {get_release[firmware_selected]}")
     if firmware_selected not in get_release:
         LOG_ERROR(f"Selected firmware invalid: {firmware_selected}")
