@@ -301,11 +301,6 @@ def cli_sniff(
     comport: str = typer.Argument(
         default="/dev/ttyACM0", help="Serial port to use for sniffing."
     ),
-    address: str = typer.Argument(
-        default=DEFAULT_INIT_ADDRESS,
-        show_default=True,
-        help=f"Set the Initiator Address.",
-    ),
     verbose: bool = typer.Option(
         False,
         "-v",
@@ -410,7 +405,6 @@ If you are running in Windows, you need first set the Environment Variable to ca
         comport,
         phy,
         channel,
-        address,
         hopping
     )
     # Wait for a user interaction
@@ -429,7 +423,6 @@ def setup_sniffer(
     comport,
     phy,
     channel,
-    address,
     hopping
 ):
     output_workers = []
@@ -439,10 +432,6 @@ def setup_sniffer(
         sys.exit(1)
 
     sniffer_collector.set_protocol_phy(phy)
-    # if hopping:
-    #     if int(phy) == 0:
-    #         typer.echo("BLE Hopping not supported")
-    #     else:
     sniffer_collector.set_channel_hopping(hopping=hopping)
     
     if not hopping:
@@ -468,14 +457,6 @@ def setup_sniffer(
             output_workers.append(Wireshark.Wireshark(fifo_name))
 
     sniffer_collector.set_output_workers(output_workers)
-
-    if address != DEFAULT_INIT_ADDRESS:
-        if not validate_access_address(address):
-            typer.echo("Error: Invalid address")
-            sys.exit(1)
-        address = address.replace(":", "")
-        address = binascii.unhexlify(address)
-
     sniffer_collector.run_workers()
 
 

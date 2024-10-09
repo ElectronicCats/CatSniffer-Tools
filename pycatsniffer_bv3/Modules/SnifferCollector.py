@@ -331,7 +331,6 @@ class SnifferCollector(threading.Thread):
             self.sniffer_worker.add_worker(
                 threading.Thread(target=self.hopper_worker, daemon=True)
             )
-        #threading.Thread(target=self.hopper_worker, daemon=True).start()
         self.sniffer_worker.start_all_workers()
 
     def stop_workers(self):
