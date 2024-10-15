@@ -18,6 +18,8 @@ import time
 import json
 import sys
 import subprocess
+from rich.console import Console
+from rich.table import Table
 
 if platform.system() == "Windows":
     DEFAULT_COMPORT = "COM1"
@@ -82,6 +84,7 @@ class Release:
         self.temp_filename = "releases.json"
         self.tag_version = None 
         self.release_json = self.__fetch_release()
+        self.description = None
     
     def __fetch_assets(self):
         """Fetch the assets from the release."""
@@ -98,6 +101,8 @@ class Release:
             LOG_INFO(f"Release: {req_release_data['tag_name']}")
 
             self.tag_version = req_release_data['tag_name']
+            body_description = request_release.json()['body']
+            self.description = body_description
 
             # Sniffle
             request_release_sniffle = requests.get(f"{GITHUB_RELEASE_URL_SNIFFLE}")
@@ -162,6 +167,9 @@ class Release:
                     self.write_json_file(self.temp_filename, content_bytes.read().decode())
                     self.release_data = self.read_json_file(self.temp_filename)
                 else:
+                    with open(os.path.join(f"releases_{self.tag_version}", "descriptions.txt"), "w") as ft:
+                        ft.write(self.description)
+                        ft.close()
                     # To avoid the uf3 files until we have a way to upload them
                     if asset["url"].find("nccgroup") != -1 and asset["name"] != f"{GITHUB_SNIFFLE_HEX}.hex":
                         continue
@@ -235,6 +243,9 @@ class Release:
         release_folder = self.find_folder_releases()
         if release_folder is not None:
             list_files = os.listdir(release_folder)
+            for lis in list_files:
+                if lis == "descriptions.txt":
+                    list_files.remove(lis)
             return self.__create_dict_release(list_files)
         return {}
 
@@ -269,6 +280,24 @@ class Release:
         
         return os.path.join(self.find_folder_releases(), releases_firmware[firmware_selected])
 
+    def normalize_firmware_name(self, name):
+        name = name.lower()
+        name = name.split("_v")[0]
+        return name
+    
+    def get_firmware_description(self, firmware_key, descriptions):
+        normalized_name = self.normalize_firmware_name(firmware_key)
+        for line in descriptions.strip().split('\n'):
+            try:
+                key, description = line.split(": ", 1)
+                if normalized_name.startswith("nccgroup"):
+                    if key.startswith("Sniffle"):
+                        return description
+                if self.normalize_firmware_name(key) == normalized_name:
+                    return description
+            except ValueError:
+                pass
+        return "Description not found"
 
 class BoardUart:
     def __init__(self, serial_port: str = DEFAULT_COMPORT):
@@ -325,6 +354,8 @@ class BoardUart:
         os.remove(TMP_FILE)
     
 
+    
+
 release_handler = Release()
 
 app = typer.Typer(
@@ -338,9 +369,21 @@ app = typer.Typer(
 def list_releases():
     """List all available releases"""
     LOG_SUCCESS("Available releases:")
+    table = Table(title="Releases")
+    table.add_column("Index", style="cyan")
+    table.add_column("Release", style="cyan")
+    table.add_column("Description", style="cyan")
     get_release = release_handler.get_release()
+    exist_prev_release = release_handler.find_folder_releases()
+    description = ""
+    with open(os.path.join(exist_prev_release, "descriptions.txt"), "r") as ft:
+        description = ft.read()
+        ft.close()
     for release in get_release:
-        typer.echo(f"{release}: {get_release[release]}")
+        find_description = release_handler.get_firmware_description(get_release[release].replace(".hex", ""), description)
+        table.add_row(str(release), get_release[release], find_description)
+    console = Console()
+    console.print(table)
 
 @app.command("load")
 def load_firmware(firmware_selected: int = typer.Argument(
