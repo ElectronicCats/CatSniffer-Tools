@@ -74,7 +74,6 @@ class UART(threading.Thread):
 
     def recv_catsniffer(self):
         try:
-            time.sleep(0.01)
             bytestream = self.serial_worker.read_until((END_OF_FRAME+START_OF_FRAME))
             sof_index = 0
 
@@ -91,9 +90,7 @@ class UART(threading.Thread):
 
     def recv_boards(self):
         try:
-            time.sleep(0.01)
             bytestream = self.serial_worker.read_until(END_OF_FRAME)
-            print(bytestream)
             filter_bytes = bytestream.replace(b'\n', b'').replace(b'\r', b'')
             sof_index = filter_bytes.find(START_OF_FRAME)
             if sof_index != -1:
