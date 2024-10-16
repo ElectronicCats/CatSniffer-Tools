@@ -4,6 +4,7 @@ import threading
 import typer
 import sys
 import platform
+from traceback import format_exception
 from .Worker import WorkerManager
 from .UART import UART
 from .Pcap import Pcap
@@ -13,10 +14,30 @@ from .Protocols import PROTOCOL_BLE, PROTOCOL_IEEE, PROTOCOL_LORA, PROTOCOLSLIST
 from .Utils import LOG_ERROR, LOG_WARNING, LOG_INFO
 
 
+class TrivialLogger:
+    def _log(self, msg, *args, exc_info=None, **kwargs):
+        msg = msg % args
+        print(msg, file=sys.stderr)
+        if exc_info:
+            if isinstance(exc_info, BaseException):
+                exc_info = (type(exc_info), exc_info, exc_info.__traceback__)
+            elif not isinstance(exc_info, tuple):
+                exc_info = sys.exc_info()
+            exc_str = ''.join(format_exception(*exc_info))
+            print(exc_str, file=sys.stderr)
+
+    debug = _log
+    info = _log
+    warning = _log
+    error = _log
+    critical = _log
+    exception = _log
+
+
 class SnifferCollector(threading.Thread):
     """Worker class for the sniffer collector"""
 
-    def __init__(self):
+    def __init__(self, logger=None):
         super().__init__()
         self.sniffer_data = None
         self.sniffer_worker = WorkerManager()
@@ -44,6 +65,7 @@ class SnifferCollector(threading.Thread):
         self.lora_frequency = 0
         self.lora_spreading_factor = 0
         self.lora_coding_rate = 0
+        self.logger = logger if logger else TrivialLogger()
 
     def set_is_catsniffer(self, is_catsniffer: int):   
         self.is_catsniffer = is_catsniffer
@@ -101,6 +123,7 @@ class SnifferCollector(threading.Thread):
         """Set the protocol channel for the sniffer"""
         get_channel = self.protocol.get_channel_range_bytes(channel)
         self.protocol_freq_channel = get_channel[0]
+        self.logger.info(f"Channel: {self.protocol_freq_channel}")
 
     def close_board_uart(self):
         self.board_uart.close()
@@ -246,11 +269,14 @@ class SnifferCollector(threading.Thread):
             elif self.protocol == PROTOCOL_IEEE:
                 ieee_packet = IEEEUARTPacket(general_packet.packet_bytes)
                 packet = ieee_packet
+                self.logger.debug(f"RECV -> {packet.get_payload_hex()}")
             else:
+                self.logger.error("Protocol not supported yet")
                 LOG_WARNING("Protocol not supported yet")
                 LOG_WARNING(f"Packet -> {general_packet}")
         except Exception as e:
-            LOG_WARNING(f"\nDissector Error -> {e}")
+            self.logger.error(f"Dissector Error -> {e}")
+            LOG_WARNING(f"Dissector Error -> {e}")
             LOG_WARNING(f"Packet -> {general_packet}")
             return packet
 
@@ -268,8 +294,6 @@ class SnifferCollector(threading.Thread):
                     self.last_timestamp = time.time()
                     if len(self.hopp_channels) == 0:
                         self.hopp_channels = self.protocol.get_channel_range()
-                        print(self.hopp_channels)
-
                     if self.last_channel_index > (len(self.hopp_channels) - 1):
                         self.last_channel_index = 0
                     self.set_protocol_channel(self.hopp_channels[self.last_channel_index][0])
@@ -302,8 +326,6 @@ class SnifferCollector(threading.Thread):
                     self.board_uart.send(b"set_rx\r\n")
                 self.board_uart.set_serial_baudrate(115200)
             
-            
-
             while not self.sniffer_recv_cancel:
                 frame = self.board_uart.recv()
                 if frame is not None:
@@ -313,6 +335,7 @@ class SnifferCollector(threading.Thread):
                 time.sleep(0.01)
         except Exception as e:
             LOG_ERROR(e)
+            self.logger.error(e)
         finally:
             self.close_board_uart()
 
@@ -331,10 +354,12 @@ class SnifferCollector(threading.Thread):
             self.sniffer_worker.add_worker(
                 threading.Thread(target=self.hopper_worker, daemon=True)
             )
+        #threading.Thread(target=self.hopper_worker, daemon=True).start()
         self.sniffer_worker.start_all_workers()
 
     def stop_workers(self):
         typer.echo("Stoping workers")
+        self.logger.info("Stoping workers")
         self.send_command_stop()
         self.sniffer_recv_cancel = True
         time.sleep(0.5)
@@ -344,6 +369,7 @@ class SnifferCollector(threading.Thread):
 
     def delete_all_workers(self):
         typer.echo("Cleaning Workers")
+        self.logger.info("Cleaning Workers")
         for output_worker in self.output_workers:
             output_worker.stop_thread()
             output_worker.join(DEFAULT_TIMEOUT_JOIN)
