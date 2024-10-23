@@ -9,7 +9,7 @@ Firs we need to clone the [CatSniffer tools set](https://github.com/ElectronicCa
 └── pycatsniffer_bv3
 ```
 
-Create a virtual environment to install the requirements, for more information about the **cc2538-bsl** read the [documentation repo](https://github.com/ElectronicCats/CatSniffer-Tools/tree/main/cc2538-bsl).
+Create a virtual environment to install the requirements, for more information about the **cc2538-bsl** read the [documentation repo](https://github.com/ElectronicCats/CatSniffer/wiki/05.-Uploading-Firmware#python-tool-cc2538-bslpy).
 
 ## Catnip Uploader
 
@@ -23,7 +23,7 @@ Once the requirements are successfully installed we can upload the firmware:
 - Find the index of the *sniffer_fw_CC1352P_7.hex* and run the next command with the path of the port assigned to the board:
 	- `python3 catnip_uploader.py load 0 <PORTCOM>`
 
-For more information about the **Catnip Uploader** read the [repo](https://github.com/ElectronicCats/CatSniffer-Tools/tree/catnip/catnip_uploader).
+For more information about the **Catnip Uploader** read the [repo](https://github.com/ElectronicCats/CatSniffer/wiki/05.-Uploading-Firmware#catnip-uploader-tool-catnip_uploaderpy).
 
 > [!NOTE]
 > if you have oldest version or you are not sure about what version of the **SerialPassthroughwithboot** you have, read the [**CC2538-bsl**](https://github.com/ElectronicCats/CatSniffer-Tools/tree/main/cc2538-bsl) to know how to upload the firmware with oldest version.
@@ -59,10 +59,10 @@ To use wireshark and show the information we need to configure the USER DLT valu
 - Click in *Ok* button
 - Click in *Ok* button
 
-if you have doubts with the installation read the [repo](https://github.com/ElectronicCats/CatSniffer-Tools/tree/catnip/pycatsniffer_bv3).
+if you have doubts with the installation read the [repo](https://github.com/ElectronicCats/CatSniffer/wiki/05.-Uploading-Firmware#catnip-uploader-tool-catnip_uploaderpy).
 
 # Sniffing
-To know how the *PyCatsniffer* works, please read the [repo](https://github.com/ElectronicCats/CatSniffer-Tools/tree/catnip/pycatsniffer_bv3).
+To know how the *PyCatsniffer* works, please read the [repo](https://github.com/ElectronicCats/CatSniffer/wiki/05.-Uploading-Firmware#catnip-uploader-tool-catnip_uploaderpy).
 
 We run the next command to sniff the IEEE 802.15.4 protocol, channel 11 and create a wireshark pipeline:
 `python3 pycatsniffer.py /dev/cu.usbmodem101 -phy 1 -ch 11 -ff -ws -v`
