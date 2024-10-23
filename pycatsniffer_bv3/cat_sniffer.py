@@ -80,34 +80,44 @@ def list_ports():
             typer.echo(port)
 
 
-@app.command("lora", no_args_is_help=True, short_help="Sniff LoRa communication. 915MHz, 125kHz, SF7, CR 4/5")
-def lora_sniff(comport: str = typer.Argument(
+@app.command(
+    "lora",
+    no_args_is_help=True,
+    short_help="Sniff LoRa communication. 915MHz, 125kHz, SF7, CR 4/5",
+)
+def lora_sniff(
+    comport: str = typer.Argument(
         default="/dev/ttyACM0", help="Serial port to use for sniffing."
-    ),freq: float = typer.Option(
+    ),
+    freq: float = typer.Option(
         915.0,
         "-frq",
         "--frequency",
         show_default=True,
         help="Set the Frequency in MHz. Range: 150 - 960 MHz.",
-    ), channel: int = typer.Option(
+    ),
+    channel: int = typer.Option(
         0,
         "-ch",
         "--channel",
         show_default=True,
-        help="Set the Channel. Value between 0 and 63"
-    ), bandwidth: int = typer.Option(
+        help="Set the Channel. Value between 0 and 63",
+    ),
+    bandwidth: int = typer.Option(
         7,
         "-bw",
         "--bandwidth",
         show_default=True,
         help="Set the Bandwidth in kHz. Index-Range: 0:7.8 1:10.4 2:15.6 3:20.8 4:31.25 5:41.7 6:62.5 7:125 8:250.0 9:500.0 kHz.",
-    ), spread_factor: int = typer.Option(
+    ),
+    spread_factor: int = typer.Option(
         7,
         "-sf",
         "--spread-factor",
         show_default=True,
         help="Set the Spreading Factor. Range: 6 - 12.",
-    ), coding_rate: int = typer.Option(
+    ),
+    coding_rate: int = typer.Option(
         5,
         "-cr",
         "--coding-rate",
@@ -140,7 +150,8 @@ def lora_sniff(comport: str = typer.Argument(
 **Note**: If you have wireshark installed, you can open it with the command: wireshark -k -i /tmp/{Fifo.DEFAULT_FILENAME}.
 If you are running in Windows, you need first set the Environment Variable to call wireshark as command.""",
         rich_help_panel=HELP_PANEL_OUTPUT,
-    )):
+    ),
+):
     if not sniffer_collector.set_board_uart(comport):
         typer.echo("Error: Invalid serial port not connection found")
         sys.exit(1)
@@ -148,11 +159,11 @@ If you are running in Windows, you need first set the Environment Variable to ca
     if freq < 150 or freq > 960:
         typer.echo("Error: Invalid frequency range")
         sys.exit(1)
-    
+
     if bandwidth > 9:
         typer.echo("Error: Invalid bandwidth range")
         sys.exit(1)
-    
+
     if spread_factor < 6 or spread_factor > 12:
         typer.echo("Error: Invalid spread factor range")
         sys.exit(1)
@@ -187,7 +198,8 @@ If you are running in Windows, you need first set the Environment Variable to ca
 
 
 @app.command("bsniff", no_args_is_help=True)
-def board_sniff(comport: str = typer.Argument(
+def board_sniff(
+    comport: str = typer.Argument(
         default="/dev/ttyACM0", help="Serial port to use for sniffing."
     ),
     phy: str = typer.Option(
@@ -261,7 +273,8 @@ def board_sniff(comport: str = typer.Argument(
 **Note**: If you have wireshark installed, you can open it with the command: wireshark -k -i /tmp/{Fifo.DEFAULT_FILENAME}.
 If you are running in Windows, you need first set the Environment Variable to call wireshark as command.""",
         rich_help_panel=HELP_PANEL_OUTPUT,
-    )):
+    ),
+):
     """Create a sniffer instance to sniff the communication between a compatible board and Wireshark. **For more information**: python cat_sniffer.py sniff --help"""
     if not sniffer_collector.set_board_uart(comport):
         typer.echo("Error: Invalid serial port not connection found")
@@ -272,10 +285,10 @@ If you are running in Windows, you need first set the Environment Variable to ca
     if channel not in sniffer_collector.get_protocol_phy().list_channel_range:
         typer.echo(f"Error: Invalid channel: {channel}.")
         sys.exit(1)
-    
+
     sniffer_collector.set_protocol_channel(channel)
     output_workers = []
-    
+
     if dumpfile or dumpfile_name != HexDumper.HexDumper.DEFAULT_FILENAME:
         output_workers.append(HexDumper.HexDumper(dumpfile_name))
 
@@ -293,7 +306,6 @@ If you are running in Windows, you need first set the Environment Variable to ca
     sniffer_collector.set_output_workers(output_workers)
     sniffer_collector.run_workers()
     Cmd.CMDInterface(sniffer_collector).cmdloop()
-
 
 
 @app.command("sniff", no_args_is_help=True)
@@ -321,8 +333,8 @@ def cli_sniff(
         "--channel",
         help=f"Set the Protocol Channel to sniff.",
     ),
-
-    hopping: bool = typer.Option(False,
+    hopping: bool = typer.Option(
+        False,
         "-chop",
         "--hopp",
         is_flag=True,
@@ -405,7 +417,7 @@ If you are running in Windows, you need first set the Environment Variable to ca
         comport,
         phy,
         channel,
-        hopping
+        hopping,
     )
     # Wait for a user interaction
     Cmd.CMDInterface(sniffer_collector).cmdloop()
@@ -423,7 +435,7 @@ def setup_sniffer(
     comport,
     phy,
     channel,
-    hopping
+    hopping,
 ):
     output_workers = []
 
@@ -433,12 +445,12 @@ def setup_sniffer(
 
     sniffer_collector.set_protocol_phy(phy)
     sniffer_collector.set_channel_hopping(hopping=hopping)
-    
+
     if not hopping:
         if channel not in sniffer_collector.get_protocol_phy().list_channel_range:
             typer.echo(f"Error: Invalid channel: {channel}.")
             sys.exit(1)
-    
+
     sniffer_collector.set_protocol_channel(channel)
     sniffer_collector.set_verbose_mode(verbose)
 

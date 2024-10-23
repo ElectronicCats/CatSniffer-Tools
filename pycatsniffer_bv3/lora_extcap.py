@@ -24,42 +24,44 @@ from serial.tools.list_ports import comports
 
 scriptName = os.path.basename(sys.argv[0])
 
-CTRL_NUM_LOGGER       = 0
-CTRL_NUM_REGION       = 1
-CTRL_NUM_CHANNEL      = 2
+CTRL_NUM_LOGGER = 0
+CTRL_NUM_REGION = 1
+CTRL_NUM_CHANNEL = 2
 CTRL_NUM_SPREADFACTOR = 3
-CTRL_NUM_BANDWIDTH    = 4
-CTRL_NUM_CODINGRATE   = 5
+CTRL_NUM_BANDWIDTH = 4
+CTRL_NUM_CODINGRATE = 5
 # Loggers
 CTRL_CMD_INITIALIZED = 0
-CTRL_CMD_SET         = 1
-CTRL_CMD_ADD         = 2
-CTRL_CMD_REMOVE      = 3
-CTRL_CMD_ENABLE      = 4
-CTRL_CMD_DISABLE     = 5
-CTRL_CMD_STATUSBAR   = 6
+CTRL_CMD_SET = 1
+CTRL_CMD_ADD = 2
+CTRL_CMD_REMOVE = 3
+CTRL_CMD_ENABLE = 4
+CTRL_CMD_DISABLE = 5
+CTRL_CMD_STATUSBAR = 6
 CTRL_CMD_INFORMATION = 7
-CTRL_CMD_WARNING     = 8
-CTRL_CMD_ERROR       = 9
+CTRL_CMD_WARNING = 8
+CTRL_CMD_ERROR = 9
 # Board and protocol
-CATSNIFFER_BOARD     = 2
-CATSNIFFER_DLT       = 148
-CATSNIFFER_VID       = 11914
-CATSNIFFER_PID       = 192
+CATSNIFFER_BOARD = 2
+CATSNIFFER_DLT = 148
+CATSNIFFER_VID = 11914
+CATSNIFFER_PID = 192
+
 
 class UsageError(Exception):
     pass
 
+
 class SnifferExtcapPlugin:
     def __init__(self) -> None:
-        self.args                = None
-        self.logger              = None
-        self.hw                  = SCollector.SnifferCollector(logger=logging.getLogger("sniffer_hw"))
-        self.captureStream       = None
-        self.controlReadStream   = None
-        self.controlWriteStream  = None
-        self.controlThread       = None
-        self.captureStopped      = False
+        self.args = None
+        self.logger = None
+        self.hw = SCollector.SnifferCollector(logger=logging.getLogger("sniffer_hw"))
+        self.captureStream = None
+        self.controlReadStream = None
+        self.controlWriteStream = None
+        self.controlThread = None
+        self.captureStopped = False
         self.controlsInitialized = False
 
     def main(self, args=None):
@@ -80,7 +82,7 @@ class SnifferExtcapPlugin:
         log_levels = os.environ.get(
             "CATSNIFER_LOG_LEVEL", "DEBUG" if log_files else "INFO"
         ).upper()
-        
+
         logging.basicConfig(
             handlers=log_handlers,
             level=log_levels,
@@ -89,7 +91,6 @@ class SnifferExtcapPlugin:
         )
 
         self.logger = logging.getLogger(scriptName)
-        
 
         ret = 0
 
@@ -225,7 +226,7 @@ class SnifferExtcapPlugin:
     def parseArgs(self):
         # Determine the operation being performed
         if not self.args.op or len(self.args.op) != 1:
-            
+
             raise UsageError(
                 "Please specify exactly one of --capture, --extcap-version, --extcap-interfaces, --extcap-dlts or --extcap-config"
             )
@@ -238,9 +239,8 @@ class SnifferExtcapPlugin:
         self.args.bandwidth = int(self.args.bandwidth)
         self.args.coding_rate = int(self.args.coding_rate)
 
-        
         self.logger.setLevel(self.args.log_level)
-        
+
         if self.args.op == "capture" and not self.args.extcap_interface:
             raise UsageError(
                 "Please specify the --extcap-interface option when capturing"
@@ -287,16 +287,24 @@ class SnifferExtcapPlugin:
         lines.append("value {control=%d}{value=4}{display=31.25}" % CTRL_NUM_BANDWIDTH)
         lines.append("value {control=%d}{value=5}{display=41.7}" % CTRL_NUM_BANDWIDTH)
         lines.append("value {control=%d}{value=6}{display=62.5}" % CTRL_NUM_BANDWIDTH)
-        lines.append("value {control=%d}{value=7}{display=125}{default=true}" % CTRL_NUM_BANDWIDTH)
+        lines.append(
+            "value {control=%d}{value=7}{display=125}{default=true}"
+            % CTRL_NUM_BANDWIDTH
+        )
         lines.append("value {control=%d}{value=8}{display=250}" % CTRL_NUM_BANDWIDTH)
         # Spreading Factor
         for i in range(7, 13):
-            lines.append("value {control=%d}{value=%d}{display=%d}" % (CTRL_NUM_SPREADFACTOR, i, i))
+            lines.append(
+                "value {control=%d}{value=%d}{display=%d}"
+                % (CTRL_NUM_SPREADFACTOR, i, i)
+            )
         # Coding Rate
         for i in range(5, 9):
-          lines.append("value {control=%d}{value=%d}{display=4/%d}" % (CTRL_NUM_CODINGRATE, i, i))
+            lines.append(
+                "value {control=%d}{value=%d}{display=4/%d}"
+                % (CTRL_NUM_CODINGRATE, i, i)
+            )
 
-        
         return "\n".join(lines)
 
     def extcap_dlts(self):
@@ -349,7 +357,9 @@ class SnifferExtcapPlugin:
             if port.vid is not None and port.pid is not None:
                 if port.vid == CATSNIFFER_VID and port.pid == CATSNIFFER_PID:
                     displayName = "%s - CatSniffer" % (port.device)
-                    lines.append("value {arg=0}{value=%s}{display=%s}" % (device, displayName))
+                    lines.append(
+                        "value {arg=0}{value=%s}{display=%s}" % (device, displayName)
+                    )
             else:
                 if port.manufacturer is not None:
                     displayName = "%s - %s" % (port.device, port.manufacturer)
@@ -358,7 +368,7 @@ class SnifferExtcapPlugin:
                 other_ports.append((device, displayName))
         for device, displayName in other_ports:
             lines.append("value {arg=0}{value=%s}{display=%s}" % (device, displayName))
-          
+
         # Region
         # lines.append("value {arg=1}{value=433}{display=433}")
         # lines.append("value {arg=1}{value=868}{display=868}")
@@ -381,7 +391,7 @@ class SnifferExtcapPlugin:
         lines.append("value {arg=4}{value=8}{display=250}")
         # Coding Rate
         for i in range(5, 9):
-          lines.append("value {arg=5}{value=%d}{display=4/%d}" % (i, i))
+            lines.append("value {arg=5}{value=%d}{display=4/%d}" % (i, i))
         # Logger
         lines.append("value {arg=6}{value=DEBUG}{display=DEBUG}")
         lines.append("value {arg=6}{value=INFO}{display=INFO}")
@@ -421,7 +431,9 @@ class SnifferExtcapPlugin:
             self.hw.set_output_workers([Fifo.FifoLinux(self.args.fifo)])
         # start the capture
         self.hw.run_workers()
-        self.writeControlMessage(CTRL_CMD_SET, CTRL_NUM_BANDWIDTH, str(self.args.bandwidth))
+        self.writeControlMessage(
+            CTRL_CMD_SET, CTRL_NUM_BANDWIDTH, str(self.args.bandwidth)
+        )
 
         # capture packets and write to the capture output until signaled to stop
         while not self.captureStopped:
@@ -469,29 +481,39 @@ class SnifferExtcapPlugin:
                 if cmd == CTRL_CMD_INITIALIZED:
                     self.controlsInitialized = True
                 elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_CHANNEL:
-                        self.logger.info("Changing channel: %s" % payload)
-                        self.args.channel = int(payload)
-                        self.hw.set_lora_channel(self.args.channel)
-                        self.hw.set_and_send_lora_config()
-                        self.writeControlMessage(CTRL_CMD_SET, CTRL_NUM_CHANNEL, str(self.args.channel))
+                    self.logger.info("Changing channel: %s" % payload)
+                    self.args.channel = int(payload)
+                    self.hw.set_lora_channel(self.args.channel)
+                    self.hw.set_and_send_lora_config()
+                    self.writeControlMessage(
+                        CTRL_CMD_SET, CTRL_NUM_CHANNEL, str(self.args.channel)
+                    )
                 elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_SPREADFACTOR:
-                        self.logger.info("Changing Spread factor: %s" % payload)
-                        self.args.spread_factor = int(payload)
-                        self.hw.set_lora_spread_factor(self.args.spread_factor)
-                        self.hw.set_and_send_lora_config()
-                        self.writeControlMessage(CTRL_CMD_SET, CTRL_NUM_SPREADFACTOR, str(self.args.spread_factor))
+                    self.logger.info("Changing Spread factor: %s" % payload)
+                    self.args.spread_factor = int(payload)
+                    self.hw.set_lora_spread_factor(self.args.spread_factor)
+                    self.hw.set_and_send_lora_config()
+                    self.writeControlMessage(
+                        CTRL_CMD_SET,
+                        CTRL_NUM_SPREADFACTOR,
+                        str(self.args.spread_factor),
+                    )
                 elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_BANDWIDTH:
-                        self.logger.info("Changing bandwidth: %s" % payload)
-                        self.args.bandwidth = int(payload)
-                        self.hw.set_lora_bandwidth(self.args.bandwidth)
-                        self.hw.set_and_send_lora_config()
-                        self.writeControlMessage(CTRL_CMD_SET, CTRL_NUM_BANDWIDTH, str(self.args.bandwidth))
+                    self.logger.info("Changing bandwidth: %s" % payload)
+                    self.args.bandwidth = int(payload)
+                    self.hw.set_lora_bandwidth(self.args.bandwidth)
+                    self.hw.set_and_send_lora_config()
+                    self.writeControlMessage(
+                        CTRL_CMD_SET, CTRL_NUM_BANDWIDTH, str(self.args.bandwidth)
+                    )
                 elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_CODINGRATE:
-                        self.logger.info("Changing coding rate: %s" % payload)
-                        self.args.coding_rate = int(payload)
-                        self.hw.set_lora_coding_rate(self.args.coding_rate)
-                        self.hw.set_and_send_lora_config()
-                        self.writeControlMessage(CTRL_CMD_SET, CTRL_NUM_CODINGRATE, str(self.args.coding_rate))
+                    self.logger.info("Changing coding rate: %s" % payload)
+                    self.args.coding_rate = int(payload)
+                    self.hw.set_lora_coding_rate(self.args.coding_rate)
+                    self.hw.set_and_send_lora_config()
+                    self.writeControlMessage(
+                        CTRL_CMD_SET, CTRL_NUM_CODINGRATE, str(self.args.coding_rate)
+                    )
 
         except EOFError:
             # Wireshark closed the control FIFO, indicating it is done capturing
@@ -556,6 +578,7 @@ class SnifferExtcapPlugin:
 
         # signal the main thread that capturing has been stopped
         self.captureStopped = True
+
 
 class SniffleExtcapLogHandler(logging.Handler):
     def __init__(self, plugin):

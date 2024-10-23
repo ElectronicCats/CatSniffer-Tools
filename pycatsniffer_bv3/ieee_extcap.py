@@ -24,41 +24,43 @@ from serial.tools.list_ports import comports
 
 scriptName = os.path.basename(sys.argv[0])
 
-CTRL_NUM_LOGGER      = 0
-CTRL_NUM_ADVCHAN     = 1
-CTRL_NUM_CHHOP       = 2
-CTRL_BTN_CHANGECHAN  = 3
+CTRL_NUM_LOGGER = 0
+CTRL_NUM_ADVCHAN = 1
+CTRL_NUM_CHHOP = 2
+CTRL_BTN_CHANGECHAN = 3
 # Loggers
 CTRL_CMD_INITIALIZED = 0
-CTRL_CMD_SET         = 1
-CTRL_CMD_ADD         = 2
-CTRL_CMD_REMOVE      = 3
-CTRL_CMD_ENABLE      = 4
-CTRL_CMD_DISABLE     = 5
-CTRL_CMD_STATUSBAR   = 6
+CTRL_CMD_SET = 1
+CTRL_CMD_ADD = 2
+CTRL_CMD_REMOVE = 3
+CTRL_CMD_ENABLE = 4
+CTRL_CMD_DISABLE = 5
+CTRL_CMD_STATUSBAR = 6
 CTRL_CMD_INFORMATION = 7
-CTRL_CMD_WARNING     = 8
-CTRL_CMD_ERROR       = 9
+CTRL_CMD_WARNING = 8
+CTRL_CMD_ERROR = 9
 # Board and protocol
-CATSNIFFER_BOARD     = 0
+CATSNIFFER_BOARD = 0
 CATSNIFFER_MODE_IEEE = 1
-CATSNIFFER_DLT       = 147
-CATSNIFFER_VID       = 11914
-CATSNIFFER_PID       = 192
+CATSNIFFER_DLT = 147
+CATSNIFFER_VID = 11914
+CATSNIFFER_PID = 192
+
 
 class UsageError(Exception):
     pass
 
+
 class SnifferExtcapPlugin:
     def __init__(self) -> None:
-        self.args                = None
-        self.logger              = None
-        self.hw                  = SCollector.SnifferCollector(logger=logging.getLogger("sniffer_hw"))
-        self.captureStream       = None
-        self.controlReadStream   = None
-        self.controlWriteStream  = None
-        self.controlThread       = None
-        self.captureStopped      = False
+        self.args = None
+        self.logger = None
+        self.hw = SCollector.SnifferCollector(logger=logging.getLogger("sniffer_hw"))
+        self.captureStream = None
+        self.controlReadStream = None
+        self.controlWriteStream = None
+        self.controlThread = None
+        self.captureStopped = False
         self.controlsInitialized = False
 
     def main(self, args=None):
@@ -79,7 +81,7 @@ class SnifferExtcapPlugin:
         log_levels = os.environ.get(
             "CATSNIFER_LOG_LEVEL", "DEBUG" if log_files else "INFO"
         ).upper()
-        
+
         logging.basicConfig(
             handlers=log_handlers,
             level=log_levels,
@@ -88,7 +90,6 @@ class SnifferExtcapPlugin:
         )
 
         self.logger = logging.getLogger(scriptName)
-        
 
         ret = 0
 
@@ -203,7 +204,7 @@ class SnifferExtcapPlugin:
     def parseArgs(self):
         # Determine the operation being performed
         if not self.args.op or len(self.args.op) != 1:
-            
+
             raise UsageError(
                 "Please specify exactly one of --capture, --extcap-version, --extcap-interfaces, --extcap-dlts or --extcap-config"
             )
@@ -211,9 +212,9 @@ class SnifferExtcapPlugin:
 
         # Parse --channel argument
         self.args.channel = int(self.args.channel)
-        
+
         self.logger.setLevel(self.args.log_level)
-        
+
         if self.args.op == "capture" and not self.args.extcap_interface:
             raise UsageError(
                 "Please specify the --extcap-interface option when capturing"
@@ -251,7 +252,10 @@ class SnifferExtcapPlugin:
                     % (CTRL_NUM_ADVCHAN, i, i)
                 )
             else:
-                lines.append("value {control=%d}{value=%d}{display=%d}" % (CTRL_NUM_ADVCHAN, i, i))
+                lines.append(
+                    "value {control=%d}{value=%d}{display=%d}"
+                    % (CTRL_NUM_ADVCHAN, i, i)
+                )
         return "\n".join(lines)
 
     def extcap_dlts(self):
@@ -280,18 +284,10 @@ class SnifferExtcapPlugin:
         lines.append(
             "arg {number=3}{call=--log-level}{type=selector}{display=Log Level}{tooltip=Set the log level}{default=INFO}{group=Logger}"
         )
-        lines.append(
-            "value {arg=3}{value=DEBUG}{display=DEBUG}"
-        )
-        lines.append(
-            "value {arg=3}{value=INFO}{display=INFO}"
-        )
-        lines.append(
-            "value {arg=3}{value=WARNING}{display=WARNING}"
-        )
-        lines.append(
-            "value {arg=3}{value=ERROR}{display=ERROR}"
-        )
+        lines.append("value {arg=3}{value=DEBUG}{display=DEBUG}")
+        lines.append("value {arg=3}{value=INFO}{display=INFO}")
+        lines.append("value {arg=3}{value=WARNING}{display=WARNING}")
+        lines.append("value {arg=3}{value=ERROR}{display=ERROR}")
         other_ports = []
         for port in comports():
             if sys.platform == "win32":
@@ -301,7 +297,9 @@ class SnifferExtcapPlugin:
             if port.vid is not None and port.pid is not None:
                 if port.vid == CATSNIFFER_VID and port.pid == CATSNIFFER_PID:
                     displayName = "%s - CatSniffer" % (port.device)
-                    lines.append("value {arg=0}{value=%s}{display=%s}" % (device, displayName))
+                    lines.append(
+                        "value {arg=0}{value=%s}{display=%s}" % (device, displayName)
+                    )
             else:
                 if port.manufacturer is not None:
                     displayName = "%s - %s" % (port.device, port.manufacturer)
@@ -379,7 +377,7 @@ class SnifferExtcapPlugin:
         if self.hw.sniffer_recv_cancel:
             self.hw.stop_workers()
             self.hw.delete_all_workers()
-        
+
         if self.controlWriteStream is not None:
             self.controlWriteStream.close()
 
@@ -392,20 +390,24 @@ class SnifferExtcapPlugin:
                 if cmd == CTRL_CMD_INITIALIZED:
                     self.controlsInitialized = True
                 elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_ADVCHAN:
-                        self.logger.info("Changing channel: %s" % payload)
-                        self.args.channel = int(payload)
-                        self.hw.set_protocol_channel(int(self.args.channel))
-                        self.hw.send_command_start()
-                        self.writeControlMessage(CTRL_CMD_SET, CTRL_NUM_ADVCHAN, str(self.args.channel))
+                    self.logger.info("Changing channel: %s" % payload)
+                    self.args.channel = int(payload)
+                    self.hw.set_protocol_channel(int(self.args.channel))
+                    self.hw.send_command_start()
+                    self.writeControlMessage(
+                        CTRL_CMD_SET, CTRL_NUM_ADVCHAN, str(self.args.channel)
+                    )
                 elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_CHHOP:
-                        self.logger.info("Changing channel hopping: %s" % payload)
-                        if payload == int(1):
-                            self.args.chhop = True
-                        else:
-                            self.args.chhop = False
-                        self.hw.set_channel_hopping(self.args.chhop)
-                        self.hw.send_command_start()
-                        self.writeControlMessage(CTRL_CMD_SET, CTRL_NUM_CHHOP, str(self.args.chhop))
+                    self.logger.info("Changing channel hopping: %s" % payload)
+                    if payload == int(1):
+                        self.args.chhop = True
+                    else:
+                        self.args.chhop = False
+                    self.hw.set_channel_hopping(self.args.chhop)
+                    self.hw.send_command_start()
+                    self.writeControlMessage(
+                        CTRL_CMD_SET, CTRL_NUM_CHHOP, str(self.args.chhop)
+                    )
 
         except EOFError:
             # Wireshark closed the control FIFO, indicating it is done capturing
@@ -470,6 +472,7 @@ class SnifferExtcapPlugin:
 
         # signal the main thread that capturing has been stopped
         self.captureStopped = True
+
 
 class SniffleExtcapLogHandler(logging.Handler):
     def __init__(self, plugin):

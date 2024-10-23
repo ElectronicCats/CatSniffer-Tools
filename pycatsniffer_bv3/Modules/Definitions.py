@@ -75,6 +75,7 @@ class SnifferBoards(BaseEnum):
     CATSNIFFER_LORA = 1
     BADGE = 2
 
+
 class PacketCommand:
     def __init__(self, packet_info, payload=b""):
         self.start_of_frame = START_OF_FRAME
