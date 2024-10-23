@@ -4,7 +4,7 @@
 #
 #
 #  @file
-#       A Wireshark extcap plug-in for real time packet capture using Sniffle.
+#       A Wireshark extcap plug-in for real time packet capture using CatSniffer.
 #
 
 import sys
@@ -24,10 +24,12 @@ from serial.tools.list_ports import comports
 
 scriptName = os.path.basename(sys.argv[0])
 
-CTRL_NUM_LOGGER      = 0
-CTRL_NUM_ADVCHAN     = 1
-CTRL_NUM_CHHOP       = 2
-CTRL_BTN_CHANGECHAN  = 3
+CTRL_NUM_LOGGER       = 0
+CTRL_NUM_REGION       = 1
+CTRL_NUM_CHANNEL      = 2
+CTRL_NUM_SPREADFACTOR = 3
+CTRL_NUM_BANDWIDTH    = 4
+CTRL_NUM_CODINGRATE   = 5
 # Loggers
 CTRL_CMD_INITIALIZED = 0
 CTRL_CMD_SET         = 1
@@ -40,16 +42,15 @@ CTRL_CMD_INFORMATION = 7
 CTRL_CMD_WARNING     = 8
 CTRL_CMD_ERROR       = 9
 # Board and protocol
-CATSNIFFER_BOARD     = 0
-CATSNIFFER_MODE_IEEE = 1
-CATSNIFFER_DLT       = 147
+CATSNIFFER_BOARD     = 2
+CATSNIFFER_DLT       = 148
 CATSNIFFER_VID       = 11914
 CATSNIFFER_PID       = 192
 
 class UsageError(Exception):
     pass
 
-class SniffleExtcapPlugin:
+class SnifferExtcapPlugin:
     def __init__(self) -> None:
         self.args                = None
         self.logger              = None
@@ -180,16 +181,37 @@ class SniffleExtcapPlugin:
         )
         argParser.add_argument("--serport", help="Sniffer serial port name")
         argParser.add_argument(
-            "--advchan",
+            "--region",
+            type=float,
+            default=915,
+            help="Regiion to listen on",
+        )
+        argParser.add_argument(
+            "--channel",
             type=int,
-            default=11,
-            choices=[i for i in range(11, 28)],
+            default=0,
             help="Advertising channel to listen on",
         )
         argParser.add_argument(
-            "--chhop",
-            action="store_true",
-            help="Channel Hop to recognize channels (Beta)",
+            "--spread-factor",
+            type=int,
+            default=7,
+            choices=[i for i in range(7, 13)],
+            help="Spreading factor to listen on",
+        )
+        argParser.add_argument(
+            "--bandwidth",
+            type=int,
+            default=7,
+            choices=[i for i in range(9)],
+            help="Bandwidth to listen on",
+        )
+        argParser.add_argument(
+            "--coding-rate",
+            type=int,
+            default=5,
+            choices=[i for i in range(5, 8)],
+            help="Coding rate to listen on",
         )
         argParser.add_argument(
             "--log-level",
@@ -209,8 +231,13 @@ class SniffleExtcapPlugin:
             )
         self.args.op = self.args.op[0]
 
-        # Parse --advchan argument
-        self.args.advchan = int(self.args.advchan)
+        self.args.region = float(self.args.region)
+        # Parse --channel argument
+        self.args.channel = int(self.args.channel)
+        self.args.spread_factor = int(self.args.spread_factor)
+        self.args.bandwidth = int(self.args.bandwidth)
+        self.args.coding_rate = int(self.args.coding_rate)
+
         
         self.logger.setLevel(self.args.log_level)
         
@@ -224,38 +251,57 @@ class SniffleExtcapPlugin:
             raise UsageError("Please specify the --serport option when capturing")
 
     def extcap_version(self):
-        return "extcap {version=1.0}{display=CatSniffer IEEE 802.15.4}{help=https://github.com/ElectronicCats/CatSniffer}"
+        return "extcap {version=1.0}{display=CatSniffer Lora}{help=https://github.com/ElectronicCats/CatSniffer}"
 
     def extcap_interfaces(self):
         lines = []
         lines.append(self.extcap_version())
-        lines.append("interface {value=catsniffer}{display=CatSniffer}")
+        lines.append("interface {value=catsniffer_lora}{display=CatSniffer Lora}")
         lines.append(
             "control {number=%d}{type=button}{role=logger}{display=Log}{tooltip=Show capture log}"
             % CTRL_NUM_LOGGER
         )
         lines.append(
-            "control {number=%d}{type=selector}{display=Channel}{tooltip=Channel to listen on}"
-            % CTRL_NUM_ADVCHAN
+            "control {number=%d}{type=string}{display=Channel}{tooltip=Channel to listen on}"
+            % CTRL_NUM_CHANNEL
         )
         lines.append(
-            "control {number=%d}{type=boolean}{display=Channel hopping}{default=false}{tooltip=Channel hopping to recognize channels (Beta)}"
-            % CTRL_NUM_CHHOP
+            "control {number=%d}{type=selector}{display=Bandwidth}{tooltip=Bandwidth to listen on}"
+            % CTRL_NUM_BANDWIDTH
         )
+        lines.append(
+            "control {number=%d}{type=selector}{display=Spreading Factor}{tooltip=Spreading Factor to listen on}"
+            % CTRL_NUM_SPREADFACTOR
+        )
+        lines.append(
+            "control {number=%d}{type=selector}{display=Coding Rate}{tooltip=Coding Rate to listen on}"
+            % CTRL_NUM_CODINGRATE
+        )
+        # Channel
+        lines.append("value {control=%d}{value=0}{display=0}" % CTRL_NUM_CHANNEL)
+        # Bandwidth
+        lines.append("value {control=%d}{value=0}{display=7.8}" % CTRL_NUM_BANDWIDTH)
+        lines.append("value {control=%d}{value=1}{display=10.4}" % CTRL_NUM_BANDWIDTH)
+        lines.append("value {control=%d}{value=2}{display=15.6}" % CTRL_NUM_BANDWIDTH)
+        lines.append("value {control=%d}{value=3}{display=20.8}" % CTRL_NUM_BANDWIDTH)
+        lines.append("value {control=%d}{value=4}{display=31.25}" % CTRL_NUM_BANDWIDTH)
+        lines.append("value {control=%d}{value=5}{display=41.7}" % CTRL_NUM_BANDWIDTH)
+        lines.append("value {control=%d}{value=6}{display=62.5}" % CTRL_NUM_BANDWIDTH)
+        lines.append("value {control=%d}{value=7}{display=125}{default=true}" % CTRL_NUM_BANDWIDTH)
+        lines.append("value {control=%d}{value=8}{display=250}" % CTRL_NUM_BANDWIDTH)
+        # Spreading Factor
+        for i in range(7, 13):
+            lines.append("value {control=%d}{value=%d}{display=%d}" % (CTRL_NUM_SPREADFACTOR, i, i))
+        # Coding Rate
+        for i in range(5, 9):
+          lines.append("value {control=%d}{value=%d}{display=4/%d}" % (CTRL_NUM_CODINGRATE, i, i))
 
-        for i in range(11, 28):
-            if i == int(self.args.advchan):
-                lines.append(
-                    "value {control=%d}{value=%d}{display=%d}{default=true}"
-                    % (CTRL_NUM_ADVCHAN, i, i)
-                )
-            else:
-                lines.append("value {control=%d}{value=%d}{display=%d}" % (CTRL_NUM_ADVCHAN, i, i))
+        
         return "\n".join(lines)
 
     def extcap_dlts(self):
         return (
-            "dlt {number=%d}{name=catsniffer_rpi}{display=CatSniffer IEEE 802.15.4 link-layer}"
+            "dlt {number=%d}{name=catsniffer_rpi_lora}{display=CatSniffer Lora link-layer}"
             % (CATSNIFFER_DLT)
         )
 
@@ -267,29 +313,32 @@ class SniffleExtcapPlugin:
             "{tooltip=Sniffer device serial port}"
         )
         lines.append(
-            "arg {number=1}{call=--advchan}{type=selector}{default=11}"
-            "{display=Sniffer Channel}"
+            "arg {number=1}{call=--region}{type=double}{default=915}"
+            "{display=Region}"
+            "{tooltip=Region to listen on}"
+        )
+        lines.append(
+            "arg {number=2}{call=--channel}{type=integer}{default=0}{range=0,72}"
+            "{display=Channel}"
             "{tooltip=Channel to listen on}"
         )
         lines.append(
-            "arg {number=2}{call=--chhop}{type=boolflag}{default=no}"
-            "{display=Channel hopping}"
-            "{tooltip=Channel hopping to recognize channels (Beta)}"
+            "arg {number=3}{call=--spread-factor}{type=selector}{default=7}"
+            "{display=Spreading Factor}"
+            "{tooltip=Spreading Factor to listen on}"
         )
         lines.append(
-            "arg {number=3}{call=--log-level}{type=selector}{display=Log Level}{tooltip=Set the log level}{default=INFO}{group=Logger}"
+            "arg {number=4}{call=--bandwidth}{type=selector}{default=7}"
+            "{display=Bandwidth}"
+            "{tooltip=Bandwidth to listen on}"
         )
         lines.append(
-            "value {arg=3}{value=DEBUG}{display=DEBUG}"
+            "arg {number=5}{call=--coding-rate}{type=selector}{default=5}"
+            "{display=Coding Rate}"
+            "{tooltip=Coding Rate to listen on}"
         )
         lines.append(
-            "value {arg=3}{value=INFO}{display=INFO}"
-        )
-        lines.append(
-            "value {arg=3}{value=WARNING}{display=WARNING}"
-        )
-        lines.append(
-            "value {arg=3}{value=ERROR}{display=ERROR}"
+            "arg {number=6}{call=--log-level}{type=selector}{display=Log Level}{tooltip=Set the log level}{default=INFO}{group=Logger}"
         )
         other_ports = []
         for port in comports():
@@ -309,8 +358,35 @@ class SniffleExtcapPlugin:
                 other_ports.append((device, displayName))
         for device, displayName in other_ports:
             lines.append("value {arg=0}{value=%s}{display=%s}" % (device, displayName))
-        for i in range(11, 28):
-            lines.append("value {arg=1}{value=%d}{display=%d}" % (i, i))
+          
+        # Region
+        # lines.append("value {arg=1}{value=433}{display=433}")
+        # lines.append("value {arg=1}{value=868}{display=868}")
+        # lines.append("value {arg=1}{value=915}{display=915}{default=true}")
+        # Channel
+        # for i in range(0, 73):
+        #     lines.append("value {arg=2}{value=%d}{display=%d}" % (i, i))
+        # Spreading Factor
+        for i in range(7, 13):
+            lines.append("value {arg=3}{value=%d}{display=%d}" % (i, i))
+        # Bandwidth
+        lines.append("value {arg=4}{value=0}{display=7.8}")
+        lines.append("value {arg=4}{value=1}{display=10.4}")
+        lines.append("value {arg=4}{value=2}{display=15.6}")
+        lines.append("value {arg=4}{value=3}{display=20.8}")
+        lines.append("value {arg=4}{value=4}{display=31.25}")
+        lines.append("value {arg=4}{value=5}{display=41.7}")
+        lines.append("value {arg=4}{value=6}{display=62.5}")
+        lines.append("value {arg=4}{value=7}{display=125}{default=true}")
+        lines.append("value {arg=4}{value=8}{display=250}")
+        # Coding Rate
+        for i in range(5, 9):
+          lines.append("value {arg=5}{value=%d}{display=4/%d}" % (i, i))
+        # Logger
+        lines.append("value {arg=6}{value=DEBUG}{display=DEBUG}")
+        lines.append("value {arg=6}{value=INFO}{display=INFO}")
+        lines.append("value {arg=6}{value=WARNING}{display=WARNING}")
+        lines.append("value {arg=6}{value=ERROR}{display=ERROR}")
         return "\n".join(lines)
 
     def capture(self):
@@ -323,14 +399,16 @@ class SniffleExtcapPlugin:
             while not self.controlsInitialized:
                 time.sleep(0.1)
 
-        self.logger.info("Initializing Sniffle hardware interface")
+        self.logger.info("Initializing CatSniffer hardware interface")
 
-        # initialize the Sniffle hardware interface
+        # initialize the CatSniffer hardware interface
         self.hw.set_board_uart(self.args.serport)
         self.hw.set_is_catsniffer(CATSNIFFER_BOARD)
-        self.hw.set_protocol_phy(CATSNIFFER_MODE_IEEE)
-        self.hw.set_protocol_channel(self.args.advchan)
-        self.hw.set_channel_hopping(self.args.chhop)
+        self.hw.set_lora_bandwidth(self.args.bandwidth)
+        self.hw.set_lora_channel(self.args.channel)
+        self.hw.set_lora_frequency(self.args.region)
+        self.hw.set_lora_spread_factor(self.args.spread_factor)
+        self.hw.set_lora_coding_rate(self.args.coding_rate)
 
         self.logger.info("Starting capture")
 
@@ -343,6 +421,7 @@ class SniffleExtcapPlugin:
             self.hw.set_output_workers([Fifo.FifoLinux(self.args.fifo)])
         # start the capture
         self.hw.run_workers()
+        self.writeControlMessage(CTRL_CMD_SET, CTRL_NUM_BANDWIDTH, str(self.args.bandwidth))
 
         # capture packets and write to the capture output until signaled to stop
         while not self.captureStopped:
@@ -365,13 +444,6 @@ class SniffleExtcapPlugin:
         if self.args.extcap_control_in is not None:
             self.logger.info("Opening control-in FIFO")
             self.controlReadStream = open(self.args.extcap_control_in, "rb", 0)
-
-        # open the capture output FIFO and initialize the PCAP writer to write to it
-        # if self.args.fifo is not None:
-        #     self.logger.info("Opening capture output FIFO")
-        #     self.hw.set_output_workers([Fifo.FifoLinux(self.args.fifo)])
-            # self.captureStream = open(self.args.fifo, "wb", buffering=0)
-            # self.pcapWriter = PcapBleWriter(self.captureStream)
 
         if self.controlReadStream:
             # start a thread to read control messages
@@ -396,18 +468,30 @@ class SniffleExtcapPlugin:
                 self.logger.info("Control message received: %d %d" % (cmd, controlNum))
                 if cmd == CTRL_CMD_INITIALIZED:
                     self.controlsInitialized = True
-                elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_ADVCHAN:
+                elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_CHANNEL:
                         self.logger.info("Changing channel: %s" % payload)
-                        self.args.advchan = int(payload)
-                        self.hw.set_protocol_channel(int(self.args.advchan))
-                        self.hw.send_command_start()
-                        self.writeControlMessage(CTRL_CMD_SET, CTRL_NUM_ADVCHAN, str(self.args.advchan))
-                elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_CHHOP:
-                        self.logger.info("Changing channel hopping: %s" % payload)
-                        self.args.chhop = payload == b"true"
-                        self.hw.set_channel_hopping(self.args.chhop)
-                        self.hw.send_command_start()
-                        self.writeControlMessage(CTRL_CMD_SET, CTRL_NUM_CHHOP, str(self.args.chhop))
+                        self.args.channel = int(payload)
+                        self.hw.set_lora_channel(self.args.channel)
+                        self.hw.set_and_send_lora_config()
+                        self.writeControlMessage(CTRL_CMD_SET, CTRL_NUM_CHANNEL, str(self.args.channel))
+                elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_SPREADFACTOR:
+                        self.logger.info("Changing Spread factor: %s" % payload)
+                        self.args.spread_factor = int(payload)
+                        self.hw.set_lora_spread_factor(self.args.spread_factor)
+                        self.hw.set_and_send_lora_config()
+                        self.writeControlMessage(CTRL_CMD_SET, CTRL_NUM_SPREADFACTOR, str(self.args.spread_factor))
+                elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_BANDWIDTH:
+                        self.logger.info("Changing bandwidth: %s" % payload)
+                        self.args.bandwidth = int(payload)
+                        self.hw.set_lora_bandwidth(self.args.bandwidth)
+                        self.hw.set_and_send_lora_config()
+                        self.writeControlMessage(CTRL_CMD_SET, CTRL_NUM_BANDWIDTH, str(self.args.bandwidth))
+                elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_CODINGRATE:
+                        self.logger.info("Changing coding rate: %s" % payload)
+                        self.args.coding_rate = int(payload)
+                        self.hw.set_lora_coding_rate(self.args.coding_rate)
+                        self.hw.set_and_send_lora_config()
+                        self.writeControlMessage(CTRL_CMD_SET, CTRL_NUM_CODINGRATE, str(self.args.coding_rate))
 
         except EOFError:
             # Wireshark closed the control FIFO, indicating it is done capturing
@@ -495,4 +579,4 @@ class ArgumentParser(argparse.ArgumentParser):
 
 
 if __name__ == "__main__":
-    sys.exit(SniffleExtcapPlugin().main())
+    sys.exit(SnifferExtcapPlugin().main())
