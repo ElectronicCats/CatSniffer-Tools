@@ -38,7 +38,7 @@ class UART(threading.Thread):
 
     def set_serial_baudrate(self, baudrate: int):
         self.serial_worker.baudrate = baudrate
-    
+
     def set_is_catsniffer(self, board) -> int:
         self.is_catsniffer = board
 
@@ -74,13 +74,13 @@ class UART(threading.Thread):
 
     def recv_catsniffer(self):
         try:
-            bytestream = self.serial_worker.read_until((END_OF_FRAME+START_OF_FRAME))
+            bytestream = self.serial_worker.read_until((END_OF_FRAME + START_OF_FRAME))
             sof_index = 0
 
-            eof_index = bytestream.find((END_OF_FRAME+START_OF_FRAME), sof_index)
+            eof_index = bytestream.find((END_OF_FRAME + START_OF_FRAME), sof_index)
             if eof_index == -1:
-               LOG_WARNING(f"[UART] EOF - {eof_index} not found in {bytestream}")
-               return None
+                LOG_WARNING(f"[UART] EOF - {eof_index} not found in {bytestream}")
+                return None
 
             bytestream = START_OF_FRAME + bytestream[sof_index : eof_index + 2]
             return bytestream
@@ -91,7 +91,7 @@ class UART(threading.Thread):
     def recv_boards(self):
         try:
             bytestream = self.serial_worker.read_until(END_OF_FRAME)
-            filter_bytes = bytestream.replace(b'\n', b'').replace(b'\r', b'')
+            filter_bytes = bytestream.replace(b"\n", b"").replace(b"\r", b"")
             sof_index = filter_bytes.find(START_OF_FRAME)
             if sof_index != -1:
                 filter_bytes = filter_bytes[sof_index:]
@@ -107,4 +107,3 @@ class UART(threading.Thread):
             return self.recv_catsniffer()
         else:
             return self.recv_boards()
-

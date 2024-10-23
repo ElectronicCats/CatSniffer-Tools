@@ -50,6 +50,7 @@ import traceback
 
 try:
     import magic
+
     magic.from_file
     have_magic = True
 except (ImportError, AttributeError):
@@ -57,6 +58,7 @@ except (ImportError, AttributeError):
 
 try:
     from intelhex import IntelHex
+
     have_hex_support = True
 except ImportError:
     have_hex_support = False
@@ -70,28 +72,28 @@ QUIET = 5
 try:
     import serial
 except ImportError:
-    print('{} requires the Python serial library'.format(sys.argv[0]))
-    print('Please install it with:')
-    print('')
-    print('   pip3 install pyserial')
+    print("{} requires the Python serial library".format(sys.argv[0]))
+    print("Please install it with:")
+    print("")
+    print("   pip3 install pyserial")
     sys.exit(1)
 
 
-def mdebug(level, message, attr='\n'):
+def mdebug(level, message, attr="\n"):
     if QUIET >= level:
         print(message, end=attr, file=sys.stderr)
 
-# Takes chip IDs (obtained via Get ID command) to human-readable names
-CHIP_ID_STRS = {0xb964: 'CC2538',
-                0xb965: 'CC2538'
-                }
 
-RETURN_CMD_STRS = {0x40: 'Success',
-                   0x41: 'Unknown command',
-                   0x42: 'Invalid command',
-                   0x43: 'Invalid address',
-                   0x44: 'Flash fail'
-                   }
+# Takes chip IDs (obtained via Get ID command) to human-readable names
+CHIP_ID_STRS = {0xB964: "CC2538", 0xB965: "CC2538"}
+
+RETURN_CMD_STRS = {
+    0x40: "Success",
+    0x41: "Unknown command",
+    0x42: "Invalid command",
+    0x43: "Invalid address",
+    0x44: "Flash fail",
+}
 
 COMMAND_RET_SUCCESS = 0x40
 COMMAND_RET_UNKNOWN_CMD = 0x41
@@ -105,7 +107,7 @@ class CmdException(Exception):
 
 
 class FirmwareFile(object):
-    HEX_FILE_EXTENSIONS = ('hex', 'ihx', 'ihex')
+    HEX_FILE_EXTENSIONS = ("hex", "ihx", "ihex")
 
     def __init__(self, path):
         """
@@ -134,14 +136,16 @@ class FirmwareFile(object):
         if have_magic:
             file_type = magic.from_file(path, mime=True)
 
-            if file_type == 'text/plain':
+            if file_type == "text/plain":
                 firmware_is_hex = True
                 mdebug(5, "Firmware file: Intel Hex")
-            elif file_type == 'application/octet-stream':
+            elif file_type == "application/octet-stream":
                 mdebug(5, "Firmware file: Raw Binary")
             else:
-                error_str = "Could not determine firmware type. Magic " \
-                            "indicates '%s'" % (file_type)
+                error_str = (
+                    "Could not determine firmware type. Magic "
+                    "indicates '%s'" % (file_type)
+                )
                 raise CmdException(error_str)
         else:
             if os.path.splitext(path)[1][1:] in self.HEX_FILE_EXTENSIONS:
@@ -150,8 +154,10 @@ class FirmwareFile(object):
             else:
                 mdebug(5, "Cannot auto-detect firmware filetype: Assuming .bin")
 
-            mdebug(10, "For more solid firmware type auto-detection, install "
-                       "python-magic.")
+            mdebug(
+                10,
+                "For more solid firmware type auto-detection, install " "python-magic.",
+            )
             mdebug(10, "Please see the readme for more details.")
 
         if firmware_is_hex:
@@ -159,14 +165,16 @@ class FirmwareFile(object):
                 self.bytes = bytearray(IntelHex(path).tobinarray())
                 return
             else:
-                error_str = "Firmware is Intel Hex, but the IntelHex library " \
-                            "could not be imported.\n" \
-                            "Install IntelHex in site-packages or program " \
-                            "your device with a raw binary (.bin) file.\n" \
-                            "Please see the readme for more details."
+                error_str = (
+                    "Firmware is Intel Hex, but the IntelHex library "
+                    "could not be imported.\n"
+                    "Install IntelHex in site-packages or program "
+                    "your device with a raw binary (.bin) file.\n"
+                    "Please see the readme for more details."
+                )
                 raise CmdException(error_str)
 
-        with open(path, 'rb') as f:
+        with open(path, "rb") as f:
             self.bytes = bytearray(f.read())
 
     def crc32(self):
@@ -178,7 +186,7 @@ class FirmwareFile(object):
             returned by the ROM bootloader's COMMAND_CRC32
         """
         if self._crc32 == None:
-            self._crc32 = binascii.crc32(bytearray(self.bytes)) & 0xffffffff
+            self._crc32 = binascii.crc32(bytearray(self.bytes)) & 0xFFFFFFFF
 
         return self._crc32
 
@@ -199,20 +207,23 @@ class CommandInterface(object):
         # this stage: We need to set its attributes up depending on what object
         # we get.
         try:
-            self.sp = serial.serial_for_url(aport, do_not_open=True, timeout=10, write_timeout=10)
+            self.sp = serial.serial_for_url(
+                aport, do_not_open=True, timeout=10, write_timeout=10
+            )
         except AttributeError:
             self.sp = serial.Serial(port=None, timeout=10, write_timeout=10)
             self.sp.port = aport
 
-        if ((os.name == 'nt' and isinstance(self.sp, serial.serialwin32.Serial)) or \
-           (os.name == 'posix' and isinstance(self.sp, serial.serialposix.Serial))):
-            self.sp.baudrate=abaudrate        # baudrate
-            self.sp.bytesize=8                # number of databits
-            self.sp.parity=serial.PARITY_NONE # parity
-            self.sp.stopbits=1                # stop bits
-            self.sp.xonxoff=0                 # s/w (XON/XOFF) flow control
-            self.sp.rtscts=0                  # h/w (RTS/CTS) flow control
-            self.sp.timeout=0.5               # set the timeout value
+        if (os.name == "nt" and isinstance(self.sp, serial.serialwin32.Serial)) or (
+            os.name == "posix" and isinstance(self.sp, serial.serialposix.Serial)
+        ):
+            self.sp.baudrate = abaudrate  # baudrate
+            self.sp.bytesize = 8  # number of databits
+            self.sp.parity = serial.PARITY_NONE  # parity
+            self.sp.stopbits = 1  # stop bits
+            self.sp.xonxoff = 0  # s/w (XON/XOFF) flow control
+            self.sp.rtscts = 0  # h/w (RTS/CTS) flow control
+            self.sp.timeout = 0.5  # set the timeout value
 
         self.sp.open()
 
@@ -258,12 +269,13 @@ class CommandInterface(object):
     def _wait_for_ack(self, info="", timeout=1):
         stop = time.time() + timeout
         got = bytearray(2)
-        while got[-2] != 00 or got[-1] not in (CommandInterface.ACK_BYTE,
-                                               CommandInterface.NACK_BYTE):
+        while got[-2] != 00 or got[-1] not in (
+            CommandInterface.ACK_BYTE,
+            CommandInterface.NACK_BYTE,
+        ):
             got += self._read(1)
             if time.time() > stop:
-                raise CmdException("Timeout waiting for ACK/NACK after '%s'"
-                                   % (info,))
+                raise CmdException("Timeout waiting for ACK/NACK after '%s'" % (info,))
 
         # Our bytearray's length is: 2 initial bytes + 2 bytes for the ACK/NACK
         # plus a possible N-4 additional (buffered) bytes
@@ -292,12 +304,14 @@ class CommandInterface(object):
         return bytes([byte0, byte1, byte2, byte3])
 
     def _decode_addr(self, byte0, byte1, byte2, byte3):
-        return ((byte3 << 24) | (byte2 << 16) | (byte1 << 8) | (byte0 << 0))
+        return (byte3 << 24) | (byte2 << 16) | (byte1 << 8) | (byte0 << 0)
 
     def _calc_checks(self, cmd, addr, size):
-        return ((sum(bytearray(self._encode_addr(addr))) +
-                 sum(bytearray(self._encode_addr(size))) +
-                 cmd) & 0xFF)
+        return (
+            sum(bytearray(self._encode_addr(addr)))
+            + sum(bytearray(self._encode_addr(size)))
+            + cmd
+        ) & 0xFF
 
     def _write(self, data, is_retry=False):
         if type(data) == int:
@@ -308,12 +322,10 @@ class CommandInterface(object):
             goal = len(data)
             written = self.sp.write(data)
         else:
-            raise CmdException("Internal Error. Bad data type: {}"
-                               .format(type(data)))
+            raise CmdException("Internal Error. Bad data type: {}".format(type(data)))
 
         if written < goal:
-            mdebug(10, "*** Only wrote {} of target {} bytes"
-                   .format(written, goal))
+            mdebug(10, "*** Only wrote {} of target {} bytes".format(written, goal))
             if is_retry and written == 0:
                 raise CmdException("Failed to write data on the serial bus")
             mdebug(10, "*** Retrying write for remainder")
@@ -374,8 +386,10 @@ class CommandInterface(object):
     def checkLastCmd(self):
         stat = self.cmdGetStatus()
         if not (stat):
-            raise CmdException("No response from target on status request. "
-                               "(Did you disable the bootloader?)")
+            raise CmdException(
+                "No response from target on status request. "
+                "(Did you disable the bootloader?)"
+            )
 
         if stat[0] == COMMAND_RET_SUCCESS:
             mdebug(10, "Command Successful")
@@ -383,8 +397,7 @@ class CommandInterface(object):
         else:
             stat_str = RETURN_CMD_STRS.get(stat[0], None)
             if stat_str == None:
-                mdebug(0, "Warning: unrecognized status returned "
-                          "0x%x" % stat[0])
+                mdebug(0, "Warning: unrecognized status returned " "0x%x" % stat[0])
             else:
                 mdebug(0, "Target returned: 0x%x, %s" % (stat[0], stat_str))
             return 0
@@ -426,8 +439,7 @@ class CommandInterface(object):
             # 4 byte answ, the 2 LSB hold chip ID
             version = self.receivePacket()
             if self.checkLastCmd():
-                assert len(version) == 4, ("Unreasonable chip "
-                                           "id: %s" % repr(version))
+                assert len(version) == 4, "Unreasonable chip " "id: %s" % repr(version)
                 mdebug(10, "    Version 0x%02X%02X%02X%02X" % tuple(version))
                 chip_id = (version[2] << 8) | version[3]
                 return chip_id
@@ -536,8 +548,9 @@ class CommandInterface(object):
         lng = 11
 
         if (size % 4) != 0:  # check for invalid data lengths
-            raise Exception('Invalid data size: %i. '
-                            'Size must be a multiple of 4.' % size)
+            raise Exception(
+                "Invalid data size: %i. " "Size must be a multiple of 4." % size
+            )
 
         self._write(lng)  # send length
         self._write(self._calc_checks(cmd, addr, size))  # send checksum
@@ -551,11 +564,11 @@ class CommandInterface(object):
 
     def cmdSendData(self, data):
         cmd = 0x24
-        lng = len(data)+3
+        lng = len(data) + 3
         # TODO: check total size of data!! max 252 bytes!
 
         self._write(lng)  # send size
-        self._write((sum(bytearray(data))+cmd) & 0xFF)  # send checksum
+        self._write((sum(bytearray(data)) + cmd) & 0xFF)  # send checksum
         self._write(cmd)  # send cmd
         self._write(bytearray(data))  # send data
 
@@ -622,8 +635,7 @@ class CommandInterface(object):
         if self._wait_for_ack("Mem Write (0x2B)", 2):
             return self.checkLastCmd()
 
-
-# Complex commands section
+    # Complex commands section
 
     def writeMemory(self, addr, data):
         lng = len(data)
@@ -634,20 +646,28 @@ class CommandInterface(object):
         # Boot loader enable check
         # TODO: implement check for all chip sizes & take into account partial
         # firmware uploads
-        if (lng == 524288):  # check if file is for 512K model
+        if lng == 524288:  # check if file is for 512K model
             # check the boot loader enable bit  (only for 512K model)
             if not ((data[524247] & (1 << 4)) >> 4):
-                if not (conf['force'] or
-                        query_yes_no("The boot loader backdoor is not enabled "
-                                     "in the firmware you are about to write "
-                                     "to the target. You will NOT be able to "
-                                     "reprogram the target using this tool if "
-                                     "you continue! "
-                                     "Do you want to continue?", "no")):
-                    raise Exception('Aborted by user.')
+                if not (
+                    conf["force"]
+                    or query_yes_no(
+                        "The boot loader backdoor is not enabled "
+                        "in the firmware you are about to write "
+                        "to the target. You will NOT be able to "
+                        "reprogram the target using this tool if "
+                        "you continue! "
+                        "Do you want to continue?",
+                        "no",
+                    )
+                ):
+                    raise Exception("Aborted by user.")
 
-        mdebug(5, "Writing %(lng)d bytes starting at address 0x%(addr)08X" %
-               {'lng': lng, 'addr': addr})
+        mdebug(
+            5,
+            "Writing %(lng)d bytes starting at address 0x%(addr)08X"
+            % {"lng": lng, "addr": addr},
+        )
 
         offs = 0
         addr_set = 0
@@ -655,28 +675,31 @@ class CommandInterface(object):
         # check if amount of remaining data is less then packet size
         while lng > trsf_size:
             # skip packets filled with 0xFF
-            if data[offs:offs+trsf_size] != empty_packet:
+            if data[offs : offs + trsf_size] != empty_packet:
                 if addr_set != 1:
                     # set starting address if not set
                     self.cmdDownload(addr, lng)
                     addr_set = 1
-                mdebug(5, " Write %(len)d bytes at 0x%(addr)08X"
-                       % {'addr': addr, 'len': trsf_size}, '\r')
+                mdebug(
+                    5,
+                    " Write %(len)d bytes at 0x%(addr)08X"
+                    % {"addr": addr, "len": trsf_size},
+                    "\r",
+                )
                 sys.stdout.flush()
 
                 # send next data packet
-                self.cmdSendData(data[offs:offs+trsf_size])
-            else:   # skipped packet, address needs to be set
+                self.cmdSendData(data[offs : offs + trsf_size])
+            else:  # skipped packet, address needs to be set
                 addr_set = 0
 
             offs = offs + trsf_size
             addr = addr + trsf_size
             lng = lng - trsf_size
 
-        mdebug(5, "Write %(len)d bytes at 0x%(addr)08X" % {'addr': addr,
-                                                           'len': lng})
+        mdebug(5, "Write %(len)d bytes at 0x%(addr)08X" % {"addr": addr, "len": lng})
         self.cmdDownload(addr, lng)
-        return self.cmdSendData(data[offs:offs+lng])  # send last data packet
+        return self.cmdSendData(data[offs : offs + lng])  # send last data packet
 
 
 class Chip(object):
@@ -691,22 +714,25 @@ class Chip(object):
     def page_to_addr(self, pages):
         addresses = []
         for page in pages:
-            addresses.append(int(device.flash_start_addr) +
-                             int(page)*self.page_size)
+            addresses.append(int(device.flash_start_addr) + int(page) * self.page_size)
         return addresses
 
     def crc(self, address, size):
         return getattr(self.command_interface, self.crc_cmd)(address, size)
 
     def disable_bootloader(self):
-        if not (conf['force'] or
-                query_yes_no("Disabling the bootloader will prevent you from "
-                             "using this script until you re-enable the "
-                             "bootloader using JTAG. Do you want to continue?",
-                             "no")):
-            raise Exception('Aborted by user.')
+        if not (
+            conf["force"]
+            or query_yes_no(
+                "Disabling the bootloader will prevent you from "
+                "using this script until you re-enable the "
+                "bootloader using JTAG. Do you want to continue?",
+                "no",
+            )
+        ):
+            raise Exception("Aborted by user.")
 
-        pattern = struct.pack('<L', self.bootloader_dis_val)
+        pattern = struct.pack("<L", self.bootloader_dis_val)
 
         if cmd.writeMemory(self.bootloader_address, pattern):
             mdebug(5, "    Set bootloader closed done                      ")
@@ -718,9 +744,9 @@ class CC2538(Chip):
     def __init__(self, command_interface):
         super(CC2538, self).__init__(command_interface)
         self.flash_start_addr = 0x00200000
-        self.addr_ieee_address_secondary = 0x0027ffcc
+        self.addr_ieee_address_secondary = 0x0027FFCC
         self.has_cmd_set_xosc = True
-        self.bootloader_dis_val = 0xefffffff
+        self.bootloader_dis_val = 0xEFFFFFFF
         self.crc_cmd = "cmdCRC32"
 
         FLASH_CTRL_DIECFG0 = 0x400D3014
@@ -747,26 +773,29 @@ class CC2538(Chip):
         pg_minor = pg[2] & 0x0F
 
         ti_oui = bytearray([0x00, 0x12, 0x4B])
-        ieee_addr = self.command_interface.cmdMemRead(
-                                            addr_ieee_address_primary)
-        ieee_addr_end = self.command_interface.cmdMemRead(
-                                            addr_ieee_address_primary + 4)
+        ieee_addr = self.command_interface.cmdMemRead(addr_ieee_address_primary)
+        ieee_addr_end = self.command_interface.cmdMemRead(addr_ieee_address_primary + 4)
         if ieee_addr[:3] == ti_oui:
             ieee_addr += ieee_addr_end
         else:
             ieee_addr = ieee_addr_end + ieee_addr
 
-        mdebug(5, "CC2538 PG%d.%d: %dKB Flash, %dKB SRAM, CCFG at 0x%08X"
-               % (pg_major, pg_minor, self.size >> 10, sram,
-                  self.bootloader_address))
-        mdebug(5, "Primary IEEE Address: %s"
-               % (':'.join('%02X' % x for x in ieee_addr)))
+        mdebug(
+            5,
+            "CC2538 PG%d.%d: %dKB Flash, %dKB SRAM, CCFG at 0x%08X"
+            % (pg_major, pg_minor, self.size >> 10, sram, self.bootloader_address),
+        )
+        mdebug(
+            5, "Primary IEEE Address: %s" % (":".join("%02X" % x for x in ieee_addr))
+        )
 
     def erase(self):
-        mdebug(5, "Erasing %s bytes starting at address 0x%08X"
-               % (self.size, self.flash_start_addr))
-        return self.command_interface.cmdEraseMemory(self.flash_start_addr,
-                                                     self.size)
+        mdebug(
+            5,
+            "Erasing %s bytes starting at address 0x%08X"
+            % (self.size, self.flash_start_addr),
+        )
+        return self.command_interface.cmdEraseMemory(self.flash_start_addr, self.size)
 
     def read_memory(self, addr):
         # CC2538's COMMAND_MEMORY_READ sends each 4-byte number in inverted
@@ -801,20 +830,21 @@ class CC26xx(Chip):
         # Determine CC13xx vs CC26xx via ICEPICK_DEVICE_ID::WAFER_ID and store
         # PG revision
         device_id = self.command_interface.cmdMemReadCC26xx(ICEPICK_DEVICE_ID)
-        wafer_id = (((device_id[3] & 0x0F) << 16) +
-                    (device_id[2] << 8) +
-                    (device_id[1] & 0xF0)) >> 4
+        wafer_id = (
+            ((device_id[3] & 0x0F) << 16) + (device_id[2] << 8) + (device_id[1] & 0xF0)
+        ) >> 4
         pg_rev = (device_id[3] & 0xF0) >> 4
-        
+
         # Read FCFG1_USER_ID to get the package and supported protocols
         user_id = self.command_interface.cmdMemReadCC26xx(FCFG_USER_ID)
-        package = {0x00: '4x4mm',
-                   0x01: '5x5mm',
-                   0x02: '7x7mm',
-                   0x03: 'Wafer',
-                   0x04: '2.7x2.7',
-                   0x05: '7x7mm Q1',
-                   }.get(user_id[2] & 0x03, "Unknown")
+        package = {
+            0x00: "4x4mm",
+            0x01: "5x5mm",
+            0x02: "7x7mm",
+            0x03: "Wafer",
+            0x04: "2.7x2.7",
+            0x05: "7x7mm Q1",
+        }.get(user_id[2] & 0x03, "Unknown")
 
         protocols = user_id[1] >> 4
 
@@ -827,20 +857,21 @@ class CC26xx(Chip):
             chip = self._identify_cc13xx(pg_rev, protocols)
             self.page_size = 8192
         elif wafer_id == 0xBB77:
-            pg_rev=3
+            pg_rev = 3
             chip = self._identify_cc13xx(pg_rev, protocols)
             self.page_size = 8192
 
         # Read flash size, calculate and store bootloader disable address
-        self.size = self.command_interface.cmdMemReadCC26xx(
-                                                FLASH_SIZE)[0] * self.page_size
+        self.size = (
+            self.command_interface.cmdMemReadCC26xx(FLASH_SIZE)[0] * self.page_size
+        )
         self.bootloader_address = self.size - ccfg_len + bootloader_dis_offset
-        self.addr_ieee_address_secondary = (self.size - ccfg_len +
-                                            ieee_address_secondary_offset)
+        self.addr_ieee_address_secondary = (
+            self.size - ccfg_len + ieee_address_secondary_offset
+        )
 
         # RAM size
-        ramhwopt_size = self.command_interface.cmdMemReadCC26xx(
-                                                PRCM_RAMHWOPT)[0] & 3
+        ramhwopt_size = self.command_interface.cmdMemReadCC26xx(PRCM_RAMHWOPT)[0] & 3
         if ramhwopt_size == 3:
             sram = "20KB"
         elif ramhwopt_size == 2:
@@ -850,21 +881,26 @@ class CC26xx(Chip):
 
         # Primary IEEE address. Stored with the MSB at the high address
         ieee_addr = self.command_interface.cmdMemReadCC26xx(
-                                        addr_ieee_address_primary + 4)[::-1]
-        ieee_addr += self.command_interface.cmdMemReadCC26xx(
-                                        addr_ieee_address_primary)[::-1]
+            addr_ieee_address_primary + 4
+        )[::-1]
+        ieee_addr += self.command_interface.cmdMemReadCC26xx(addr_ieee_address_primary)[
+            ::-1
+        ]
 
-        mdebug(5, "%s (%s): %dKB Flash, %s SRAM, CCFG.BL_CONFIG at 0x%08X"
-               % (chip, package, self.size >> 10, sram,
-                  self.bootloader_address))
-        mdebug(5, "Primary IEEE Address: %s"
-               % (':'.join('%02X' % x for x in ieee_addr)))
+        mdebug(
+            5,
+            "%s (%s): %dKB Flash, %s SRAM, CCFG.BL_CONFIG at 0x%08X"
+            % (chip, package, self.size >> 10, sram, self.bootloader_address),
+        )
+        mdebug(
+            5, "Primary IEEE Address: %s" % (":".join("%02X" % x for x in ieee_addr))
+        )
 
     def _identify_cc26xx(self, pg, protocols):
         chips_dict = {
-            CC26xx.PROTO_MASK_IEEE: 'CC2630',
-            CC26xx.PROTO_MASK_BLE: 'CC2640',
-            CC26xx.PROTO_MASK_BOTH: 'CC2650',
+            CC26xx.PROTO_MASK_IEEE: "CC2630",
+            CC26xx.PROTO_MASK_BLE: "CC2640",
+            CC26xx.PROTO_MASK_BOTH: "CC2650",
         }
 
         chip_str = chips_dict.get(protocols & CC26xx.PROTO_MASK_BOTH, "Unknown")
@@ -876,8 +912,7 @@ class CC26xx(Chip):
             pg_str = "PG2.1"
         elif pg == 8 or pg == 0x0B:
             # CC26x0 PG2.2+ or CC26x0R2
-            rev_minor = self.command_interface.cmdMemReadCC26xx(
-                                                CC26xx.MISC_CONF_1)[0]
+            rev_minor = self.command_interface.cmdMemReadCC26xx(CC26xx.MISC_CONF_1)[0]
             if rev_minor == 0xFF:
                 rev_minor = 0x00
 
@@ -886,7 +921,7 @@ class CC26xx(Chip):
                 pg_str = "PG2.%d" % (2 + rev_minor,)
             elif pg == 0x0B:
                 # HW revision R2, update Chip name
-                chip_str += 'R2'
+                chip_str += "R2"
                 pg_str = "PG%d.%d" % (1 + (rev_minor // 10), rev_minor % 10)
 
         return "%s %s" % (chip_str, pg_str)
@@ -899,8 +934,7 @@ class CC26xx(Chip):
         if pg == 0:
             pg_str = "PG1.0"
         elif pg == 2 or pg == 3:
-            rev_minor = self.command_interface.cmdMemReadCC26xx(
-                                                CC26xx.MISC_CONF_1)[0]
+            rev_minor = self.command_interface.cmdMemReadCC26xx(CC26xx.MISC_CONF_1)[0]
             if rev_minor == 0xFF:
                 rev_minor = 0x00
             pg_str = "PG2.%d" % (rev_minor,)
@@ -918,11 +952,7 @@ class CC26xx(Chip):
 
 
 def query_yes_no(question, default="yes"):
-    valid = {"yes": True,
-             "y": True,
-             "ye": True,
-             "no": False,
-             "n": False}
+    valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
     if default == None:
         prompt = " [y/n] "
     elif default == "yes":
@@ -935,13 +965,12 @@ def query_yes_no(question, default="yes"):
     while True:
         sys.stdout.write(question + prompt)
         choice = input().lower()
-        if default != None and choice == '':
+        if default != None and choice == "":
             return valid[default]
         elif choice in valid:
             return valid[choice]
         else:
-            sys.stdout.write("Please respond with 'yes' or 'no' "
-                             "(or 'y' or 'n').\n")
+            sys.stdout.write("Please respond with 'yes' or 'no' " "(or 'y' or 'n').\n")
 
 
 # Convert the entered IEEE address into an integer
@@ -950,16 +979,16 @@ def parse_ieee_address(inaddr):
         return int(inaddr, 16)
     except ValueError:
         # inaddr is not a hex string, look for other formats
-        if ':' in inaddr:
-            bytes = inaddr.split(':')
-        elif '-' in inaddr:
-            bytes = inaddr.split('-')
+        if ":" in inaddr:
+            bytes = inaddr.split(":")
+        elif "-" in inaddr:
+            bytes = inaddr.split("-")
         if len(bytes) != 8:
             raise ValueError("Supplied IEEE address does not contain 8 bytes")
         addr = 0
         for i, b in zip(range(8), bytes):
             try:
-                addr += int(b, 16) << (56-(i*8))
+                addr += int(b, 16) << (56 - (i * 8))
             except ValueError:
                 raise ValueError("IEEE address contains invalid bytes")
         return addr
@@ -972,13 +1001,17 @@ def _parse_range_values(device, values):
             for value in values:
                 try:
                     if int(value) % int(device.page_size) != 0:
-                        raise ValueError("Supplied addresses are not page_size: "
-                                         "{} aligned".format(device.page_size))
+                        raise ValueError(
+                            "Supplied addresses are not page_size: "
+                            "{} aligned".format(device.page_size)
+                        )
                     page_addr_range.append(int(value))
                 except ValueError:
                     if int(value, 16) % int(device.page_size) != 0:
-                        raise ValueError("Supplied addresses are not page_size: "
-                                         "{} aligned".format(device.page_size))
+                        raise ValueError(
+                            "Supplied addresses are not page_size: "
+                            "{} aligned".format(device.page_size)
+                        )
                     page_addr_range.append(int(value, 16))
             return page_addr_range
         except ValueError:
@@ -989,15 +1022,15 @@ def _parse_range_values(device, values):
 
 def parse_page_address_range(device, pg_range):
     """Convert the address/page range into a start address and byte length"""
-    values = pg_range.split(',')
+    values = pg_range.split(",")
     page_addr = []
     # check if first argument is character
     if values[0].isalpha():
         values[0].lower()
-        if values[0] == 'p' or values[0] == 'page':
-            if values[0] == 'p':
+        if values[0] == "p" or values[0] == "page":
+            if values[0] == "p":
                 values[1:] = device.page_to_addr(values[1:])
-        elif values[0] != 'a' and values[0] != 'address':
+        elif values[0] != "a" and values[0] != "address":
             raise ValueError("Prefix is neither a(address) or p(page)")
         page_addr.extend(_parse_range_values(device, values[1:]))
     else:
@@ -1011,19 +1044,21 @@ def parse_page_address_range(device, pg_range):
 def print_version():
     # Get the version using "git describe".
     try:
-        p = Popen(['git', 'describe', '--tags', '--match', '[0-9]*'],
-                  stdout=PIPE, stderr=PIPE)
+        p = Popen(
+            ["git", "describe", "--tags", "--match", "[0-9]*"], stdout=PIPE, stderr=PIPE
+        )
         p.stderr.close()
         line = p.stdout.readlines()[0]
-        version = line.decode('utf-8').strip()
+        version = line.decode("utf-8").strip()
     except:
         # We're not in a git repo, or git failed, use fixed version string.
         version = __version__
-    print('%s %s' % (sys.argv[0], version))
+    print("%s %s" % (sys.argv[0], version))
 
 
 def usage():
-    print("""Usage: %s [-DhqVfewvr] [-l length] [-p port] [-b baud] [-a addr] \
+    print(
+        """Usage: %s [-DhqVfewvr] [-l length] [-p port] [-b baud] [-a addr] \
     [-i addr] [--bootloader-active-high] [--bootloader-invert-lines] [file.bin]
     -h, --help                   This help
     -q                           Quiet
@@ -1051,38 +1086,48 @@ Examples:
     ./%s -e -w -v example/main.bin
     ./%s -e -w -v --ieee-address 00:12:4b:aa:bb:cc:dd:ee example/main.bin
 
-    """ % (sys.argv[0], sys.argv[0], sys.argv[0]))
+    """
+        % (sys.argv[0], sys.argv[0], sys.argv[0])
+    )
+
 
 if __name__ == "__main__":
 
     conf = {
-            'port': 'auto',
-            'baud': 500000,
-            'force_speed': 0,
-            'address': None,
-            'force': 0,
-            'erase': 0,
-            'write': 0,
-            'erase_page': 0,
-            'verify': 0,
-            'read': 0,
-            'len': 0x80000,
-            'fname': '',
-            'ieee_address': 0,
-            'bootloader_active_high': False,
-            'bootloader_invert_lines': False,
-            'disable-bootloader': 0
-        }
+        "port": "auto",
+        "baud": 500000,
+        "force_speed": 0,
+        "address": None,
+        "force": 0,
+        "erase": 0,
+        "write": 0,
+        "erase_page": 0,
+        "verify": 0,
+        "read": 0,
+        "len": 0x80000,
+        "fname": "",
+        "ieee_address": 0,
+        "bootloader_active_high": False,
+        "bootloader_invert_lines": False,
+        "disable-bootloader": 0,
+    }
 
-# http://www.python.org/doc/2.5.2/lib/module-getopt.html
+    # http://www.python.org/doc/2.5.2/lib/module-getopt.html
 
     try:
-        opts, args = getopt.getopt(sys.argv[1:],
-                                   "DhqVfeE:wvrp:b:a:l:i:",
-                                   ['help', 'ieee-address=','erase-page=',
-                                    'disable-bootloader',
-                                    'bootloader-active-high',
-                                    'bootloader-invert-lines', 'version'])
+        opts, args = getopt.getopt(
+            sys.argv[1:],
+            "DhqVfeE:wvrp:b:a:l:i:",
+            [
+                "help",
+                "ieee-address=",
+                "erase-page=",
+                "disable-bootloader",
+                "bootloader-active-high",
+                "bootloader-invert-lines",
+                "version",
+            ],
+        )
     except getopt.GetoptError as err:
         # print help information and exit:
         print(str(err))  # will print something like "option -a not recognized"
@@ -1090,43 +1135,43 @@ if __name__ == "__main__":
         sys.exit(2)
 
     for o, a in opts:
-        if o == '-V':
+        if o == "-V":
             QUIET = 10
-        elif o == '-q':
+        elif o == "-q":
             QUIET = 0
-        elif o == '-h' or o == '--help':
+        elif o == "-h" or o == "--help":
             usage()
             sys.exit(0)
-        elif o == '-f':
-            conf['force'] = 1
-        elif o == '-e':
-            conf['erase'] = 1
-        elif o == '-w':
-            conf['write'] = 1
-        elif o == '-E' or o == '--erase-page':
-            conf['erase_page'] = str(a)
-        elif o == '-v':
-            conf['verify'] = 1
-        elif o == '-r':
-            conf['read'] = 1
-        elif o == '-p':
-            conf['port'] = a
-        elif o == '-b':
-            conf['baud'] = eval(a)
-            conf['force_speed'] = 1
-        elif o == '-a':
-            conf['address'] = eval(a)
-        elif o == '-l':
-            conf['len'] = eval(a)
-        elif o == '-i' or o == '--ieee-address':
-            conf['ieee_address'] = str(a)
-        elif o == '--bootloader-active-high':
-            conf['bootloader_active_high'] = True
-        elif o == '--bootloader-invert-lines':
-            conf['bootloader_invert_lines'] = True
-        elif o == '-D' or o == '--disable-bootloader':
-            conf['disable-bootloader'] = 1
-        elif o == '--version':
+        elif o == "-f":
+            conf["force"] = 1
+        elif o == "-e":
+            conf["erase"] = 1
+        elif o == "-w":
+            conf["write"] = 1
+        elif o == "-E" or o == "--erase-page":
+            conf["erase_page"] = str(a)
+        elif o == "-v":
+            conf["verify"] = 1
+        elif o == "-r":
+            conf["read"] = 1
+        elif o == "-p":
+            conf["port"] = a
+        elif o == "-b":
+            conf["baud"] = eval(a)
+            conf["force_speed"] = 1
+        elif o == "-a":
+            conf["address"] = eval(a)
+        elif o == "-l":
+            conf["len"] = eval(a)
+        elif o == "-i" or o == "--ieee-address":
+            conf["ieee_address"] = str(a)
+        elif o == "--bootloader-active-high":
+            conf["bootloader_active_high"] = True
+        elif o == "--bootloader-invert-lines":
+            conf["bootloader_invert_lines"] = True
+        elif o == "-D" or o == "--disable-bootloader":
+            conf["disable-bootloader"] = 1
+        elif o == "--version":
             print_version()
             sys.exit(0)
         else:
@@ -1135,66 +1180,89 @@ if __name__ == "__main__":
     try:
         # Sanity checks
         # check for input/output file
-        if conf['write'] or conf['read'] or conf['verify']:
+        if conf["write"] or conf["read"] or conf["verify"]:
             try:
                 args[0]
             except:
-                raise Exception('No file path given.')
+                raise Exception("No file path given.")
 
-        if conf['write'] and conf['read']:
-            if not (conf['force'] or
-                    query_yes_no("You are reading and writing to the same "
-                                 "file. This will overwrite your input file. "
-                                 "Do you want to continue?", "no")):
-                raise Exception('Aborted by user.')
-        if (conf['erase'] and conf['read']) or (conf['erase_page'] and conf['read']) and not conf['write']:
-            if not (conf['force'] or
-                    query_yes_no("You are about to erase your target before "
-                                 "reading. Do you want to continue?", "no")):
-                raise Exception('Aborted by user.')
+        if conf["write"] and conf["read"]:
+            if not (
+                conf["force"]
+                or query_yes_no(
+                    "You are reading and writing to the same "
+                    "file. This will overwrite your input file. "
+                    "Do you want to continue?",
+                    "no",
+                )
+            ):
+                raise Exception("Aborted by user.")
+        if (
+            (conf["erase"] and conf["read"])
+            or (conf["erase_page"] and conf["read"])
+            and not conf["write"]
+        ):
+            if not (
+                conf["force"]
+                or query_yes_no(
+                    "You are about to erase your target before "
+                    "reading. Do you want to continue?",
+                    "no",
+                )
+            ):
+                raise Exception("Aborted by user.")
 
-        if conf['read'] and not conf['write'] and conf['verify']:
-            raise Exception('Verify after read not implemented.')
+        if conf["read"] and not conf["write"] and conf["verify"]:
+            raise Exception("Verify after read not implemented.")
 
-        if conf['len'] < 0:
-            raise Exception('Length must be positive but %d was provided'
-                            % (conf['len'],))
+        if conf["len"] < 0:
+            raise Exception(
+                "Length must be positive but %d was provided" % (conf["len"],)
+            )
 
         # Try and find the port automatically
-        if conf['port'] == 'auto':
+        if conf["port"] == "auto":
             ports = []
 
             # Get a list of all USB-like names in /dev
-            for name in ['ttyACM',
-                         'tty.usbserial',
-                         'ttyUSB',
-                         'tty.usbmodem',
-                         'tty.SLAB_USBtoUART']:
-                ports.extend(glob.glob('/dev/%s*' % name))
+            for name in [
+                "ttyACM",
+                "tty.usbserial",
+                "ttyUSB",
+                "tty.usbmodem",
+                "tty.SLAB_USBtoUART",
+            ]:
+                ports.extend(glob.glob("/dev/%s*" % name))
 
             ports = sorted(ports)
 
             if ports:
                 # Found something - take it
-                conf['port'] = ports[0]
+                conf["port"] = ports[0]
             else:
-                raise Exception('No serial port found.')
+                raise Exception("No serial port found.")
 
         cmd = CommandInterface()
-        cmd.open(conf['port'], conf['baud'])
-        cmd.invoke_bootloader(conf['bootloader_active_high'],
-                              conf['bootloader_invert_lines'])
-        mdebug(5, "Opening port %(port)s, baud %(baud)d"
-               % {'port': conf['port'], 'baud': conf['baud']})
-        if conf['write'] or conf['verify']:
+        cmd.open(conf["port"], conf["baud"])
+        cmd.invoke_bootloader(
+            conf["bootloader_active_high"], conf["bootloader_invert_lines"]
+        )
+        mdebug(
+            5,
+            "Opening port %(port)s, baud %(baud)d"
+            % {"port": conf["port"], "baud": conf["baud"]},
+        )
+        if conf["write"] or conf["verify"]:
             mdebug(5, "Reading data from %s" % args[0])
             firmware = FirmwareFile(args[0])
 
         mdebug(5, "Connecting to target...")
 
         if not cmd.sendSynch():
-            raise CmdException("Can't connect to target. Ensure boot loader "
-                               "is started. (no answer on synch sequence)")
+            raise CmdException(
+                "Can't connect to target. Ensure boot loader "
+                "is started. (no answer on synch sequence)"
+            )
 
         # if (cmd.cmdPing() != 1):
         #     raise CmdException("Can't connect to target. Ensure boot loader "
@@ -1204,102 +1272,123 @@ if __name__ == "__main__":
         chip_id_str = CHIP_ID_STRS.get(chip_id, None)
 
         if chip_id_str == None:
-            mdebug(10, '    Unrecognized chip ID. Trying CC13xx/CC26xx')
+            mdebug(10, "    Unrecognized chip ID. Trying CC13xx/CC26xx")
             device = CC26xx(cmd)
         else:
             mdebug(10, "    Target id 0x%x, %s" % (chip_id, chip_id_str))
             device = CC2538(cmd)
 
         # Choose a good default address unless the user specified -a
-        if conf['address'] == None:
-            conf['address'] = device.flash_start_addr
+        if conf["address"] == None:
+            conf["address"] = device.flash_start_addr
 
-        if conf['force_speed'] != 1 and device.has_cmd_set_xosc:
+        if conf["force_speed"] != 1 and device.has_cmd_set_xosc:
             if cmd.cmdSetXOsc():  # switch to external clock source
                 cmd.close()
-                conf['baud'] = 1000000
-                cmd.open(conf['port'], conf['baud'])
-                mdebug(6, "Opening port %(port)s, baud %(baud)d"
-                       % {'port': conf['port'], 'baud': conf['baud']})
+                conf["baud"] = 1000000
+                cmd.open(conf["port"], conf["baud"])
+                mdebug(
+                    6,
+                    "Opening port %(port)s, baud %(baud)d"
+                    % {"port": conf["port"], "baud": conf["baud"]},
+                )
                 mdebug(6, "Reconnecting to target at higher speed...")
-                if (cmd.sendSynch() != 1):
-                    raise CmdException("Can't connect to target after clock "
-                                       "source switch. (Check external "
-                                       "crystal)")
+                if cmd.sendSynch() != 1:
+                    raise CmdException(
+                        "Can't connect to target after clock "
+                        "source switch. (Check external "
+                        "crystal)"
+                    )
             else:
-                raise CmdException("Can't switch target to external clock "
-                                   "source. (Try forcing speed)")
+                raise CmdException(
+                    "Can't switch target to external clock "
+                    "source. (Try forcing speed)"
+                )
 
-        if conf['erase']:
+        if conf["erase"]:
             mdebug(5, "    Performing mass erase")
             if device.erase():
                 mdebug(5, "    Erase done")
             else:
                 raise CmdException("Erase failed")
 
-        if conf['erase_page']:
-            erase_range = parse_page_address_range(device, conf['erase_page'])
-            mdebug(5, "Erasing %d bytes at addres 0x%x"
-                   % (erase_range[1], erase_range[0]))
+        if conf["erase_page"]:
+            erase_range = parse_page_address_range(device, conf["erase_page"])
+            mdebug(
+                5, "Erasing %d bytes at addres 0x%x" % (erase_range[1], erase_range[0])
+            )
             cmd.cmdEraseMemory(erase_range[0], erase_range[1])
             mdebug(5, "    Partial erase done                  ")
 
-        if conf['write']:
+        if conf["write"]:
             # TODO: check if boot loader back-door is open, need to read
             #       flash size first to get address
-            if cmd.writeMemory(conf['address'], firmware.bytes):
+            if cmd.writeMemory(conf["address"], firmware.bytes):
                 mdebug(5, "    Write done                                ")
             else:
                 raise CmdException("Write failed                       ")
 
-        if conf['verify']:
+        if conf["verify"]:
             mdebug(5, "Verifying by comparing CRC32 calculations.")
 
             crc_local = firmware.crc32()
             # CRC of target will change according to length input file
-            crc_target = device.crc(conf['address'], len(firmware.bytes))
+            crc_target = device.crc(conf["address"], len(firmware.bytes))
 
             if crc_local == crc_target:
                 mdebug(5, "    Verified (match: 0x%08x)" % crc_local)
             else:
                 cmd.cmdReset()
-                raise Exception("NO CRC32 match: Local = 0x%x, "
-                                "Target = 0x%x" % (crc_local, crc_target))
+                raise Exception(
+                    "NO CRC32 match: Local = 0x%x, "
+                    "Target = 0x%x" % (crc_local, crc_target)
+                )
 
-        if conf['ieee_address'] != 0:
-            ieee_addr = parse_ieee_address(conf['ieee_address'])
-            mdebug(5, "Setting IEEE address to %s"
-                       % (':'.join(['%02x' % b
-                                    for b in struct.pack('>Q', ieee_addr)])))
-            ieee_addr_bytes = struct.pack('<Q', ieee_addr)
+        if conf["ieee_address"] != 0:
+            ieee_addr = parse_ieee_address(conf["ieee_address"])
+            mdebug(
+                5,
+                "Setting IEEE address to %s"
+                % (":".join(["%02x" % b for b in struct.pack(">Q", ieee_addr)])),
+            )
+            ieee_addr_bytes = struct.pack("<Q", ieee_addr)
 
-            if cmd.writeMemory(device.addr_ieee_address_secondary,
-                               ieee_addr_bytes):
-                mdebug(5, "    "
-                          "Set address done                                ")
+            if cmd.writeMemory(device.addr_ieee_address_secondary, ieee_addr_bytes):
+                mdebug(5, "    " "Set address done                                ")
             else:
                 raise CmdException("Set address failed                       ")
 
-        if conf['read']:
-            length = conf['len']
+        if conf["read"]:
+            length = conf["len"]
 
             # Round up to a 4-byte boundary
             length = (length + 3) & ~0x03
 
-            mdebug(5, "Reading %s bytes starting at address 0x%x"
-                   % (length, conf['address']))
-            with open(args[0], 'wb') as f:
+            mdebug(
+                5,
+                "Reading %s bytes starting at address 0x%x" % (length, conf["address"]),
+            )
+            with open(args[0], "wb") as f:
                 for i in range(0, length >> 2):
                     # reading 4 bytes at a time
-                    rdata = device.read_memory(conf['address'] + (i * 4))
-                    mdebug(5, " 0x%x: 0x%02x%02x%02x%02x"
-                           % (conf['address'] + (i * 4), rdata[0], rdata[1],
-                              rdata[2], rdata[3]), '\r')
+                    rdata = device.read_memory(conf["address"] + (i * 4))
+                    mdebug(
+                        5,
+                        " 0x%x: 0x%02x%02x%02x%02x"
+                        % (
+                            conf["address"] + (i * 4),
+                            rdata[0],
+                            rdata[1],
+                            rdata[2],
+                            rdata[3],
+                        ),
+                        "\r",
+                    )
                     f.write(rdata)
                 f.close()
             mdebug(5, "    Read done                                ")
 
-        if conf['disable-bootloader']:
+        if conf["disable-bootloader"]:
             device.disable_bootloader()
 
         cmd.cmdReset()
@@ -1307,4 +1396,4 @@ if __name__ == "__main__":
     except Exception as err:
         if QUIET >= 10:
             traceback.print_exc()
-        exit('ERROR: %s' % str(err))
+        exit("ERROR: %s" % str(err))

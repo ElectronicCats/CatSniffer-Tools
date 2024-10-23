@@ -147,7 +147,7 @@ function build_catsniffer_rpi_lora()
         -- Display Coding Rate
         coding_rate = tvbuf(CODING_RATE_OFFSET, CODING_RATE_SIZE):le_uint()
         subtree_radio_packet:add(cs_coding_rate, "4/".. coding_rate):append_text(" CR")
-        
+
         -- Display RSSI
         rssi = tvbuf(RSSI_OFFSET, RSSI_SIZE)
         subtree_radio_packet:add(cs_rssi, rssi):append_text(" dBm")

@@ -20,6 +20,7 @@ class PacketResponsesTypes(BaseEnum):
     DATA = 0xC0
     ERROR = 0xC1
 
+
 class LoraGeneralUARTPacket:
     def __init__(self, packet_bytes: bytes) -> None:
         self.type_packet = "LoraUARTPacket"
@@ -31,7 +32,7 @@ class LoraGeneralUARTPacket:
         self.bytes_payload = b""
         self.end_of_frame = b""
         self.unpack()
-    
+
     def unpack(self) -> None:
         (
             self.start_of_frame,
@@ -39,7 +40,7 @@ class LoraGeneralUARTPacket:
         ) = struct.unpack_from("<HH", self.packet_bytes)
         self.bytes_payload = self.packet_bytes[4:-2]
         (self.end_of_frame,) = struct.unpack_from("<H", self.packet_bytes[-2:])
-    
+
     def get_payload_hex(self) -> str:
         return binascii.hexlify(self.packet_bytes)
 
@@ -69,8 +70,8 @@ class LoraUARTPacket(LoraGeneralUARTPacket):
     def unpack(self) -> None:
         super().unpack()
         self.payload = self.bytes_payload[:-2]
-        (self.rssi, ) = struct.unpack_from("<H", self.bytes_payload[-2:])
-        #self.rssi = self.bytes_payload[-2:]
+        (self.rssi,) = struct.unpack_from("<H", self.bytes_payload[-2:])
+        # self.rssi = self.bytes_payload[-2:]
         # self.snr = self.bytes_payload[-1:]
 
     def digiest(self) -> str:
@@ -83,6 +84,7 @@ Payload  : {self.payload}
 DATA     : {binascii.hexlify(self.packet_bytes)}
 """
         )
+
 
 class GeneralUARTPacket:
     def __init__(self, packet_bytes: bytes) -> None:

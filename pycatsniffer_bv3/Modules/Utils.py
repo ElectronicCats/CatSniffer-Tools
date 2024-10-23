@@ -29,14 +29,15 @@ def generate_filename():
     return time.strftime("%Y%m%d%H%M%S") + "_" + str(uuid.uuid4())[:8]
 
 
-
 def LOG_INFO(message):
     """Function to log information."""
     print(f"[INFO] {message}")
 
+
 def LOG_ERROR(message):
     """Function to log error."""
     print(f"\x1b[31;1m[ERROR] {message}\x1b[0m")
+
 
 def LOG_WARNING(message):
     """Function to log warning."""
