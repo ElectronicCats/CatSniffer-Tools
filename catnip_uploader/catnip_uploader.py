@@ -344,7 +344,9 @@ class Release:
             return None
 
         return os.path.join(
-            self.find_folder_releases(), releases_firmware[firmware_selected]
+            ABS_FILE_PATH,
+            self.find_folder_releases(),
+            releases_firmware[firmware_selected],
         )
 
     def normalize_firmware_name(self, name):
