@@ -42,6 +42,8 @@ COMMAND_ENTER_BOOTLOADER = "ñÿ<boot>ÿñ"
 COMMAND_EXIT_BOOTLOADER = "ñÿ<exit>ÿñ"
 UPLOADER_FILE_NAME = "cc2538.py"
 
+ABS_FILE_PATH = os.path.dirname(os.path.abspath(__file__))
+
 
 def LOG_INFO(message):
     """Function to log information."""
@@ -167,7 +169,7 @@ class Release:
                             f"A local folder is empty, updating to {self.tag_version}"
                         )
                         self.remove_local_files_releases(has_local_release)
-                        os.rmdir(has_local_release)
+                        os.rmdir(os.path.join(ABS_FILE_PATH, has_local_release))
                     else:
                         LOG_SUCCESS(f"Local release is up to date: {self.tag_version}")
                         firmware_releases = self.get_local_releases_dict()
@@ -195,7 +197,9 @@ class Release:
                 else:
                     with open(
                         os.path.join(
-                            f"releases_{self.tag_version}", "descriptions.txt"
+                            ABS_FILE_PATH,
+                            f"releases_{self.tag_version}",
+                            "descriptions.txt",
                         ),
                         "w",
                     ) as ft:
@@ -213,7 +217,11 @@ class Release:
                     ):
                         firmware_name = f"nccgroup_{asset['browser_download_url'].split('/')[-2]}_{asset['name']}"
                         with open(
-                            os.path.join(f"releases_{self.tag_version}", firmware_name),
+                            os.path.join(
+                                ABS_FILE_PATH,
+                                f"releases_{self.tag_version}",
+                                firmware_name,
+                            ),
                             "wb",
                         ) as f:
                             request_release = requests.get(
@@ -225,7 +233,11 @@ class Release:
                         continue
                     if asset["name"].endswith(".hex"):
                         with open(
-                            os.path.join(f"releases_{self.tag_version}", asset["name"]),
+                            os.path.join(
+                                ABS_FILE_PATH,
+                                f"releases_{self.tag_version}",
+                                asset["name"],
+                            ),
                             "wb",
                         ) as f:
                             request_release = requests.get(
@@ -236,6 +248,7 @@ class Release:
                             firmware_releases.append(asset["name"])
             return self.__create_dict_release(firmware_releases)
         except Exception as e:
+            print(e)
             LOG_ERROR(
                 f"Error with the repo assets. Please check the current version of the script and the release: {e}"
             )
@@ -270,7 +283,7 @@ class Release:
 
     def has_lasted_release(self, lasted_release) -> bool:
         """Check if the lasted release is already downloaded."""
-        dir_files = os.listdir(os.getcwd())
+        dir_files = os.listdir(ABS_FILE_PATH)
         for dir_name in dir_files:
             if dir_name.startswith("releases_"):
                 if dir_name.replace("releases_", "") == lasted_release:
@@ -279,10 +292,10 @@ class Release:
 
     def is_empty_release_folder(self) -> bool:
         """Check if the release folder is empty."""
-        dir_files = os.listdir(os.getcwd())
+        dir_files = os.listdir(ABS_FILE_PATH)
         for dir_name in dir_files:
             if dir_name.startswith("releases_"):
-                list_files = os.listdir(dir_name)
+                list_files = os.listdir(os.path.join(ABS_FILE_PATH, dir_name))
                 if len(list_files) == 0:
                     return True
         return False
@@ -291,7 +304,7 @@ class Release:
         """Get the local releases."""
         release_folder = self.find_folder_releases()
         if release_folder is not None:
-            list_files = os.listdir(release_folder)
+            list_files = os.listdir(os.path.join(ABS_FILE_PATH, release_folder))
             for lis in list_files:
                 if lis == "descriptions.txt":
                     list_files.remove(lis)
@@ -300,7 +313,7 @@ class Release:
 
     def find_folder_releases(self) -> str:
         """Find the releases folder."""
-        dir_files = os.listdir(os.getcwd())
+        dir_files = os.listdir(ABS_FILE_PATH)
         for dir_name in dir_files:
             if dir_name.startswith("releases_"):
                 return dir_name
@@ -311,15 +324,16 @@ class Release:
         if tag_version is None:
             return
         exist_prev_release = self.find_folder_releases()
+        release_path = os.path.join(ABS_FILE_PATH, f"releases_{tag_version}")
         if exist_prev_release is None:
-            if not os.path.exists(f"releases_{tag_version}"):
-                os.mkdir(f"releases_{tag_version}")
+            if not os.path.exists(release_path):
+                os.mkdir(release_path)
         else:
             LOG_WARNING(
                 f"Previous release found: {exist_prev_release} updating to {tag_version}"
             )
-            self.remove_local_files_releases(exist_prev_release)
-            os.rename(exist_prev_release, f"releases_{tag_version}")
+            self.remove_local_files_releases(os.path)
+            os.rename(exist_prev_release, release_path)
 
     def get_firmware_releases(self, firmware_selected: int):
         """Get the firmware releases."""
@@ -400,9 +414,7 @@ class BoardUart:
         time.sleep(1)
         # TODO: Add a check to see if the command was successful
         # Get path to python script
-        script_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), UPLOADER_FILE_NAME
-        )
+        script_path = os.path.join(ABS_FILE_PATH, UPLOADER_FILE_NAME)
         os.system(
             f"{self.python_command} {script_path} {self.command_to_send} {firmware_bytes}"
         )
@@ -441,7 +453,9 @@ def list_releases():
     get_release = release_handler.get_release()
     exist_prev_release = release_handler.find_folder_releases()
     description = ""
-    with open(os.path.join(exist_prev_release, "descriptions.txt"), "r") as ft:
+    with open(
+        os.path.join(ABS_FILE_PATH, exist_prev_release, "descriptions.txt"), "r"
+    ) as ft:
         description = ft.read()
         ft.close()
     for release in get_release:
