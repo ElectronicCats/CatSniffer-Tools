@@ -67,7 +67,6 @@ class FifoLinux(Fifo):
             print(e)
 
     def run(self):
-        # print("RUNNING FIFO")
         self.fifo_recv_cancel = False
         if self.fifo_worker is None:
             self.open()
@@ -114,6 +113,7 @@ class FifoLinux(Fifo):
 
     def set_fifo_filename(self, fifo_filname: str):
         self.fifo_filname = fifo_filname
+
 
 class FifoWindows(Fifo):
     def __init__(self, fifo_filname: str = DEFAULT_FILENAME):

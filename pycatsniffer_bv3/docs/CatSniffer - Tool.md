@@ -117,7 +117,7 @@ When a different *phy* is selected, we need to specify the channel to sniffing.
 
 ### Examples calls
 
-$SERIAL_PORT will be depending on your OS please check your serial port name by: 
+$SERIAL_PORT will be depending on your OS please check your serial port name by:
 
 ```bash
 $ python cat_sniffer.py ld
@@ -146,7 +146,7 @@ Default sniffing
 - Channel: 37
 - Wireshark
 ```bash
-$ python3 cat_sniffer.py sniff $SERIAL_PORT -phy 0 -ch 39 -ff -ws 
+$ python3 cat_sniffer.py sniff $SERIAL_PORT -phy 0 -ch 39 -ff -ws
 ```
 
 Dump a pcap file, hex file with custom name and IEEE 802.15.4 protocol

@@ -26,11 +26,8 @@ setup(
     use_scm_version=lambda: {
         "version_scheme": "post-release",
         "local_scheme": "node-and-date",
-        },
-    install_requires=["pip>=10", "setuptools", "wheel", "pyserial"],
-    extras_require={
-        '': ["intelhex"],
-        'intelhex': ["python-magic"]
     },
+    install_requires=["pip>=10", "setuptools", "wheel", "pyserial"],
+    extras_require={"": ["intelhex"], "intelhex": ["python-magic"]},
     scripts=["cc2538-bsl.py"],
 )
