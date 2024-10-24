@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # Catnip Uploader is a Python script that allows you to upload firmware to CatSniffer boards V3.
 # This file is part of the CatSniffer project, http://electroniccats.com/
 # GNU GENERAL PUBLIC LICENSE
@@ -39,6 +40,7 @@ RELEASE_JSON_FILENAME = "board_release.json"
 TMP_FILE = "firmware.hex"
 COMMAND_ENTER_BOOTLOADER = "ñÿ<boot>ÿñ"
 COMMAND_EXIT_BOOTLOADER = "ñÿ<exit>ÿñ"
+UPLOADER_FILE_NAME = "cc2538.py"
 
 
 def LOG_INFO(message):
@@ -357,7 +359,7 @@ class BoardUart:
         self.serial_worker.port = serial_port
         self.serial_worker.baudrate = 921600
         self.firmware_selected = 0
-        self.command_to_send = f"cc2538.py -e -w -v -p {self.serial_worker.port}"
+        self.command_to_send = f"-e -w -v -p {self.serial_worker.port}"
         self.python_command = validate_python_call()
 
     def validate_connection(self):
@@ -397,7 +399,13 @@ class BoardUart:
         self.send_connect_boot()
         time.sleep(1)
         # TODO: Add a check to see if the command was successful
-        os.system(f"{self.python_command} {self.command_to_send} {firmware_bytes}")
+        # Get path to python script
+        script_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), UPLOADER_FILE_NAME
+        )
+        os.system(
+            f"{self.python_command} {script_path} {self.command_to_send} {firmware_bytes}"
+        )
         time.sleep(1)
         self.send_disconnect_boot()
         LOG_SUCCESS(
