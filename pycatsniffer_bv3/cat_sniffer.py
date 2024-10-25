@@ -172,7 +172,7 @@ If you are running in Windows, you need first set the Environment Variable to ca
         typer.echo("Error: Invalid coding rate range")
         sys.exit(1)
 
-    if channel < 0 and channel > 63:
+    if channel < 0 or channel > 63:
         typer.echo("Error: Invalid channel range")
         sys.exit(1)
 
