@@ -1,4 +1,4 @@
-This script works to upload firmware from the releases page to the CatSniffer Board V3.x. 
+This script works to upload firmware from the releases page to the CatSniffer Board V3.x.
 >[!IMPORTANT]
 >The current version of the **Catnip** requires the lasted version of the [**SerialPassthroughwithboot**](https://github.com/ElectronicCats/CatSniffer-Firmware/releases/download/board-v3.x-v1.1.0/SerialPassthroughwithboot_RP2040_v1.1.uf2)
 ## Getting Starter
@@ -11,7 +11,7 @@ The struct files from the repo is:
 └── requirements.txt
 ```
 
-To initialize first we need to install de dependencies packets from the *requirements.txt*. 
+To initialize first we need to install de dependencies packets from the *requirements.txt*.
 
 >[!NOTE]
 >We recommend use virtual environment to avoid dependencies errors.
@@ -25,7 +25,7 @@ Requirements packets:
 - `python-magic==0.4.27`
 
 >[!IMPORTANT]
->To install **python-magic** may have additional dependencies depending on your OS, [read more](https://github.com/ahupp/python-magic#dependencies): 
+>To install **python-magic** may have additional dependencies depending on your OS, [read more](https://github.com/ahupp/python-magic#dependencies):
 
 ### Available commands
 ![Commands](commands.png "Commands")
@@ -68,10 +68,10 @@ Erasing all main bank flash sectors
     Erase done
 Writing 720896 bytes starting at address 0x00000000
 Write 208 bytes at 0x000AFF300
-    Write done                                
+    Write done
 Verifying by comparing CRC32 calculations.
     Verified (match: 0x99d1c8f1)
-Done uploading airtag_scanner_CC1352P_7.hex to /dev/cu.usbmodem1101 
+Done uploading airtag_scanner_CC1352P_7.hex to /dev/cu.usbmodem1101
 ```
 
 After finished you can use the CatSniffer with the selected firmware.
