@@ -27,13 +27,14 @@ GITHUB_RELEASE_URL_SNIFFLE = (
     "https://api.github.com/repos/nccgroup/Sniffle/releases/latest"
 )
 GITHUB_SNIFFLE_HEX = "sniffle_cc1352p7_1M"
-TMP_FILE = "firmware.hex"
+DESCRIPTION_FILE = "descriptions.txt"
 COMMAND_ENTER_BOOTLOADER = "ñÿ<boot>ÿñ"
 COMMAND_EXIT_BOOTLOADER = "ñÿ<exit>ÿñ"
 UPLOADER_FILE_NAME = "cc2538.py"
 RELEASE_FOLDER_NAME = "releases_"
 CATSNIFFER_VID = 11914
 CATSNIFFER_PID = 192
+TIMEOUT_FETCH = 5
 ABS_FILE_PATH = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -67,13 +68,16 @@ app = typer.Typer(
 
 class Release:
     def __init__(self) -> None:
-        self.releases = self.__get_releases()
-        # Release data
+        self.release_path = None
         self.tag_version = None
         self.description = None
+        self.releases = self.__get_releases()
 
     def get_releases(self):
         return self.releases
+
+    def get_release_path(self):
+        return self.release_path
 
     def validate_file(self, firmware):
         if os.path.isfile(firmware):
@@ -93,8 +97,9 @@ class Release:
             LOG_WARNING("No releases found. Fetching from GitHub.")
             self.download_remote_release()
             has_local_release = self.__find_local_release()
+        self.release_path = f"{ABS_FILE_PATH}/{RELEASE_FOLDER_NAME}{self.tag_version}"
         LOG_INFO(
-            f"Using local releases: {ABS_FILE_PATH}/{RELEASE_FOLDER_NAME}{self.tag_version}"
+            f"Using local releases: {self.release_path} with tag version: {self.tag_version}"
         )
         return has_local_release
 
@@ -105,7 +110,11 @@ class Release:
             if dir_name.startswith(RELEASE_FOLDER_NAME):
                 if self.__is_valid_release_content():
                     self.tag_version = dir_name.replace(RELEASE_FOLDER_NAME, "")
-                    return os.listdir(os.path.join(ABS_FILE_PATH, dir_name))
+                    files = os.listdir(os.path.join(ABS_FILE_PATH, dir_name))
+                    filtered_files = [
+                        file for file in files if file != DESCRIPTION_FILE
+                    ]
+                    return filtered_files
                 else:
                     return None
         return None
@@ -152,9 +161,19 @@ class Release:
             LOG_ERROR("Error: Could not create release folder.")
             sys.exit(1)
 
+    def __create_description_file(self, content):
+        with open(
+            f"{ABS_FILE_PATH}/{RELEASE_FOLDER_NAME}{self.tag_version}/{DESCRIPTION_FILE}",
+            "w",
+        ) as f:
+            f.write(content)
+            f.close()
+
     def __fetch_remote_assets(self):
         try:
-            request_release = requests.get(f"{GITHUB_RELEASE_URL}")
+            request_release = requests.get(
+                f"{GITHUB_RELEASE_URL}", timeout=TIMEOUT_FETCH
+            )
             request_release.raise_for_status()
             if request_release.status_code != 200:
                 LOG_ERROR("Could not fetch firmware.")
@@ -164,7 +183,9 @@ class Release:
             self.description = request_release.json()["body"]
 
             # Sniffle
-            request_release_sniffle = requests.get(f"{GITHUB_RELEASE_URL_SNIFFLE}")
+            request_release_sniffle = requests.get(
+                f"{GITHUB_RELEASE_URL_SNIFFLE}", timeout=TIMEOUT_FETCH
+            )
             request_release_sniffle.raise_for_status()
             if request_release.status_code == 200:
                 req_release_data_sniffle = request_release_sniffle.json()
@@ -213,7 +234,7 @@ class Release:
         for asset in track(get_assets, description="Downloading firmware..."):
             if self.__dissect_firmware(asset) == None:
                 continue
-            request_content = requests.get(asset["url"])
+            request_content = requests.get(asset["url"], timeout=TIMEOUT_FETCH)
             request_content.raise_for_status()
             firmware_count += 1
             if request_content.status_code == 200:
@@ -222,7 +243,43 @@ class Release:
             else:
                 LOG_ERROR(f"Could not fetch firmware: {asset['name']}")
                 continue
+        self.__create_description_file(self.description)
         LOG_SUCCESS(f"Firmware {firmware_saved}/{firmware_count} downloaded.")
+
+    @staticmethod
+    def find_folder_releases() -> str:
+        """Find the releases folder."""
+        dir_files = os.listdir(ABS_FILE_PATH)
+        for dir_name in dir_files:
+            if dir_name.startswith(RELEASE_FOLDER_NAME):
+                return dir_name
+        return None
+
+    @staticmethod
+    def normalize_firmware_name(name):
+        name = name.lower()
+        name = name.split("_v")[0]
+        return name
+
+    def get_descriptions_file(self):
+        with open(
+            f"{ABS_FILE_PATH}/{RELEASE_FOLDER_NAME}{self.tag_version}/{DESCRIPTION_FILE}",
+            "r",
+        ) as f:
+            description = f.read()
+            f.close()
+        return description
+
+    def parse_descriptions(self):
+        description = self.get_descriptions_file()
+        descriptions_dict = {}
+        for line in description.strip().split("\n"):
+            try:
+                key, description = line.split(": ", 1)
+                descriptions_dict[self.normalize_firmware_name(key)] = description
+            except ValueError:
+                pass
+        return descriptions_dict
 
 
 class BoardUart:
@@ -231,7 +288,7 @@ class BoardUart:
         self.serial_worker.port = serial_port
         self.serial_worker.baudrate = 921600
         self.firmware_selected = 0
-        self.command_to_send = f" -e -w -v -p {self.serial_worker.port}"
+        self.command_to_send = f"-e -w -v -p {self.serial_worker.port}"
         self.python_command = self.validate_python_call()
 
     def validate_connection(self):
@@ -309,8 +366,12 @@ class CatnipUploader:
 
     def load_firmware(
         self,
-        firmware: str = typer.Argument(help="Firmware to load"),
-        comport: str = typer.Option(help="COM port", default=BoardUart.find_catsniffer),
+        firmware: str = typer.Argument(
+            help="Name of the firmware to load, or the path to the firmware file."
+        ),
+        comport: str = typer.Argument(
+            help="COM port", default=BoardUart.find_catsniffer
+        ),
         validate: bool = typer.Option(help="Bypass validation", default=False),
     ):
         """Load firmware to CatSniffer boards V3."""
@@ -327,11 +388,13 @@ class CatnipUploader:
         LOG_SUCCESS(f"Connected to {comport}")
 
         if not validate:
-            typer.confirm(
-                f"Are you sure you want to load the firmware: {validate_firmware}?",
+            LOG_WARNING(f"{'='*15} Validation is enabled. {'='*15}")
+            confirm_load = typer.confirm(
+                f"Are you sure you want to load the firmware: {validate_firmware}?\n",
                 abort=True,
             )
-            sys.exit(1)
+            if not confirm_load:
+                sys.exit(1)
 
         LOG_SUCCESS(f"Loading firmware: {validate_firmware}")
         if board_uart.send_firmware(validate_firmware.replace("\r", "")):
@@ -339,7 +402,17 @@ class CatnipUploader:
 
     def get_firmwares(self):
         """Get the latest firmware releases."""
-        LOG_INFO("Getting firmware...")
+        description = self.releases.parse_descriptions()
+        if description:
+            table = Table(title="Releases")
+            table.add_column("Firmware")
+            table.add_column("Description")
+            for key, value in description.items():
+                table.add_row(key, value)
+            console = Console()
+            console.print(table)
+        else:
+            LOG_ERROR("No releases found.")
 
 
 if __name__ == "__main__":
