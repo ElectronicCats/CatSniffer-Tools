@@ -1,3 +1,4 @@
+#! /usr/bin/python3
 import typer
 import os
 import platform
@@ -402,17 +403,25 @@ class CatnipUploader:
 
     def get_firmwares(self):
         """Get the latest firmware releases."""
-        description = self.releases.parse_descriptions()
-        if description:
-            table = Table(title="Releases")
-            table.add_column("Firmware")
-            table.add_column("Description")
-            for key, value in description.items():
-                table.add_row(key, value)
+        table = Table(title="Releases")
+        table.add_column("Firmware")
+        table.add_column("Description")
+        try:
+            description = self.releases.parse_descriptions()
+            if description:
+                for key, value in description.items():
+                    table.add_row(key, value)
+            else:
+                LOG_WARNING("No descriptions file found.")
+        except FileNotFoundError:
+            LOG_ERROR("No descriptions file found.")
+            releases = self.releases.get_releases()
+            for release in releases:
+                table.add_row(release, "No description available.")
+        finally:
             console = Console()
             console.print(table)
-        else:
-            LOG_ERROR("No releases found.")
+            
 
 
 if __name__ == "__main__":
