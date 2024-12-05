@@ -421,7 +421,6 @@ class CatnipUploader:
         finally:
             console = Console()
             console.print(table)
-            
 
 
 if __name__ == "__main__":
