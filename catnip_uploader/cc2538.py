@@ -196,7 +196,7 @@ class CommandInterface(object):
     ACK_BYTE = 0xCC
     NACK_BYTE = 0x33
 
-    def open(self, aport=None, abaudrate=500000):
+    def open(self, aport=None, abaudrate=921600):
         # Try to create the object using serial_for_url(), or fall back to the
         # old serial.Serial() where serial_for_url() is not supported.
         # serial_for_url() is a factory class and will return a different
@@ -1074,7 +1074,7 @@ def usage():
     -r                           Read
     -l length                    Length of read
     -p port                      Serial port (default: first USB-like port in /dev)
-    -b baud                      Baud speed (default: 500000)
+    -b baud                      Baud speed (default: 921600)
     -a addr                      Target address
     -i, --ieee-address addr      Set the secondary 64 bit IEEE address
     --bootloader-active-high     Use active high signals to enter bootloader
@@ -1095,7 +1095,7 @@ if __name__ == "__main__":
 
     conf = {
         "port": "auto",
-        "baud": 500000,
+        "baud": 921600,
         "force_speed": 0,
         "address": None,
         "force": 0,
