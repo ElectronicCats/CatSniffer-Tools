@@ -139,6 +139,9 @@ class FirmwareFile(object):
             if file_type == "text/plain":
                 firmware_is_hex = True
                 mdebug(5, "Firmware file: Intel Hex")
+            elif file_type == "text/x-hex":
+                firmware_is_hex = True
+                mdebug(5, "Firmware file: Intel Hex")
             elif file_type == "application/octet-stream":
                 mdebug(5, "Firmware file: Raw Binary")
             else:
