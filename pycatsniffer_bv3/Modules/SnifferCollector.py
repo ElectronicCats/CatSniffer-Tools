@@ -280,7 +280,6 @@ class SnifferCollector(threading.Thread):
         """Dissector the packet"""
         if self.is_catsniffer == 2:
             data_packet = LoraUARTPacket(packet)
-            self.logger.debug(f"RECV -> {data_packet.get_payload_hex()}")
             return data_packet
 
         general_packet = GeneralUARTPacket(packet)
@@ -295,7 +294,6 @@ class SnifferCollector(threading.Thread):
             elif self.protocol == PROTOCOL_ZIGBEE or self.protocol == PROTOCOL_THREAT:
                 ieee_packet = IEEEUARTPacket(general_packet.packet_bytes)
                 packet = ieee_packet
-                self.logger.debug(f"RECV -> {packet.get_payload_hex()}")
             else:
                 self.logger.error("Protocol not supported yet")
                 LOG_WARNING("Protocol not supported yet")
