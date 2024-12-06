@@ -7,12 +7,13 @@ from .Definitions import DEFAULT_TIMEOUT_JOIN
 
 
 class Wireshark(threading.Thread):
-    def __init__(self, fifo_name: str = DEFAULT_FILENAME):
+    def __init__(self, fifo_name: str = DEFAULT_FILENAME, profile: str = "default"):
         super().__init__()
         self.fifo_name = fifo_name
         self.running = True
         self.type_worker = "wireshark"
         self.wireshark_process = None
+        self.profile = profile
 
     def run(self):
         if platform.system() == "Windows":
@@ -22,6 +23,8 @@ class Wireshark(threading.Thread):
                     "-k",
                     "-i",
                     f"\\\\.\\pipe\\{self.fifo_name}",
+                    "-C",
+                    self.profile,
                 ]
             )
 
@@ -33,6 +36,8 @@ class Wireshark(threading.Thread):
                     "-k",
                     "-i",
                     f"/tmp/{self.fifo_name}",
+                    "-C",
+                    self.profile,
                 ]
             )
         elif platform.system() == "Darwin":
@@ -42,6 +47,8 @@ class Wireshark(threading.Thread):
                     "-k",
                     "-i",
                     f"/tmp/{self.fifo_name}",
+                    "-C",
+                    self.profile,
                 ]
             )
         else:

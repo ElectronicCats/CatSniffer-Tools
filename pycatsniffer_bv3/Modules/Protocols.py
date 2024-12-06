@@ -15,6 +15,7 @@ class Protocol:
         channel_range: list = [0, 0],
         pcap_header: int = 147,
         common_names: list = [],
+        profile: str = "Default",
     ):
         self.phy_index = phy_index
         self.name = name
@@ -24,11 +25,15 @@ class Protocol:
         self.channel_range = channel_range
         self.pcap_header = pcap_header
         self.common_names = common_names
+        self.profile = profile
 
     def find_by_name(self, name: str):
         if name in self.common_names:
             return self
         return None
+
+    def get_profile(self):
+        return self.profile
 
     def get_common_name_str(self):
         return ", ".join(self.common_names)
@@ -183,6 +188,7 @@ PROTOCOL_ZIGBEE = Protocol(
     ],
     pcap_header=147,
     common_names=["zigbee", "zig", "zb"],
+    profile="Zigbee",
 )
 
 PROTOCOL_THREAT = Protocol(
@@ -196,6 +202,7 @@ PROTOCOL_THREAT = Protocol(
     ],
     pcap_header=147,
     common_names=["threat"],
+    profile="Threat",
 )
 
 

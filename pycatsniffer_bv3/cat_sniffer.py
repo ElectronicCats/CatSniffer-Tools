@@ -146,7 +146,9 @@ class Catsniffer:
             else:
                 self.output_workers.append(Fifo.FifoLinux(fifo_name))
             if wireshark:
-                self.output_workers.append(Wireshark.Wireshark(fifo_name))
+                self.output_workers.append(
+                    Wireshark.Wireshark(fifo_name, get_protocol.get_profile())
+                )
 
         self.sniffer_collector.set_output_workers(self.output_workers)
         self.sniffer_collector.run_workers()
