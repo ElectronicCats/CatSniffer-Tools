@@ -1,26 +1,19 @@
-#!/usr/bin/env python
-# Catnip Uploader is a Python script that allows you to upload firmware to CatSniffer boards V3.
-# This file is part of the CatSniffer project, http://electroniccats.com/
-# GNU GENERAL PUBLIC LICENSE
-# Version 1 2024
-# Kevin Leon <@kevlem97>
-
-# Copyright (C) 2007 Free Software Foundation, Inc. https://fsf.org/
-# Everyone is permitted to copy and distribute verbatim copies
-# of this license document, but changing it is not allowed.
-
+#! /usr/bin/python3
 import typer
-import serial
+import os
 import platform
+import subprocess
+import sys
 import requests
 import io
-import os
+import serial
 import time
-import json
-import sys
-import subprocess
+from serial.tools.list_ports import comports
 from rich.console import Console
 from rich.table import Table
+from typing_extensions import Annotated
+from rich.progress import track
+
 
 if platform.system() == "Windows":
     DEFAULT_COMPORT = "COM1"
@@ -28,7 +21,6 @@ elif platform.system() == "Darwin":
     DEFAULT_COMPORT = "/dev/tty.usbmodem0001"
 else:
     DEFAULT_COMPORT = "/dev/ttyACM0"
-
 GITHUB_RELEASE_URL = (
     "https://api.github.com/repos/ElectronicCats/CatSniffer-Firmware/releases/latest"
 )
@@ -36,12 +28,14 @@ GITHUB_RELEASE_URL_SNIFFLE = (
     "https://api.github.com/repos/nccgroup/Sniffle/releases/latest"
 )
 GITHUB_SNIFFLE_HEX = "sniffle_cc1352p7_1M"
-RELEASE_JSON_FILENAME = "board_release.json"
-TMP_FILE = "firmware.hex"
+DESCRIPTION_FILE = "descriptions.txt"
 COMMAND_ENTER_BOOTLOADER = "ñÿ<boot>ÿñ"
 COMMAND_EXIT_BOOTLOADER = "ñÿ<exit>ÿñ"
 UPLOADER_FILE_NAME = "cc2538.py"
-
+RELEASE_FOLDER_NAME = "releases_"
+CATSNIFFER_VID = 11914
+CATSNIFFER_PID = 192
+TIMEOUT_FETCH = 5
 ABS_FILE_PATH = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -65,308 +59,228 @@ def LOG_SUCCESS(message):
     print(f"\x1b[32;1m[SUCCESS] {message}\x1b[0m")
 
 
-def validate_python_call():
-    try:
-        output = subprocess.check_output(
-            ["python", "--version"], stderr=subprocess.STDOUT
-        )
-        output = output.decode("utf-8").strip()
-        if output.startswith("Python 3."):
-            return "python"
-    except Exception:
-        pass
-    try:
-        output = subprocess.check_output(
-            ["python3", "--version"], stderr=subprocess.STDOUT
-        )
-        output = output.decode("utf-8").strip()
-        if output.startswith("Python 3."):
-            return "python3"
-    except Exception:
-        pass
-    print("Error: Python 3 is required to run this program.")
-    sys.exit(1)
-
-
-def validate_firmware_selected(firmware_selected: int):
-    get_release = release_handler.get_local_releases_dict()
-    LOG_INFO(
-        f"Validating selected firmware: {firmware_selected} - {get_release[firmware_selected]}"
-    )
-    if firmware_selected not in get_release:
-        LOG_ERROR(f"Selected firmware invalid: {firmware_selected}")
-        sys.exit(1)
-
-    LOG_SUCCESS(f"Valid firmware selected: {firmware_selected}")
+app = typer.Typer(
+    name="Catnip Uploader",
+    help="Upload firmware to CatSniffer boards V3.",
+    add_completion=True,
+    no_args_is_help=True,
+)
 
 
 class Release:
-    def __init__(self):
-        self.release_data = None
-        self.temp_filename = "releases.json"
+    def __init__(self) -> None:
+        self.release_path = None
         self.tag_version = None
-        self.release_json = self.__fetch_release()
         self.description = None
+        self.releases = self.__get_releases()
 
-    def __fetch_assets(self):
-        """Fetch the assets from the release."""
-        try:
-            request_release = requests.get(f"{GITHUB_RELEASE_URL}")
-            request_release.raise_for_status()
+    def get_releases(self):
+        return self.releases
 
-            if request_release.status_code != 200:
-                LOG_ERROR(f"Error fetching assets: {request_release.status_code}")
-                sys.exit(1)
+    def get_release_path(self):
+        return self.release_path
 
-            req_release_data = request_release.json()
-            LOG_INFO(f"Fetching assets from {GITHUB_RELEASE_URL}")
-            LOG_INFO(f"Release: {req_release_data['tag_name']}")
+    def validate_file(self, firmware):
+        if os.path.isfile(firmware):
+            return os.path.abspath(firmware)
 
-            self.tag_version = req_release_data["tag_name"]
-            body_description = request_release.json()["body"]
-            self.description = body_description
+        for release in self.releases:
+            if release.startswith(firmware) or firmware in release:
+                return os.path.join(
+                    ABS_FILE_PATH, f"{RELEASE_FOLDER_NAME}{self.tag_version}/{release}"
+                )
 
-            # Sniffle
-            request_release_sniffle = requests.get(f"{GITHUB_RELEASE_URL_SNIFFLE}")
-            request_release_sniffle.raise_for_status()
-            req_release_data_sniffle = request_release_sniffle.json()
-            LOG_INFO(f"Fetching assets from {GITHUB_RELEASE_URL_SNIFFLE}")
-            LOG_INFO(f"Release: {req_release_data_sniffle['tag_name']}")
-            req_release_data["assets"].extend(req_release_data_sniffle["assets"])
+        return None
 
-            return req_release_data["assets"]
-        except requests.exceptions.ConnectionError as e:
-            has_local_release = self.find_folder_releases()
-            if has_local_release is not None:
-                return None
-            LOG_ERROR(
-                "Error. You need internet connection for the first use to download the firmware"
-            )
-            sys.exit(1)
-        except Exception as e:
-            has_local_release = self.find_folder_releases()
-            if has_local_release is not None:
-                return None
-            LOG_ERROR(f"Error fetching assets: {e}")
-            sys.exit(1)
+    def __get_releases(self):
+        has_local_release = self.__find_local_release()
+        if has_local_release == None:
+            LOG_WARNING("No releases found. Fetching from GitHub.")
+            self.download_remote_release()
+            has_local_release = self.__find_local_release()
+        self.release_path = f"{ABS_FILE_PATH}/{RELEASE_FOLDER_NAME}{self.tag_version}"
+        LOG_INFO(
+            f"Using local releases: {self.release_path} with tag version: {self.tag_version}"
+        )
+        return has_local_release
 
-    def __fetch_release(self):
-        """Fetch the release data from the repo."""
-        try:
-            firmware_releases = []
-            repo_assets = self.__fetch_assets()
-            if repo_assets is None:
-                return self.get_local_releases_dict()
-            # Check if the lasted release is already downloaded
-            has_local_release = self.find_folder_releases()
-            if has_local_release is not None:
-                # The local release is found
-                LOG_INFO(f"Found local release: {has_local_release}")
-                has_lasted_release = self.has_lasted_release(self.tag_version)
-                if has_lasted_release:
-                    if self.is_empty_release_folder():
-                        LOG_INFO(
-                            f"A local folder is empty, updating to {self.tag_version}"
-                        )
-                        self.remove_local_files_releases(has_local_release)
-                        os.rmdir(os.path.join(ABS_FILE_PATH, has_local_release))
-                    else:
-                        LOG_SUCCESS(f"Local release is up to date: {self.tag_version}")
-                        firmware_releases = self.get_local_releases_dict()
-                        return firmware_releases
+    def __find_local_release(self):
+        """Find the releases folder."""
+        dir_files = os.listdir(ABS_FILE_PATH)
+        for dir_name in dir_files:
+            if dir_name.startswith(RELEASE_FOLDER_NAME):
+                if self.__is_valid_release_content():
+                    self.tag_version = dir_name.replace(RELEASE_FOLDER_NAME, "")
+                    files = os.listdir(os.path.join(ABS_FILE_PATH, dir_name))
+                    filtered_files = [
+                        file for file in files if file != DESCRIPTION_FILE
+                    ]
+                    return filtered_files
                 else:
-                    LOG_WARNING(
-                        f"Updating local release: {has_local_release} to {self.tag_version}"
+                    return None
+        return None
+
+    def __is_valid_release_content(self) -> bool:
+        """Check if the release folder is empty."""
+        dir_files = os.listdir(ABS_FILE_PATH)
+        for dir_name in dir_files:
+            if dir_name.startswith(RELEASE_FOLDER_NAME):
+                list_files = os.listdir(os.path.join(ABS_FILE_PATH, dir_name))
+                if len(list_files) == 0:
+                    LOG_WARNING("Empty release folder.")
+                    self.__remove_local_files_releases(
+                        os.path.join(ABS_FILE_PATH, dir_name)
                     )
+                    return False
+        return True
 
-            LOG_INFO("Fetching release data")
-
-            self.create_release_folder(self.tag_version)
-
-            for asset in repo_assets:
-                if asset["name"] == RELEASE_JSON_FILENAME:
-                    req_release_data = asset["browser_download_url"]
-                    request_release = requests.get(req_release_data)
-                    content = request_release.content
-                    content_bytes = io.BytesIO(content)
-
-                    self.write_json_file(
-                        self.temp_filename, content_bytes.read().decode()
-                    )
-                    self.release_data = self.read_json_file(self.temp_filename)
-                else:
-                    with open(
-                        os.path.join(
-                            ABS_FILE_PATH,
-                            f"releases_{self.tag_version}",
-                            "descriptions.txt",
-                        ),
-                        "w",
-                    ) as ft:
-                        ft.write(self.description)
-                        ft.close()
-                    # To avoid the uf3 files until we have a way to upload them
-                    if (
-                        asset["url"].find("nccgroup") != -1
-                        and asset["name"] != f"{GITHUB_SNIFFLE_HEX}.hex"
-                    ):
-                        continue
-                    if (
-                        asset["url"].find("nccgroup") != -1
-                        and asset["name"] == f"{GITHUB_SNIFFLE_HEX}.hex"
-                    ):
-                        firmware_name = f"nccgroup_{asset['browser_download_url'].split('/')[-2]}_{asset['name']}"
-                        with open(
-                            os.path.join(
-                                ABS_FILE_PATH,
-                                f"releases_{self.tag_version}",
-                                firmware_name,
-                            ),
-                            "wb",
-                        ) as f:
-                            request_release = requests.get(
-                                asset["browser_download_url"]
-                            )
-                            content_bytes = io.BytesIO(request_release.content)
-                            f.write(content_bytes.read())
-                            firmware_releases.append(firmware_name)
-                        continue
-                    if asset["name"].endswith(".hex"):
-                        with open(
-                            os.path.join(
-                                ABS_FILE_PATH,
-                                f"releases_{self.tag_version}",
-                                asset["name"],
-                            ),
-                            "wb",
-                        ) as f:
-                            request_release = requests.get(
-                                asset["browser_download_url"]
-                            )
-                            content_bytes = io.BytesIO(request_release.content)
-                            f.write(content_bytes.read())
-                            firmware_releases.append(asset["name"])
-            return self.__create_dict_release(firmware_releases)
-        except Exception as e:
-            print(e)
-            LOG_ERROR(
-                f"Error with the repo assets. Please check the current version of the script and the release: {e}"
-            )
-            sys.exit(1)
-
-    def __create_dict_release(self, release_data: dict = None):
-        """Create a dictionary with the release data."""
-        release_dict = {}
-        for index, release in enumerate(release_data):
-            release_dict[index] = release
-        return release_dict
-
-    def get_release(self):
-        """Return the release data. If it's not available, return the local release data."""
-        if self.release_json is None:
-            self.release_json = self.get_local_releases_dict()
-        return self.release_json
-
-    def read_json_file(self, filename: str):
-        with open(filename, "r") as f:
-            return json.load(f)
-
-    def write_json_file(self, filename: str, data) -> None:
-        with open(filename, "w") as f:
-            f.write(json.dumps(data))
-
-    def remove_local_files_releases(self, release_folder: str) -> None:
+    def __remove_local_files_releases(self, release_folder: str) -> None:
         """Clean up the local releases folder."""
         list_files = os.listdir(release_folder)
         for file in list_files:
             os.remove(os.path.join(release_folder, file))
+        os.rmdir(release_folder)
 
-    def has_lasted_release(self, lasted_release) -> bool:
-        """Check if the lasted release is already downloaded."""
-        dir_files = os.listdir(ABS_FILE_PATH)
-        for dir_name in dir_files:
-            if dir_name.startswith("releases_"):
-                if dir_name.replace("releases_", "") == lasted_release:
-                    return True
-        return False
+    def __get_assets_links(self, assets):
+        """Get the assets links."""
+        assets_links = []
+        for asset in assets:
+            assets_links.append(
+                {"name": asset["name"], "url": asset["browser_download_url"]}
+            )
+        return assets_links
 
-    def is_empty_release_folder(self) -> bool:
-        """Check if the release folder is empty."""
-        dir_files = os.listdir(ABS_FILE_PATH)
-        for dir_name in dir_files:
-            if dir_name.startswith("releases_"):
-                list_files = os.listdir(os.path.join(ABS_FILE_PATH, dir_name))
-                if len(list_files) == 0:
-                    return True
-        return False
+    def __create_release_folder(self):
+        """Create the release folder."""
+        if os.path.exists(f"{ABS_FILE_PATH}/{RELEASE_FOLDER_NAME}{self.tag_version}"):
+            LOG_WARNING("Warning: Release folder already exists.")
+            if self.__is_valid_release_content():
+                return
+        try:
+            os.mkdir(f"{ABS_FILE_PATH}/{RELEASE_FOLDER_NAME}{self.tag_version}")
+        except OSError:
+            LOG_ERROR("Error: Could not create release folder.")
+            sys.exit(1)
 
-    def get_local_releases_dict(self) -> dict:
-        """Get the local releases."""
-        release_folder = self.find_folder_releases()
-        if release_folder is not None:
-            list_files = os.listdir(os.path.join(ABS_FILE_PATH, release_folder))
-            for lis in list_files:
-                if lis == "descriptions.txt":
-                    list_files.remove(lis)
-            return self.__create_dict_release(list_files)
-        return {}
+    def __create_description_file(self, content):
+        with open(
+            f"{ABS_FILE_PATH}/{RELEASE_FOLDER_NAME}{self.tag_version}/{DESCRIPTION_FILE}",
+            "w",
+        ) as f:
+            f.write(content)
+            f.close()
 
-    def find_folder_releases(self) -> str:
+    def __fetch_remote_assets(self):
+        try:
+            request_release = requests.get(
+                f"{GITHUB_RELEASE_URL}", timeout=TIMEOUT_FETCH
+            )
+            request_release.raise_for_status()
+            if request_release.status_code != 200:
+                LOG_ERROR("Could not fetch firmware.")
+                sys.exit(1)
+            req_release_data = request_release.json()
+            self.tag_version = req_release_data["tag_name"]
+            self.description = request_release.json()["body"]
+
+            # Sniffle
+            request_release_sniffle = requests.get(
+                f"{GITHUB_RELEASE_URL_SNIFFLE}", timeout=TIMEOUT_FETCH
+            )
+            request_release_sniffle.raise_for_status()
+            if request_release.status_code == 200:
+                req_release_data_sniffle = request_release_sniffle.json()
+                req_release_data["assets"].extend(req_release_data_sniffle["assets"])
+            else:
+                LOG_ERROR("Could not fetch Sniffle firwmare.")
+            return self.__get_assets_links(req_release_data["assets"])
+        except requests.exceptions.ConnectionError as e:
+            # No internet connection
+            LOG_ERROR(f"No Internet Connection")
+            return None
+        except Exception as e:
+            # Entropy error unlocked
+            LOG_ERROR(f"Error Exception: {e}")
+            return None
+
+    def __write_firmware_hex(self, name, content):
+        content_bytes = io.BytesIO(content)
+        with open(
+            f"{ABS_FILE_PATH}/{RELEASE_FOLDER_NAME}{self.tag_version}/{name}", "wb"
+        ) as f:
+            content_bytes = io.BytesIO(content)
+            f.write(content_bytes.read())
+            content_bytes.close()
+
+    def __dissect_firmware(self, asset):
+        if asset["name"].endswith(".hex"):
+            if "sniffle" in asset["name"]:
+                if GITHUB_SNIFFLE_HEX in asset["name"]:
+                    return asset
+            else:
+                return asset
+        return None
+
+    def download_remote_release(self):
+        get_assets = self.__fetch_remote_assets()
+        if get_assets == None:
+            LOG_ERROR(
+                "Error: Could not fetch firmware. Please check your internet connection."
+            )
+            sys.exit(1)
+
+        self.__create_release_folder()
+        firmware_count = 0
+        firmware_saved = 0
+        for asset in track(get_assets, description="Downloading firmware..."):
+            if self.__dissect_firmware(asset) == None:
+                continue
+            request_content = requests.get(asset["url"], timeout=TIMEOUT_FETCH)
+            request_content.raise_for_status()
+            firmware_count += 1
+            if request_content.status_code == 200:
+                self.__write_firmware_hex(asset["name"], request_content.content)
+                firmware_saved += 1
+            else:
+                LOG_ERROR(f"Could not fetch firmware: {asset['name']}")
+                continue
+        self.__create_description_file(self.description)
+        LOG_SUCCESS(f"Firmware {firmware_saved}/{firmware_count} downloaded.")
+
+    @staticmethod
+    def find_folder_releases() -> str:
         """Find the releases folder."""
         dir_files = os.listdir(ABS_FILE_PATH)
         for dir_name in dir_files:
-            if dir_name.startswith("releases_"):
+            if dir_name.startswith(RELEASE_FOLDER_NAME):
                 return dir_name
         return None
 
-    def create_release_folder(self, tag_version):
-        """Create the release folder."""
-        if tag_version is None:
-            return
-        exist_prev_release = self.find_folder_releases()
-        release_path = os.path.join(ABS_FILE_PATH, f"releases_{tag_version}")
-        if exist_prev_release is None:
-            if not os.path.exists(release_path):
-                os.mkdir(release_path)
-        else:
-            LOG_WARNING(
-                f"Previous release found: {exist_prev_release} updating to {tag_version}"
-            )
-            self.remove_local_files_releases(os.path)
-            os.rename(exist_prev_release, release_path)
-
-    def get_firmware_releases(self, firmware_selected: int):
-        """Get the firmware releases."""
-        releases_firmware = self.get_local_releases_dict()
-        print(releases_firmware[firmware_selected])
-        if releases_firmware is None:
-            LOG_ERROR(f"Error with the releases folder")
-            return None
-
-        return os.path.join(
-            ABS_FILE_PATH,
-            self.find_folder_releases(),
-            releases_firmware[firmware_selected],
-        )
-
-    def normalize_firmware_name(self, name):
+    @staticmethod
+    def normalize_firmware_name(name):
         name = name.lower()
         name = name.split("_v")[0]
         return name
 
-    def get_firmware_description(self, firmware_key, descriptions):
-        normalized_name = self.normalize_firmware_name(firmware_key)
-        for line in descriptions.strip().split("\n"):
+    def get_descriptions_file(self):
+        with open(
+            f"{ABS_FILE_PATH}/{RELEASE_FOLDER_NAME}{self.tag_version}/{DESCRIPTION_FILE}",
+            "r",
+        ) as f:
+            description = f.read()
+            f.close()
+        return description
+
+    def parse_descriptions(self):
+        description = self.get_descriptions_file()
+        descriptions_dict = {}
+        for line in description.strip().split("\n"):
             try:
                 key, description = line.split(": ", 1)
-                if normalized_name.startswith("nccgroup"):
-                    if key.startswith("Sniffle"):
-                        return description
-                if self.normalize_firmware_name(key) == normalized_name:
-                    return description
+                descriptions_dict[self.normalize_firmware_name(key)] = description
             except ValueError:
                 pass
-        return "Description not found"
+        return descriptions_dict
 
 
 class BoardUart:
@@ -376,7 +290,7 @@ class BoardUart:
         self.serial_worker.baudrate = 921600
         self.firmware_selected = 0
         self.command_to_send = f"-e -w -v -p {self.serial_worker.port}"
-        self.python_command = validate_python_call()
+        self.python_command = self.validate_python_call()
 
     def validate_connection(self):
         try:
@@ -385,9 +299,6 @@ class BoardUart:
             return True
         except serial.SerialException:
             return False
-
-    def set_firmware_selected(self, firmware_selected: str):
-        self.firmware_selected = firmware_selected
 
     def send_connect_boot(self):
         self.serial_worker.open()
@@ -399,99 +310,119 @@ class BoardUart:
         self.serial_worker.write(COMMAND_EXIT_BOOTLOADER.encode())
         self.serial_worker.close()
 
-    def send_firmware(self):
-        LOG_INFO(
-            f"Getting {self.firmware_selected} - {release_handler.get_release()[self.firmware_selected]}"
-        )
-        firmware_bytes = release_handler.get_firmware_releases(self.firmware_selected)
-        if firmware_bytes is None:
-            LOG_ERROR(f"Error reading firmware: {self.firmware_selected}")
-            sys.exit(1)
-
-        LOG_INFO(
-            f"Uploading {release_handler.get_release()[self.firmware_selected]} to {self.serial_worker.port}"
-        )
-
+    def send_firmware(self, firmware_path):
         self.send_connect_boot()
         time.sleep(1)
         # TODO: Add a check to see if the command was successful
         # Get path to python script
         script_path = os.path.join(ABS_FILE_PATH, UPLOADER_FILE_NAME)
         os.system(
-            f"{self.python_command} {script_path} {self.command_to_send} {firmware_bytes}"
+            f"{self.python_command} {script_path} {self.command_to_send} {firmware_path}"
         )
         time.sleep(1)
         self.send_disconnect_boot()
-        LOG_SUCCESS(
-            f"Done uploading {self.firmware_selected} to {self.serial_worker.port}"
-        )
+        return True
 
-    def create_tmp_file(self, content_bytes):
-        with open(TMP_FILE, "w") as f:
-            f.write(content_bytes)
-
-    def remove_tmp_file(self):
-        os.remove(TMP_FILE)
-
-
-release_handler = Release()
-
-app = typer.Typer(
-    name="Catnip Uploader",
-    help="Upload firmware to CatSniffer boards V3.",
-    add_completion=False,
-    no_args_is_help=True,
-)
-
-
-@app.command("releases")
-def list_releases():
-    """List all available releases"""
-    LOG_SUCCESS("Available releases:")
-    table = Table(title="Releases")
-    table.add_column("Index", style="cyan")
-    table.add_column("Release", style="cyan")
-    table.add_column("Description", style="cyan")
-    get_release = release_handler.get_release()
-    exist_prev_release = release_handler.find_folder_releases()
-    description = ""
-    with open(
-        os.path.join(ABS_FILE_PATH, exist_prev_release, "descriptions.txt"), "r"
-    ) as ft:
-        description = ft.read()
-        ft.close()
-    for release in get_release:
-        find_description = release_handler.get_firmware_description(
-            get_release[release].replace(".hex", ""), description
-        )
-        table.add_row(str(release), get_release[release], find_description)
-    console = Console()
-    console.print(table)
-
-
-@app.command("load")
-def load_firmware(
-    firmware_selected: int = typer.Argument(
-        default=0,
-        help=f"Set the firmware to load.",
-    ),
-    comport: str = typer.Argument(
-        default=DEFAULT_COMPORT,
-        help="Serial port to use for uploading.",
-    ),
-):
-    """Load firmware to the board"""
-    validate_firmware_selected(firmware_selected)
-    serial_connection = BoardUart(comport)
-
-    serial_connection.set_firmware_selected(firmware_selected)
-
-    if not serial_connection.validate_connection():
-        LOG_ERROR(f"Invalid serial port: {comport}")
+    def validate_python_call(self):
+        try:
+            output = subprocess.check_output(
+                ["python", "--version"], stderr=subprocess.STDOUT
+            )
+            output = output.decode("utf-8").strip()
+            if output.startswith("Python 3."):
+                return "python"
+        except Exception:
+            pass
+        try:
+            output = subprocess.check_output(
+                ["python3", "--version"], stderr=subprocess.STDOUT
+            )
+            output = output.decode("utf-8").strip()
+            if output.startswith("Python 3."):
+                return "python3"
+        except Exception:
+            pass
+        LOG_ERROR("Error: Python 3 is required to run this program.")
         sys.exit(1)
 
-    serial_connection.send_firmware()
+    @staticmethod
+    def find_catsniffer():
+        for port in comports():
+            if port.vid == CATSNIFFER_VID and port.pid == CATSNIFFER_PID:
+                return port.device
+        return DEFAULT_COMPORT
+
+
+class CatnipUploader:
+    def __init__(self) -> None:
+        self.app = typer.Typer(
+            name="Catnip Uploader",
+            help="Upload firmware to CatSniffer boards V3.",
+            add_completion=False,
+            no_args_is_help=True,
+        )
+        self.app.command("load")(self.load_firmware)
+        self.app.command("releases")(self.get_firmwares)
+        self.releases = Release()
+
+    def load_firmware(
+        self,
+        firmware: str = typer.Argument(
+            help="Name of the firmware to load, or the path to the firmware file."
+        ),
+        comport: str = typer.Argument(
+            help="COM port", default=BoardUart.find_catsniffer
+        ),
+        validate: bool = typer.Option(help="Bypass validation", default=False),
+    ):
+        """Load firmware to CatSniffer boards V3."""
+        validate_firmware = self.releases.validate_file(firmware)
+        if validate_firmware == None:
+            LOG_ERROR(f"Firmware {firmware} not found.")
+            sys.exit(1)
+
+        board_uart = BoardUart(comport)
+        if not board_uart.validate_connection():
+            LOG_ERROR(f"Error: Could not connect to {comport}.")
+            sys.exit(1)
+
+        LOG_SUCCESS(f"Connected to {comport}")
+
+        if not validate:
+            LOG_WARNING(f"{'='*15} Validation is enabled. {'='*15}")
+            confirm_load = typer.confirm(
+                f"Are you sure you want to load the firmware: {validate_firmware}?\n",
+                abort=True,
+            )
+            if not confirm_load:
+                sys.exit(1)
+
+        LOG_SUCCESS(f"Loading firmware: {validate_firmware}")
+        if board_uart.send_firmware(validate_firmware.replace("\r", "")):
+            LOG_SUCCESS("Firmware loaded successfully.")
+
+    def get_firmwares(self):
+        """Get the latest firmware releases."""
+        table = Table(title="Releases")
+        table.add_column("Firmware")
+        table.add_column("Description")
+        try:
+            description = self.releases.parse_descriptions()
+            if description:
+                for key, value in description.items():
+                    table.add_row(key, value)
+            else:
+                LOG_WARNING("No descriptions file found.")
+        except FileNotFoundError:
+            LOG_ERROR("No descriptions file found.")
+            releases = self.releases.get_releases()
+            for release in releases:
+                table.add_row(release, "No description available.")
+        finally:
+            console = Console()
+            console.print(table)
 
 
 if __name__ == "__main__":
-    app()
+    catnip_uploader = CatnipUploader()
+    catnip_uploader.app()
