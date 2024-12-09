@@ -1,6 +1,7 @@
 import sys
 from traceback import format_exception
 
+
 class TrivialLogger:
     def _log(self, msg, *args, exc_info=None, **kwargs):
         msg = msg % args
@@ -10,7 +11,7 @@ class TrivialLogger:
                 exc_info = (type(exc_info), exc_info, exc_info.__traceback__)
             elif not isinstance(exc_info, tuple):
                 exc_info = sys.exc_info()
-            exc_str = ''.join(format_exception(*exc_info))
+            exc_str = "".join(format_exception(*exc_info))
             print(exc_str, file=sys.stderr)
 
     debug = _log
@@ -20,13 +21,18 @@ class TrivialLogger:
     critical = _log
     exception = _log
 
+
 class UsageError(Exception):
     pass
+
+
 class SerialError(Exception):
     pass
 
 
 def fmt_addr_to_hex(addr):
     hex_addr = f"{addr:016x}"
-    formatted_address = ':'.join(hex_addr[i:i+2] for i in range(0, len(hex_addr), 2))
+    formatted_address = ":".join(
+        hex_addr[i : i + 2] for i in range(0, len(hex_addr), 2)
+    )
     return formatted_address
