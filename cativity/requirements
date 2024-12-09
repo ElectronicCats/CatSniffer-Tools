@@ -1,0 +1,11 @@
+click==8.1.7
+markdown-it-py==3.0.0
+mdurl==0.1.2
+psutil==6.1.0
+Pygments==2.18.0
+pyserial==3.5
+rich==13.9.4
+scapy==2.6.0
+shellingham==1.5.4
+typer==0.14.0
+typing_extensions==4.12.2
