@@ -139,6 +139,9 @@ class FirmwareFile(object):
             if file_type == "text/plain":
                 firmware_is_hex = True
                 mdebug(5, "Firmware file: Intel Hex")
+            elif file_type == "text/x-hex":
+                firmware_is_hex = True
+                mdebug(5, "Firmware file: Intel Hex")
             elif file_type == "application/octet-stream":
                 mdebug(5, "Firmware file: Raw Binary")
             else:
@@ -1244,9 +1247,9 @@ if __name__ == "__main__":
 
         cmd = CommandInterface()
         cmd.open(conf["port"], conf["baud"])
-        cmd.invoke_bootloader(
-            conf["bootloader_active_high"], conf["bootloader_invert_lines"]
-        )
+        # cmd.invoke_bootloader(
+        #     conf["bootloader_active_high"], conf["bootloader_invert_lines"]
+        # )
         mdebug(
             5,
             "Opening port %(port)s, baud %(baud)d"
