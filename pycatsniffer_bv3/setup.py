@@ -60,7 +60,9 @@ def wireshark_files():
         return []
 
     if platform.system() == "Windows":
-        dissectors_path = os.path.join(program_path, "plugins\\wireshark\\4-4")
+        dissectors_path = os.path.join(
+            program_path.replace("Wireshark.exe"), "plugins\\epan\\4-4"
+        )
         dissector_file = "dissectors/windows/catsniffer.dll"
     elif platform.system() == "Darwin":
         dissectors_path = os.path.join(program_path, "PlugIns/wireshark/4-4/epan/")
