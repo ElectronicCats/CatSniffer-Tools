@@ -472,7 +472,11 @@ def setup_sniffer(
     sniffer_collector.run_workers()
 
 
-if __name__ == "__main__":
+def main():
     typer.echo(PROMPT_HEADER)
     signal.signal(signal.SIGINT, signal_handler)
     app()
+
+
+if __name__ == "__main__":
+    main()
