@@ -158,3 +158,20 @@ Dump a pcap file, hex file, verbose mode and show the packets on wireshark
 ```bash
 $ python3 cat_sniffer.py sniff $SERIAL_PORT -df -pf -ff -ws
 ```
+
+# Add filters profiles
+- Open Wireshark
+- `Edit` -> `Configuration Profiles`
+- Click `Import` and click `From Zip File`
+- Find the zip with the profiles and select it
+- Click Ok
+
+## Errors
+- Wireshark don't open:
+	- `󰄛 - PycatSniffer CLI> wireshark: Configuration Profile "Threat" does not exist` or `"Zigbee"`: You need import the profiles
+	- Wireshark don't open: Check if you can call it with `whireshark` command from the terminal
+
+# Changelog
+- Refactor argument initialization
+- Add captures profiles
+- Add set phy protocol by name

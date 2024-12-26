@@ -2,18 +2,20 @@ import platform
 import serial
 import serial.tools.list_ports
 import threading
-import time
 import sys
-import re
 from .Definitions import START_OF_FRAME, END_OF_FRAME
 from .Utils import LOG_ERROR, LOG_WARNING
 
 if platform.system() == "Windows":
     DEFAULT_COMPORT = "COM1"
+elif platform.system() == "Darwin":
+    DEFAULT_COMPORT = "/dev/tty.usbmodem0001"
 else:
     DEFAULT_COMPORT = "/dev/ttyACM0"
 
 DEFAULT_SERIAL_BAUDRATE = 921600
+CATSNIFFER_VID = 11914
+CATSNIFFER_PID = 192
 
 
 class UART(threading.Thread):
@@ -107,3 +109,10 @@ class UART(threading.Thread):
             return self.recv_catsniffer()
         else:
             return self.recv_boards()
+
+    def find_catsniffer_serial_port(self):
+        ports = serial.tools.list_ports.comports()
+        for port in ports:
+            if port.vid == CATSNIFFER_VID and port.pid == CATSNIFFER_PID:
+                return port.device
+        return DEFAULT_COMPORT
