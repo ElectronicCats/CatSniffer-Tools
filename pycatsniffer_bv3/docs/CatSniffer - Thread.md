@@ -72,7 +72,7 @@ Then reboot your board.
 ### Adding our dissectors
 - Open Wireshark
 - * `About Wireshark` -> `Folders`
-- Locate `Global Lua Plugins` and doble click in the `Location` column
+- Locate `Global Plugins` and doble click in the `Location` column
 - Once the folder are open, copy the `catsniffer.` from the `dissectors` folder
 
 >  * About wireshark in macos are in the `Wireshark` menu and Windows and Linux are in `Help` menu
