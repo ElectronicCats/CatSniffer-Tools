@@ -478,7 +478,7 @@ https://pwnlab.mx/\x1b[0m""",
         )(self.protocols.get_protocols)
 
 
-if __name__ == "__main__":
+def main():
     typer.echo(PROMPT_HEADER)
     cli = CLICatsniffer()
     try:
@@ -489,3 +489,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\x1b[31;1m[!] Error: {e}\x1b[0m")
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

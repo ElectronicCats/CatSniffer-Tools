@@ -191,9 +191,9 @@ PROTOCOL_ZIGBEE = Protocol(
     profile="Zigbee",
 )
 
-PROTOCOL_THREAT = Protocol(
+PROTOCOL_THREAD = Protocol(
     phy_index=bytearray([0x12]),
-    name="Threat",
+    name="Thread",
     phy_label="2405 MHz - Freq Band",
     base_frequency=2405.0,
     spacing=5,
@@ -201,8 +201,8 @@ PROTOCOL_THREAT = Protocol(
         (channel, (2405.0 + (5 * (channel - 11)))) for channel in range(11, 27)
     ],
     pcap_header=147,
-    common_names=["threat"],
-    profile="Threat",
+    common_names=["thread"],
+    profile="Thread",
 )
 
 
@@ -240,7 +240,7 @@ PROTOCOL_LORA = Protocol(
 class PROTOCOLSLIST(Definitions.BaseEnum):
     PROTOCOL_BLE: Protocol = PROTOCOL_BLE
     PROTOCOL_ZIGBEE: Protocol = PROTOCOL_ZIGBEE
-    PROTOCOL_THREAT: Protocol = PROTOCOL_THREAT
+    PROTOCOL_THREAD: Protocol = PROTOCOL_THREAD
     PROTOCOL_LORA: Protocol = PROTOCOL_LORA
 
     @classmethod
