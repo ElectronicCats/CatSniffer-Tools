@@ -14,7 +14,7 @@ from .Protocols import (
     PROTOCOL_BLE,
     PROTOCOL_ZIGBEE,
     PROTOCOL_LORA,
-    PROTOCOL_THREAT,
+    PROTOCOL_THREAD,
     PROTOCOLSLIST,
 )
 from .Utils import LOG_ERROR, LOG_WARNING, LOG_INFO
@@ -203,7 +203,7 @@ class SnifferCollector(threading.Thread):
                                 phy = bytes.fromhex("05")
                             elif (
                                 self.protocol == PROTOCOL_ZIGBEE
-                                or self.protocol == PROTOCOL_THREAT
+                                or self.protocol == PROTOCOL_THREAD
                             ):
                                 protocol = b"\x02"
                                 phy = bytes.fromhex("03")
@@ -291,7 +291,7 @@ class SnifferCollector(threading.Thread):
             if self.protocol == PROTOCOL_BLE:
                 data_packet = BLEUARTPacket(general_packet.packet_bytes)
                 packet = data_packet
-            elif self.protocol == PROTOCOL_ZIGBEE or self.protocol == PROTOCOL_THREAT:
+            elif self.protocol == PROTOCOL_ZIGBEE or self.protocol == PROTOCOL_THREAD:
                 ieee_packet = IEEEUARTPacket(general_packet.packet_bytes)
                 packet = ieee_packet
             else:
