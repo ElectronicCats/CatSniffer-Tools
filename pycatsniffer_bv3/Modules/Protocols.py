@@ -14,6 +14,8 @@ class Protocol:
         spacing: float = 0,
         channel_range: list = [0, 0],
         pcap_header: int = 147,
+        common_names: list = [],
+        profile: str = "Default",
     ):
         self.phy_index = phy_index
         self.name = name
@@ -22,6 +24,19 @@ class Protocol:
         self.spacing = spacing
         self.channel_range = channel_range
         self.pcap_header = pcap_header
+        self.common_names = common_names
+        self.profile = profile
+
+    def find_by_name(self, name: str):
+        if name in self.common_names:
+            return self
+        return None
+
+    def get_profile(self):
+        return self.profile
+
+    def get_common_name_str(self):
+        return ", ".join(self.common_names)
 
     def get_phy_index(self):
         return self.phy_index
@@ -159,11 +174,12 @@ PROTOCOL_BLE = Protocol(
     spacing=2,
     channel_range=[(37, 2402), (38, 2426), (39, 2480)],
     pcap_header=147,
+    common_names=["ble", "bluetooth", "bluetoothle"],
 )
 
-PROTOCOL_IEEE = Protocol(
+PROTOCOL_ZIGBEE = Protocol(
     phy_index=bytearray([0x12]),
-    name="IEEE 802.15.4 QPSK",
+    name="Zigbee",
     phy_label="2405 MHz - Freq Band",
     base_frequency=2405.0,
     spacing=5,
@@ -171,6 +187,22 @@ PROTOCOL_IEEE = Protocol(
         (channel, (2405.0 + (5 * (channel - 11)))) for channel in range(11, 27)
     ],
     pcap_header=147,
+    common_names=["zigbee", "zig", "zb"],
+    profile="Zigbee",
+)
+
+PROTOCOL_THREAT = Protocol(
+    phy_index=bytearray([0x12]),
+    name="Threat",
+    phy_label="2405 MHz - Freq Band",
+    base_frequency=2405.0,
+    spacing=5,
+    channel_range=[
+        (channel, (2405.0 + (5 * (channel - 11)))) for channel in range(11, 27)
+    ],
+    pcap_header=147,
+    common_names=["threat"],
+    profile="Threat",
 )
 
 
@@ -207,7 +239,8 @@ PROTOCOL_LORA = Protocol(
 
 class PROTOCOLSLIST(Definitions.BaseEnum):
     PROTOCOL_BLE: Protocol = PROTOCOL_BLE
-    PROTOCOL_IEEE: Protocol = PROTOCOL_IEEE
+    PROTOCOL_ZIGBEE: Protocol = PROTOCOL_ZIGBEE
+    PROTOCOL_THREAT: Protocol = PROTOCOL_THREAT
     PROTOCOL_LORA: Protocol = PROTOCOL_LORA
 
     @classmethod
@@ -228,6 +261,17 @@ class PROTOCOLSLIST(Definitions.BaseEnum):
         for channel in get_protocol.value.channel_range:
             str_list += f"[{channel[0]}] {channel[1]}\n"
         return str_list
+
+    @classmethod
+    def get_protocol_by_name(cls, name: str):
+        for protocol in cls:
+            if protocol.name == name:
+                return protocol
+            else:
+                get_protocol = protocol.value.find_by_name(name)
+                if get_protocol:
+                    return get_protocol
+        return None
 
     def __str__(self):
         return super().__str__()
