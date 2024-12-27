@@ -128,8 +128,8 @@ class Catsniffer:
         if channel not in self.sniffer_collector.get_protocol_phy().list_channel_range:
             control_ble = Protocols.PROTOCOLSLIST.get_protocol_by_name("ble")
             if get_protocol != control_ble:
-                control_channel = get_protocol.get_channel_range()[0][0]
-                channel = control_channel
+                print(f"\x1b[31;1m[!] Channel out of the range: {channel}\x1b[0m")
+                sys.exit(1)
 
         self.sniffer_collector.set_protocol_channel(channel)
         self.sniffer_collector.set_verbose_mode(verbose)

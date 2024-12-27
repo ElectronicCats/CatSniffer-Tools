@@ -67,12 +67,12 @@ Then reboot your board.
 - `Import` -> `From Zip File` -> Locate the zip file in the folder `filter_profiles` from the repo
 - Then `Ok`
 
-> If the **filters profiles** are not imported, with the latest version of pycatsniffer with the *Thread* command support, wireshark will not open an error will be displayed: `󰄛 - PycatSniffer CLI> wireshark: Configuration Profile "Threat" does not exist` or `󰄛 - PycatSniffer CLI> wireshark: Configuration Profile "Zigbee" does not exist`
+> If the **filters profiles** are not imported, with the latest version of pycatsniffer with the *Thread* command support, wireshark will not open an error will be displayed: `󰄛 - PycatSniffer CLI> wireshark: Configuration Profile "Thread" does not exist` or `󰄛 - PycatSniffer CLI> wireshark: Configuration Profile "Zigbee" does not exist`
 
 ### Adding our dissectors
 - Open Wireshark
 - * `About Wireshark` -> `Folders`
-- Locate `Global Plugins` and doble click in the `Location` column
+- Locate `Personal Plugins` in the *name* column and doble click in the `Location` column
 - Once the folder are open, copy the `catsniffer.` from the `dissectors` folder
 
 >  * About wireshark in macos are in the `Wireshark` menu and Windows and Linux are in `Help` menu
@@ -199,7 +199,7 @@ Done
 # Catsniffer - Sniffing the network
 ## Starting the sniffing
 ```shell
-python cat_sniffer.py sniff -phy threat -ff -ws -c 13
+python cat_sniffer.py sniff -phy Thread -ff -ws -c 13
 
       :-:              :--       |
       ++++=.        .=++++       |
@@ -218,7 +218,7 @@ python cat_sniffer.py sniff -phy threat -ff -ws -c 13
 ┃ Information ┃ Value                 ┃
 ┡━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩
 │ COM Port    │ /dev/cu.usbmodem13201 │
-│ PHY         │ Threat                │
+│ PHY         │ Thread                │
 │ Channel     │ 13                    │
 └─────────────┴───────────────────────┘
 PyCat-Sniffer CLI - For sniffing the TI CC1352 device communication inferfaces.
@@ -228,8 +228,7 @@ Type help or ? to list commands.
 ```
 
 Wireshark open with listening in the channel 13
-
-![[wireshark_thread_example.png]]
+![wireshark_thread_example](wireshark_thread_example.png "wireshark_thread_example")
 
 ## Setting up the network key
 - `Preferences` -> `Protocols`
@@ -238,10 +237,10 @@ Wireshark open with listening in the channel 13
 - `Decryption key index`: 1
 - `Key Hash`: Thread hash
 
-![[wireshar_thread_key_info.png]]
+![wireshar_thread_key_info](wireshar_thread_key_info.png "wireshar_thread_key_info")
 
 Once you save, Wireshark will show something like:
-![[wireshark_thread_decrypted.png]]
+![wireshark_thread_decrypted](wireshark_thread_decrypted.png "wireshark_thread_decrypted")
 
 ## View UDP Packets
 In the OT Border Router:
@@ -272,4 +271,4 @@ The Border Router recived:
 > 9 bytes from fd96:26d8:408f:b50e:bca0:8fb6:ed5a:4a27 49154 CatsRules
 ```
 
-![[wireshark_thread_udp.png]]
+![wireshar_thread_udp](wireshark_thread_udp.png "wireshar_thread_udp")
