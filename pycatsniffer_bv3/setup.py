@@ -37,9 +37,9 @@ def wireshark_files():
 
 setup(
     name="pycatsniffer",
-    version="1.0",
+    version="2.0",
     description="CatSniffer BV3: A tool for sniffing ZigBee, LoRa, and other protocols",
-    author="Kevin Leon",
+    author="Electronic Cats",
     url="https://github.com/ElectronicCats/CatSniffer-Tools",
     packages=find_packages(include=["Modules", "Modules.*"]),
     py_modules=["cat_sniffer"],
