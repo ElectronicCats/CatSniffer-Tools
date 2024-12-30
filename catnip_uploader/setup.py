@@ -7,10 +7,10 @@ setup(
     author="Electronic Cats",
     url="https://github.com/ElectronicCats/CatSniffer-Tools",
     packages=find_packages(include=["modules", "modules.*"]),
-    py_modules=["catnip"],
+    py_modules=["catnip_uploader", "cc2538"],
     entry_points={
         "console_scripts": [
-            "catnip=catnip:main",
+            "catnip=catnip_uploader:main",
         ],
     },
     install_requires=[
