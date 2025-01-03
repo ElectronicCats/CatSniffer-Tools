@@ -10,7 +10,13 @@ from .UART import UART
 from .Pcap import Pcap
 from .Packets import GeneralUARTPacket, IEEEUARTPacket, BLEUARTPacket, LoraUARTPacket
 from .Definitions import DEFAULT_TIMEOUT_JOIN
-from .Protocols import PROTOCOL_BLE, PROTOCOL_IEEE, PROTOCOL_LORA, PROTOCOLSLIST
+from .Protocols import (
+    PROTOCOL_BLE,
+    PROTOCOL_ZIGBEE,
+    PROTOCOL_LORA,
+    PROTOCOL_THREAD,
+    PROTOCOLSLIST,
+)
 from .Utils import LOG_ERROR, LOG_WARNING, LOG_INFO
 
 
@@ -121,9 +127,9 @@ class SnifferCollector(threading.Thread):
     def set_channel_hopping(self, hopping: bool):
         self.hopping_channel = hopping
 
-    def set_protocol_phy(self, phy: int):
+    def set_protocol_phy(self, phy: str):
         """Set the phy protocol for the sniffer"""
-        get_protocol = PROTOCOLSLIST.get_list_protocols()[int(phy)].value
+        get_protocol = PROTOCOLSLIST.get_protocol_by_name(phy)
         self.protocol = get_protocol
         self.protocol_linktype = get_protocol.get_pcap_header()
 
@@ -131,7 +137,6 @@ class SnifferCollector(threading.Thread):
         """Set the protocol channel for the sniffer"""
         get_channel = self.protocol.get_channel_range_bytes(channel)
         self.protocol_freq_channel = get_channel[0]
-        self.logger.info(f"Channel: {self.protocol_freq_channel}")
 
     def close_board_uart(self):
         self.board_uart.close()
@@ -196,7 +201,10 @@ class SnifferCollector(threading.Thread):
                             if self.protocol == PROTOCOL_BLE:
                                 protocol = b"\x03"
                                 phy = bytes.fromhex("05")
-                            elif self.protocol == PROTOCOL_IEEE:
+                            elif (
+                                self.protocol == PROTOCOL_ZIGBEE
+                                or self.protocol == PROTOCOL_THREAD
+                            ):
                                 protocol = b"\x02"
                                 phy = bytes.fromhex("03")
 
@@ -272,7 +280,6 @@ class SnifferCollector(threading.Thread):
         """Dissector the packet"""
         if self.is_catsniffer == 2:
             data_packet = LoraUARTPacket(packet)
-            self.logger.debug(f"RECV -> {data_packet.get_payload_hex()}")
             return data_packet
 
         general_packet = GeneralUARTPacket(packet)
@@ -284,10 +291,9 @@ class SnifferCollector(threading.Thread):
             if self.protocol == PROTOCOL_BLE:
                 data_packet = BLEUARTPacket(general_packet.packet_bytes)
                 packet = data_packet
-            elif self.protocol == PROTOCOL_IEEE:
+            elif self.protocol == PROTOCOL_ZIGBEE or self.protocol == PROTOCOL_THREAD:
                 ieee_packet = IEEEUARTPacket(general_packet.packet_bytes)
                 packet = ieee_packet
-                self.logger.debug(f"RECV -> {packet.get_payload_hex()}")
             else:
                 self.logger.error("Protocol not supported yet")
                 LOG_WARNING("Protocol not supported yet")
