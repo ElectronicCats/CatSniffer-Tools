@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+[tool.setuptools.package-data]
+"*" = ["dissectors/**"]
+
+[project]
+name = "pycatsniffer"
+version = "2.0.12"
+authors = [
+    { name="ElectronicCats", email="e@electronicats.com" },
+    { name="PWNLabs", email="support@pwnlab.mx" },
+]
+maintainers = [
+    { name="Kevin Leon", email="kevinleon.morales@gmail.com" },
+]
+description = "Cross-platform (Windows, Mac and Linux) modular script for packet sniffing using catsniffer supporting the following protocols: BLE, IEEE 802.15, Zigbee."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Operating System :: OS Independent",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Security",
+
+]
+dependencies = [
+    "click",
+    "pyserial",
+    "typer",
+    "pywin32; os_name == 'nt'",
+]
+
+[project.urls]
+Homepage = "https://github.com/ElectronicCats/CatSniffer"
+Tooling = "https://github.com/ElectronicCats/CatSniffer-Tools" 
+Issues = "https://github.com/ElectronicCats/CatSniffer-Tools/issues"
+
+[project.scripts]
+pycatsniffer = "pycatsniffer.cat_sniffer:main"
+
+

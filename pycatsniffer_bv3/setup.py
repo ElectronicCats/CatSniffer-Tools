@@ -3,49 +3,49 @@ import shutil
 import platform
 import os
 
-
 def create_path(path):
     if not os.path.exists(path):
         os.makedirs(path)
 
-
 def wireshark_files():
     dissectors_path = ""
+    dissectors_wireshark = ""
     dissector_file = ""
 
     if platform.system() == "Windows":
-        dissectors_path = os.path.join(
+        dissectors_path = os.path.join("src", "pycatsniffer", "dissectors", "windows")
+        dissectors_wireshark = os.path.join(
             os.getenv("APPDATA"), "Wireshark", "plugins", "4.4", "epan"
         )
-        dissector_file = "dissectors/windows/catsniffer.dll"
+        dissector_file = "catsniffer.dll"
     elif platform.system() == "Darwin":
-        dissectors_path = os.path.join(
+        dissectors_path = os.path.join("src", "pycatsniffer", "dissectors", "mac")
+        dissectors_wireshark = os.path.join(
             os.getenv("HOME"), ".local", "lib", "wireshark", "plugins", "4-4", "epan"
         )
-        dissector_file = "dissectors/mac/catsniffer.so"
+        dissector_file = "catsniffer.so"
     else:
-        dissectors_path = os.path.join(
+        dissectors_path = os.path.join("src", "pycatsniffer", "dissectors", "linux")
+        dissectors_wireshark = os.path.join(
             os.getenv("HOME"), ".local", "lib", "wireshark", "plugins", "4.4", "epan"
         )
-        dissector_file = "dissectors/linux/catsniffer.so"
+        dissector_file = "catsniffer.so"
 
-    create_path(dissectors_path)
-    complete_path = os.path.join(dissectors_path, os.path.basename(dissector_file))
-    shutil.copyfile(dissector_file, complete_path)
-    return [(dissectors_path, [dissector_file])]
-
+    create_path(dissectors_wireshark)
+    shutil.copyfile(os.path.join(dissectors_path, dissector_file), os.path.join(dissectors_wireshark, dissector_file))
+    return [("dissectors", [])]
 
 setup(
     name="pycatsniffer",
     version="2.0",
-    description="CatSniffer BV3: A tool for sniffing ZigBee, LoRa, and other protocols",
+    description="Cross-platform (Windows, Mac and Linux) modular script for packet sniffing using catsniffer supporting the following protocols: BLE, IEEE 802.15, Zigbee.",
     author="Electronic Cats",
     url="https://github.com/ElectronicCats/CatSniffer-Tools",
-    packages=find_packages(include=["Modules", "Modules.*"]),
-    py_modules=["cat_sniffer"],
+    packages=find_packages(where='src'),
+    package_dir={"": "src"},
     entry_points={
         "console_scripts": [
-            "pycatsniffer=cat_sniffer:main",
+            "pycatsniffer=pycatsniffer.cat_sniffer:main",
         ],
     },
     install_requires=[
