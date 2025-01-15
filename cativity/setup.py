@@ -13,13 +13,7 @@ setup(
             "cativity=cativity:main",
         ],
     },
-    install_requires=[
-        "click",
-        "pyserial",
-        "typer",
-        "scapy",
-        "shellingham"
-    ],
+    install_requires=["click", "pyserial", "typer", "scapy", "shellingham"],
     include_package_data=True,
     package_data={"modules": ["*.py"]},
 )
