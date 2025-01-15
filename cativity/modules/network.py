@@ -32,6 +32,18 @@ class Network:
         self.nStats = NetworkStats()
         self.grapher = Graphs()
 
+    def get_packet_filtered(self, packet, pfilter):
+        pkt = Dot15d4(packet)
+        if pfilter == "all":
+            return packet
+        elif pfilter == "thread":
+            if not pkt.haslayer(ZigbeeNWK) or not pkt.haslayer(ZigBeeBeacon):
+                return packet
+        else:
+            if pkt.haslayer(ZigbeeNWK) or pkt.haslayer(ZigBeeBeacon):
+                return packet
+        return None
+
     def dissect_packet(self, packet):
         pkt = Dot15d4(packet)
         new_pkt = {}
