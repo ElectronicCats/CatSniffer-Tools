@@ -6,3 +6,5 @@
 *.pyc
 *.hex
 *.txt
+build/
+*.egg-info
