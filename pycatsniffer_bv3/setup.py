@@ -7,24 +7,29 @@ import zipfile
 ZIP_FOLDER_NAME = "wireshark_capture_profiles"
 TRASH_FOLDER_MAC = "__MACOSX"
 
+
 def create_path(path):
     if not os.path.exists(path):
         os.makedirs(path)
+
 
 def wireshark_profiles():
     zip_path_profiles = f"filter_profiles/{ZIP_FOLDER_NAME}.zip"
     extract_path = ""
     if platform.system() == "Darwin":
-        extract_path = os.path.join(os.getenv("HOME"), ".config", "wireshark", "profiles")
+        extract_path = os.path.join(
+            os.getenv("HOME"), ".config", "wireshark", "profiles"
+        )
     elif platform.system() == "Windows":
-        # TODO: Validate
         extract_path = os.path.join(os.getenv("APPDATA"), "Wireshark", "profiles")
     else:
-        extract_path = os.path.join(os.getenv("HOME"), ".config", "wireshark", "profiles")
+        extract_path = os.path.join(
+            os.getenv("HOME"), ".config", "wireshark", "profiles"
+        )
 
     create_path(extract_path)
 
-    with zipfile.ZipFile(zip_path_profiles, 'r') as zip_ref:
+    with zipfile.ZipFile(zip_path_profiles, "r") as zip_ref:
         zip_ref.extractall(extract_path)
 
     path_extracted_profiles = os.path.join(extract_path, ZIP_FOLDER_NAME)
@@ -36,12 +41,11 @@ def wireshark_profiles():
         except shutil.Error as e:
             print(e)
             continue
-    
+
     if os.path.exists(os.path.join(extract_path, TRASH_FOLDER_MAC)):
         shutil.rmtree(os.path.join(extract_path, TRASH_FOLDER_MAC))
-    
+
     shutil.rmtree(path_extracted_profiles)
-    
 
 
 def wireshark_files():
