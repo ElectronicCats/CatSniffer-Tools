@@ -45,6 +45,8 @@ class Cativity:
         self.catsniffer = Sniffer(logger=logging.getLogger("CatSniffer"))
         self.grapher = Graphs()
         self.network = Network()
+        self.protocol_filters = ["all", "zigbee", "thread"]
+        self.protocol = "all"
         self.capture_started = True
         self.packet_received = queue.Queue()
         self.channel_activity = {}
@@ -59,20 +61,20 @@ class Cativity:
         typer.secho(
             """
   ____      _   _       _ _         ____       _            _
- / ___|__ _| |_(_)_   _(_) |_ _   _|  _ \  ___| |_ ___  ___| |_ ___  _ __
-| |   / _` | __| \ \ / / | __| | | | | | |/ _ \ __/ _ \/ __| __/ _ \| '__|
-| |__| (_| | |_| |\ V /| | |_| |_| | |_| |  __/ ||  __/ (__| || (_) | |
- \____\__,_|\__|_| \_/ |_|\__|\__, |____/ \___|\__\___|\___|\__\___/|_|
+ / ___|__ _| |_(_)_   _(_) |_ _   _|  _ \\  ___| |_ ___  ___| |_ ___  _ __
+| |   / _` | __| \\ \\ / / | __| | | | | | |/ _ \\ __/ _ \\/ __| __/ _ \\| '__|
+| |__| (_| | |_| |\\ V /| | |_| |_| | |_| |  __/ ||  __/ (__| || (_) | |
+ \\____\\__,_|\\__|_| \\_/ |_|\\__|\\__, |____/ \\___|\\__\\___|\\___|\\__\\___/|_|
                               |___/
 """,
             fg=typer.colors.BRIGHT_YELLOW,
         )
         typer.secho(
-            "A tool to analyze the channel activity fro Zigbee Networks",
+            "A tool to analyze the channel activity for IEEE 802.15.4 Networks",
             fg=typer.colors.BRIGHT_CYAN,
         )
         typer.secho("Author: astrobyte", fg=typer.colors.BRIGHT_CYAN)
-        typer.secho("Version: 1.0", fg=typer.colors.BRIGHT_CYAN)
+        typer.secho("Version: 1.1", fg=typer.colors.BRIGHT_CYAN)
         typer.secho("\n")
 
     def channel_handler(self):
@@ -110,22 +112,54 @@ class Cativity:
         topology: bool = typer.Option(
             False, help="Show the network topology", show_default=True
         ),
+        protocol: str = typer.Option(
+            "all",
+            help="Protocol to filter packets",
+            show_default=True,
+            show_choices=True,
+            case_sensitive=False,
+        ),
     ):
         if catsniffer is None:
-            raise UsageError("Please provide the serial path to the CatSniffer")
+            typer.secho(
+                "Please provide the serial path to the CatSniffer",
+                fg=typer.colors.BRIGHT_RED,
+            )
+            os._exit(1)
         self.catsniffer.set_serial_path(catsniffer)
 
         if channel is not None:
             if channel < 11 or channel > 26:
-                raise UsageError(
-                    "Invalid channel. Please provide a channel between 11 and 26"
+                typer.secho(
+                    "Invalid channel. Please provide a channel between 11 and 26",
+                    fg=typer.colors.BRIGHT_RED,
                 )
+                os._exit(1)
             self.catsniffer.set_channel(channel)
             if not topology:
                 self.grapher.update_channel(channel)
                 self.fixed_channel = True
                 self.channel_activity = {}
                 self.channel_activity[channel] = 0
+
+        if protocol not in self.protocol_filters:
+            typer.secho(
+                "Invalid protocol filter. Please provide a valid protocol:",
+                fg=typer.colors.BRIGHT_RED,
+            )
+            typer.secho(
+                f"{', '.join(self.protocol_filters)}", fg=typer.colors.BRIGHT_GREEN
+            )
+            os._exit(1)
+
+        self.protocol = protocol
+
+        if topology and protocol != "zigbee":
+            typer.secho(
+                "Topology analysis is only available for Zigbee protocol!",
+                fg=typer.colors.BRIGHT_RED,
+            )
+            os._exit(1)
 
         self.__print_banner()
         self.catsniffer.start_sniffer()
@@ -158,7 +192,12 @@ class Cativity:
                 tisniffer_packet = TISnifferPacket(packet)
                 if tisniffer_packet.is_command_response():
                     continue
-                self.packet_received.put(tisniffer_packet.payload)
+
+                packet_filtered = self.network.get_packet_filtered(
+                    tisniffer_packet.payload, self.protocol
+                )
+                if packet_filtered:
+                    self.packet_received.put(packet_filtered)
                 if topology:
                     dissected_packet = self.network.dissect_packet(
                         tisniffer_packet.payload
@@ -180,7 +219,7 @@ class Cativity:
         typer.secho("Happy Hacking!", fg=typer.colors.BRIGHT_YELLOW)
 
 
-if __name__ == "__main__":
+def main():
     catbee = Cativity()
     try:
         catbee.app()
@@ -192,3 +231,7 @@ if __name__ == "__main__":
     except Exception as e:
         typer.echo(f"Error: {e}")
         os._exit(1)
+
+
+if __name__ == "__main__":
+    main()
