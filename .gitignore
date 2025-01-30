@@ -7,4 +7,6 @@
 *.hex
 *.txt
 build/
-*.egg-info/
+*.egg-info
+__pycache__/
+.venv/
