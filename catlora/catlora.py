@@ -38,20 +38,14 @@ class SpectrumScan:
         self.fig.canvas.mpl_connect("close_event", self.on_close)
 
     def __data_dissector(self, plot_data):
-        raw_data = plot_data[len("@S") : -len("@E")]
+        raw_data = plot_data[len("@S"):-len("@E")]
         freq, data = raw_data.split(";")
         freq = float(freq)
         if freq not in self.frequency_list:
             self.frequency_list.append(freq)
 
         data = list(map(int, data.split(",")[:-1]))
-        index = int(
-            round(
-                (freq - self.start_freq)
-                / (self.end_freq - self.start_freq)
-                * (self.num_ticks * 12 - 1)
-            )
-        )
+        index = int(round((freq - self.start_freq) / (self.end_freq - self.start_freq) * (self.num_ticks*12 - 1)))
         self.data_matrix[:, index] = data
 
     def on_close(self, event):
@@ -109,7 +103,7 @@ class SpectrumScan:
         recv_worker = threading.Thread(target=self.recv_task, daemon=True)
         recv_worker.start()
         self.create_plot()
-        animation.FuncAnimation(self.fig, self.show_plot, interval=100)
+        ani = animation.FuncAnimation(self.fig, self.show_plot, interval=100)
         plt.show()
         while self.recv_running:
             time.sleep(0.1)
