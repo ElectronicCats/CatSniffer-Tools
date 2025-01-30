@@ -8,3 +8,5 @@
 *.txt
 build/
 *.egg-info
+__pycache__/
+.venv/

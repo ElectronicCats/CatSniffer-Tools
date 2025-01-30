@@ -1,3 +1,12 @@
+"""
+This code is still in development and is not yet ready for production use.
+Kevin Leon @ Electronic Cats
+  Original Creation Date: Jan 30, 2025
+  This code is beerware; if you see me (or any other Electronic Cats
+  member) at the local, and you've found our code helpful,
+  please buy us a round!
+  Distributed as-is; no warranty is given.
+"""
 import sys
 import time
 import threading
@@ -8,7 +17,7 @@ from modules.hardware import Board as Catsniffer
 
 DEFAULT_COLOR_MAP = "viridis"
 DEFAULT_RSSI_OFFSET = -11
-SCAN_WIDTH = 33  # Asumiendo que hay 33 muestras por escaneo
+SCAN_WIDTH = 33 
 
 DEFAULT_START_FERQ = 868
 DEFAULT_END_FREQ = 928
@@ -21,7 +30,7 @@ class SpectrumScan:
         self.no_bytes_count = 0
         self.fig, self.ax = plt.subplots(figsize=(12, 6))
         self.frequency_list = []
-        self.data_matrix = np.zeros((33, 600))  # Ajusta el tamaño según tu necesidad
+        self.data_matrix = np.zeros((33, 600))
         self.im = None
         self.start_freq = DEFAULT_START_FERQ
         self.end_freq = DEFAULT_END_FREQ
@@ -111,6 +120,7 @@ class SpectrumScan:
 
 
 if __name__ == "__main__":
+    print("This code is still in development and is not yet ready for production use.")
     sc = SpectrumScan()
     try:
         sc.main()
