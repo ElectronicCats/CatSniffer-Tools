@@ -11,7 +11,7 @@ Tool to comunicate with Catsniffer and `LoRa-Freq` to show a RSSI graphic in fre
 usage: liveSpectrumScan.py [-h] [-b BAUDRATE] [--freqStart FREQSTART] [--freqEnd FREQEND] [--offset OFFSET] port
 
         RadioLib SX126x_Spectrum_Scan plotter script. Displays output from SX126x_Spectrum_Scan example
-        as grayscale and 
+        as grayscale and
 
         Depends on pyserial and matplotlib, install by:
         'python3 -m pip install pyserial matplotlib'
@@ -20,7 +20,7 @@ usage: liveSpectrumScan.py [-h] [-b BAUDRATE] [--freqStart FREQSTART] [--freqEnd
         1. Upload the SX126x_Spectrum_Scan example to your Arduino board with SX1262 connected.
         2. Run the script with appropriate arguments.
         3. Once the scan is complete, output files will be saved to out/
-    
+
 
 positional arguments:
   port                  COM port to connect to the device
