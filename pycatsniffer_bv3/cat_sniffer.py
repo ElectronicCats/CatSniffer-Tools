@@ -1,4 +1,12 @@
-import signal
+#! /usr/bin/env python3
+
+# Kevin Leon @ Electronic Cats
+# Original Creation Date: Jan 23, 2024
+# This code is beerware; if you see me (or any other Electronic Cats
+# member) at the local, and you've found our code helpful,
+# please buy us a round!
+# Distributed as-is; no warranty is given.
+
 import sys
 import platform
 
