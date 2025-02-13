@@ -7,7 +7,7 @@ from .Definitions import DEFAULT_TIMEOUT_JOIN
 
 
 class Wireshark(threading.Thread):
-    def __init__(self, fifo_name: str = DEFAULT_FILENAME, profile: str = "default"):
+    def __init__(self, fifo_name: str = DEFAULT_FILENAME, profile: str = "Default"):
         super().__init__()
         self.fifo_name = fifo_name
         self.running = True

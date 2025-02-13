@@ -2,11 +2,50 @@ from setuptools import setup, find_packages
 import shutil
 import platform
 import os
+import zipfile
+
+ZIP_FOLDER_NAME = "wireshark_capture_profiles"
+TRASH_FOLDER_MAC = "__MACOSX"
 
 
 def create_path(path):
     if not os.path.exists(path):
         os.makedirs(path)
+
+
+def wireshark_profiles():
+    zip_path_profiles = f"filter_profiles/{ZIP_FOLDER_NAME}.zip"
+    extract_path = ""
+    if platform.system() == "Darwin":
+        extract_path = os.path.join(
+            os.getenv("HOME"), ".config", "wireshark", "profiles"
+        )
+    elif platform.system() == "Windows":
+        extract_path = os.path.join(os.getenv("APPDATA"), "Wireshark", "profiles")
+    else:
+        extract_path = os.path.join(
+            os.getenv("HOME"), ".config", "wireshark", "profiles"
+        )
+
+    create_path(extract_path)
+
+    with zipfile.ZipFile(zip_path_profiles, "r") as zip_ref:
+        zip_ref.extractall(extract_path)
+
+    path_extracted_profiles = os.path.join(extract_path, ZIP_FOLDER_NAME)
+    list_extracted_dir = os.listdir(path_extracted_profiles)
+
+    for dir in list_extracted_dir:
+        try:
+            shutil.move(os.path.join(path_extracted_profiles, dir), extract_path)
+        except shutil.Error as e:
+            print(e)
+            continue
+
+    if os.path.exists(os.path.join(extract_path, TRASH_FOLDER_MAC)):
+        shutil.rmtree(os.path.join(extract_path, TRASH_FOLDER_MAC))
+
+    shutil.rmtree(path_extracted_profiles)
 
 
 def wireshark_files():
@@ -29,9 +68,12 @@ def wireshark_files():
         )
         dissector_file = "dissectors/linux/catsniffer.so"
 
+    # Dissector
     create_path(dissectors_path)
     complete_path = os.path.join(dissectors_path, os.path.basename(dissector_file))
     shutil.copyfile(dissector_file, complete_path)
+    # Profiles
+    wireshark_profiles()
     return [(dissectors_path, [dissector_file])]
 
 

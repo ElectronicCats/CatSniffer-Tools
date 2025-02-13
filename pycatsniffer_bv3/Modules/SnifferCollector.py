@@ -219,21 +219,20 @@ class SnifferCollector(threading.Thread):
                                 self.protocol_linktype = 148
                                 packet = (
                                     version
-                                    + self.sniffer_data.packet_length.to_bytes(
+                                    + int(self.sniffer_data.packet_length).to_bytes(
                                         2, "little"
                                     )
-                                    + interfaceType
                                     + interfaceId
                                     + protocol
                                     + phy
                                     + int(self.lora_frequency).to_bytes(4, "little")
-                                    + int(self.lora_channel).to_bytes(2, "little")
                                     + int(self.lora_bandwidth).to_bytes(1, "little")
                                     + int(self.lora_spreading_factor).to_bytes(
                                         1, "little"
                                     )
-                                    + int(self.lora_coding_rate).to_bytes(1, "little")
-                                    + int(self.sniffer_data.rssi).to_bytes(2, "little")
+                                    + int(self.lora_coding_rate).to_bytes(2, "little")
+                                    # + int(self.sniffer_data.rssi).to_bytes(2, "little")
+                                    + struct.pack("<h", int(self.sniffer_data.rssi))
                                     + self.sniffer_data.payload
                                 )
                             else:
