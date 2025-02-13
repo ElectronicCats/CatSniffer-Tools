@@ -234,6 +234,7 @@ PROTOCOL_LORA = Protocol(
     spacing=125,
     channel_range=[(0, 433), (1, 434), (2, 435)],
     pcap_header=148,
+    profile="Default"
 )
 
 
