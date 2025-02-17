@@ -232,6 +232,7 @@ class SnifferCollector(threading.Thread):
                                     )
                                     + int(self.lora_coding_rate).to_bytes(1, "little")
                                     + struct.pack("<f", self.sniffer_data.rssi)
+                                    + struct.pack("<f", self.sniffer_data.snr)
                                     + self.sniffer_data.payload
                                 )
                             else:
