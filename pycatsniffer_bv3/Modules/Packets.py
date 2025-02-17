@@ -34,9 +34,10 @@ class LoraGeneralUARTPacket:
         self.unpack()
 
     def unpack(self) -> None:
-        (
-            self.start_of_frame,
-        ) = struct.unpack_from("<H", self.packet_bytes)
+        (self.start_of_frame,) = struct.unpack_from("<H", self.packet_bytes)
+        print("Packet:")
+        print(self.packet_bytes[2:4])
+        print(self.packet_bytes[2:-1])
         self.packet_length = struct.unpack(">H", self.packet_bytes[2:4])[0]
         self.bytes_payload = self.packet_bytes[4:-2]
         (self.end_of_frame,) = struct.unpack_from("<H", self.packet_bytes[-2:])
@@ -69,12 +70,8 @@ class LoraUARTPacket(LoraGeneralUARTPacket):
 
     def unpack(self) -> None:
         super().unpack()
-        self.payload = self.bytes_payload[:-2]
-        (self.rssi,) = struct.unpack_from(">h", self.bytes_payload[-2:])
-        # rssi_convertion = ((self.rssi / 32767.0) * (0 - (-120))) + (-120)
-        # self.rssi = rssi_convertion
-        # self.rssi = self.bytes_payload[-2:]
-        # self.snr = self.bytes_payload[-1:]
+        self.payload = self.bytes_payload[:-4]
+        (self.rssi,) = struct.unpack_from("<f", self.bytes_payload[-4:])
 
     def digiest(self) -> str:
         return (
