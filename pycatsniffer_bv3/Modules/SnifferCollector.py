@@ -230,9 +230,9 @@ class SnifferCollector(threading.Thread):
                                     + int(self.lora_spreading_factor).to_bytes(
                                         1, "little"
                                     )
-                                    + int(self.lora_coding_rate).to_bytes(2, "little")
-                                    # + int(self.sniffer_data.rssi).to_bytes(2, "little")
-                                    + struct.pack("<h", int(self.sniffer_data.rssi))
+                                    + int(self.lora_coding_rate).to_bytes(1, "little")
+                                    + struct.pack("<f", self.sniffer_data.rssi)
+                                    + struct.pack("<f", self.sniffer_data.snr)
                                     + self.sniffer_data.payload
                                 )
                             else:
