@@ -13,6 +13,63 @@ from cryptography.hazmat.backends import default_backend
 
 DEFAULT_MESHTASTIC_KEY = "1PG7OiApB1nwvP+rz05pAQ=="
 
+CHANNELS_PRESET = {
+    "ShortTurbo": {
+        "sf": 7,
+        "bw": 9,
+        "cr": 5,
+        "pl": 8,
+    },
+    "ShortSlow": {
+        "sf": 8,
+        "bw": 8,
+        "cr": 5,
+        "pl": 8,
+    },
+    "ShortFast": {
+        "sf": 7,
+        "bw": 8,
+        "cr": 5,
+        "pl": 8,
+    },
+    "MediumSlow": {
+        "sf": 10,
+        "bw": 8,
+        "cr": 5,
+        "pl": 8,
+    },
+    "MediumFast": {
+        "sf": 9,
+        "bw": 8,
+        "cr": 5,
+        "pl": 8,
+    },
+    "LongSlow": {
+        "sf": 12,
+        "bw": 7,
+        "cr": 5,
+        "pl": 8,
+    },
+    "LongFast": {
+        "sf": 11,
+        "bw": 8,
+        "cr": 5,
+        "pl": 8,
+    },
+    "LongMod": {
+        "sf": 11,
+        "bw": 7,  # 125 kHz
+        "cr": 8,
+        "pl": 8,
+    },
+    "VLongSlow": {
+        "sf": 11,
+        "bw": 7,
+        "cr": 8,
+        "pl": 8,
+    },
+}
+
 
 class MeshtasticDecoder:
     def __init__(self) -> None:
@@ -66,7 +123,6 @@ class MeshtasticDecoder:
         return base64.b64decode(self.default_key.encode("ascii"))
 
     def extract_data(self, packet):
-        print("packe: ", packet)
         mesh_packet = {
             "dest": self.hexToBinary(packet[0:8]),
             "sender": self.hexToBinary(packet[8:16]),
@@ -77,8 +133,6 @@ class MeshtasticDecoder:
             "raw_data": self.hexToBinary(packet[32 : len(packet)]),
             "decrypted": "",
         }
-        print("packet: ")
-        pprint(mesh_packet)
         return mesh_packet
 
     def __decrypt_packet(self, packet):
@@ -176,7 +230,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-p", "--port", default=catsniffer.find_catsniffer_serial_port()
     )
-    parser.add_argument("-b", "--baudrate", default=catsniffer.DEFAULT_BAUDRATE)
+    parser.add_argument("-baud", "--baudrate", default=catsniffer.DEFAULT_BAUDRATE)
     parser.add_argument(
         "-key",
         "--key",
@@ -185,30 +239,36 @@ if __name__ == "__main__":
         help="AES decryption key in base64 format.",
     )
     parser.add_argument("-prompt", "--prompt", default=True)
+    parser.add_argument("-f", "--frequency", help="Band Frequency", default=902)
+    parser.add_argument(
+        "-ps",
+        "--preset",
+        help="Modem Preset",
+        choices=[pres for pres in CHANNELS_PRESET.keys()],
+        default="LongFast",
+    )
     args = parser.parse_args()
 
     m_decoder = MeshtasticDecoder()
-    print(args)
     m_decoder.validate_key(args.key)
     rx_queue = queue.Queue()
     mon = Monitor(args.port, args.baudrate, rx_queue, args.prompt)
     try:
         mon.prompt()
+        mon.transmit(f"set_bw {CHANNELS_PRESET[args.preset]['bw']}")
+        mon.transmit(f"set_sf {CHANNELS_PRESET[args.preset]['sf']}")
+        mon.transmit(f"set_cr {CHANNELS_PRESET[args.preset]['cr']}")
+        mon.transmit(f"set_pl {CHANNELS_PRESET[args.preset]['pl']}")
+        mon.transmit(f"set_freq {args.frequency}")
+        mon.transmit("set_rx")
         while True:
             if not rx_queue.empty():
                 data = rx_queue.get(timeout=2)
                 if data:
-                    print(data)
-                    print(data[4:-4])
-                    if b"[SX1262] Data" in data:
-                        clear_data = (
-                            data.split(b":")[1].replace(b"\t\t", b"").split(b"\r\n")[0]
-                        )
-                        if clear_data != b"":
-                            print(f"Raw: {clear_data}")
-                            decrypted_dict = m_decoder.decrypt(clear_data.hex())
-                            if decrypted_dict:
-                                m_decoder.show_details(decrypted_dict)
+                    data = data[4:-4]
+                    decrypted_dict = m_decoder.decrypt(data.hex())
+                    if decrypted_dict:
+                        m_decoder.show_details(decrypted_dict)
                 rx_queue.task_done()
             time.sleep(0.1)
     except KeyboardInterrupt:
