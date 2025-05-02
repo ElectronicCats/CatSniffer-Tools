@@ -192,7 +192,7 @@ class SpectrumScan:
         self.ax.set_xticks(
             np.arange(self.start_freq, self.end_freq + tick_step, tick_step)
         )
-        self.ax.grid(True, linestyle="--", alpha=0.7)
+        self.ax.grid(True, linestyle="--", alpha=1)
         self.fig.suptitle(
             f"SX126x Spectral Scan (Frequency range: {self.start_freq}/{self.end_freq} MHz)"
         )
@@ -223,7 +223,7 @@ class SpectrumScan:
     def show_plot(self, i):
         self.im.set_data(self.data_matrix)
         self.ax.relim()
-        # self.ax.autoscale_view()
+        self.ax.autoscale_view()
 
     def main(self):
         self.recv_running = True

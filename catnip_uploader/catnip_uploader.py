@@ -37,8 +37,8 @@ GITHUB_RELEASE_URL_SNIFFLE = (
 )
 GITHUB_SNIFFLE_HEX = "sniffle_cc1352p7_1M"
 DESCRIPTION_FILE = "descriptions.txt"
-COMMAND_ENTER_BOOTLOADER = "ñÿ<boot>ÿñ"
-COMMAND_EXIT_BOOTLOADER = "ñÿ<exit>ÿñ"
+COMMAND_ENTER_BOOTLOADER = "ñÿ<boot>ÿñ\n"
+COMMAND_EXIT_BOOTLOADER = "ñÿ<exit>ÿñ\n"
 UPLOADER_FILE_NAME = "cc2538.py"
 RELEASE_FOLDER_NAME = "releases_"
 CATSNIFFER_VID = 11914
@@ -310,6 +310,8 @@ class BoardUart:
 
     def send_connect_boot(self):
         self.serial_worker.open()
+        self.serial_worker.write(COMMAND_ENTER_BOOTLOADER.encode())
+        time.sleep(0.2)
         self.serial_worker.write(COMMAND_ENTER_BOOTLOADER.encode())
         self.serial_worker.close()
 
