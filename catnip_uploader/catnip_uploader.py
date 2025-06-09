@@ -418,7 +418,8 @@ class CatnipUploader:
             description = self.releases.parse_descriptions()
             if description:
                 for key, value in description.items():
-                    table.add_row(key, value)
+                    if "cc1" in key:
+                        table.add_row(key, value)
             else:
                 LOG_WARNING("No descriptions file found.")
         except FileNotFoundError:
