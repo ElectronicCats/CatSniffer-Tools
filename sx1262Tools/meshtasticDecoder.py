@@ -13,6 +13,8 @@ from cryptography.hazmat.backends import default_backend
 
 DEFAULT_MESHTASTIC_KEY = "1PG7OiApB1nwvP+rz05pAQ=="
 
+SYNC_WORLD = 0x2B
+
 CHANNELS_PRESET = {
     "ShortTurbo": {
         "sf": 7,
@@ -226,6 +228,12 @@ class Monitor(catsniffer.Catsniffer):
 
 
 if __name__ == "__main__":
+    print(
+        """
+To use this tool, you must first flash your CatSniffer with the LoRa Sniffer firmware.
+If you encounter any issues, make sure you are uploading the correct firmware version from the official release page:
+    https://github.com/ElectronicCats/CatSniffer-Firmware/releases\n"""
+    )
     parser = argparse.ArgumentParser(prog="MeshtasticDecoder")
     parser.add_argument(
         "-p", "--port", default=catsniffer.find_catsniffer_serial_port()
@@ -255,20 +263,22 @@ if __name__ == "__main__":
     mon = Monitor(args.port, args.baudrate, rx_queue, args.prompt)
     try:
         mon.prompt()
-        mon.transmit(f"set_bw {CHANNELS_PRESET[args.preset]['bw']}")
-        mon.transmit(f"set_sf {CHANNELS_PRESET[args.preset]['sf']}")
-        mon.transmit(f"set_cr {CHANNELS_PRESET[args.preset]['cr']}")
-        mon.transmit(f"set_pl {CHANNELS_PRESET[args.preset]['pl']}")
-        mon.transmit(f"set_freq {args.frequency}")
-        mon.transmit("set_rx")
+        mon.transmit(f"set_bw {CHANNELS_PRESET[args.preset]['bw']}\n")
+        mon.transmit(f"set_sf {CHANNELS_PRESET[args.preset]['sf']}\n")
+        mon.transmit(f"set_cr {CHANNELS_PRESET[args.preset]['cr']}\n")
+        mon.transmit(f"set_pl {CHANNELS_PRESET[args.preset]['pl']}\n")
+        mon.transmit(f"set_pl {SYNC_WORLD}\n")
+        mon.transmit(f"set_freq {args.frequency}\n")
+        mon.transmit("set_rx\n")
         while True:
             if not rx_queue.empty():
                 data = rx_queue.get(timeout=2)
                 if data:
-                    data = data[4:-4]
-                    decrypted_dict = m_decoder.decrypt(data.hex())
-                    if decrypted_dict:
-                        m_decoder.show_details(decrypted_dict)
+                    if b"@S" in data:
+                        data = data[4:-4]
+                        decrypted_dict = m_decoder.decrypt(data.hex())
+                        if decrypted_dict:
+                            m_decoder.show_details(decrypted_dict)
                 rx_queue.task_done()
             time.sleep(0.1)
     except KeyboardInterrupt:
