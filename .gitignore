@@ -10,3 +10,4 @@ build/
 *.egg-info
 __pycache__/
 .venv/
+!**/requirements.txt
