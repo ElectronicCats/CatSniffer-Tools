@@ -1,0 +1,6 @@
+cffi==1.17.1
+cryptography==45.0.5
+prompt_toolkit==3.0.51
+pycparser==2.22
+pyserial==3.5
+wcwidth==0.2.13
