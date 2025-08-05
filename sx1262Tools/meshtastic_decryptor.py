@@ -26,6 +26,24 @@ def decrypt_packet(packet, key):
     decryptor = cipher.decryptor()
     return decryptor.update(packet["payload"]) + decryptor.finalize()
 
+def format_mac(mac_bytes):
+    return ":".join(f"{b:02x}" for b in mac_bytes)
+
+def decode_nodeinfo(data):
+    info = mesh_pb2.User()
+    info.ParseFromString(data)
+    output = "[NODEINFO]\n"
+    output += f"  ID         : {info.id}\n"
+    output += f"  Long Name  : {info.long_name}\n"
+    output += f"  Short Name : {info.short_name}\n"
+    if info.macaddr:
+        output += f"  MAC Addr   : {format_mac(info.macaddr)}\n"
+    output += f"  HW Model   : {info.hw_model}\n"
+    if info.public_key:  # FIXED LINE
+        output += f"  Public Key : {info.public_key.hex()}\n"
+    output += f"  Messaging  : {'Disabled' if info.is_unmessagable else 'Enabled'}"
+    return output
+
 def decode_protobuf(decrypted, source_id, dest_id):
     data = mesh_pb2.Data()
     try:
@@ -41,21 +59,19 @@ def decode_protobuf(decrypted, source_id, dest_id):
         pos.ParseFromString(data.payload)
         return f"[POSITION] {source_id} -> {dest_id}: {pos.latitude_i * 1e-7}, {pos.longitude_i * 1e-7}"
     elif data.portnum == 4:
-        info = mesh_pb2.User()
-        info.ParseFromString(data.payload)
-        return f"[NODEINFO] {info}"
+        return decode_nodeinfo(data.payload)
     elif data.portnum == 5:
         r = mesh_pb2.Routing()
         r.ParseFromString(data.payload)
-        return f"[ROUTING] {r}"
+        return f"[ROUTING]\n{r}"
     elif data.portnum == 6:
         a = admin_pb2.AdminMessage()
         a.ParseFromString(data.payload)
-        return f"[ADMIN] {a}"
+        return f"[ADMIN]\n{a}"
     elif data.portnum == 67:
         t = telemetry_pb2.Telemetry()
         t.ParseFromString(data.payload)
-        return f"[TELEMETRY] {t}"
+        return f"[TELEMETRY]\n{t}"
     else:
         return f"[PORT {data.portnum}] Raw: {data.payload.hex()}"
 
@@ -63,8 +79,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Decrypt and decode a hex-encoded Meshtastic packet captured from SDR or LoRa sniffer.",
         epilog="""Examples:
-  python decode_meshtastic_packet.py -i 02010a0b0c0d0e0f... -k 1PG7OiApB1nwvP+rz05pAQ==
-  python decode_meshtastic_packet.py --input <hex> --key <base64>
+  python meshtastic_decryptor.py -i fffffffff449ca274402870263... -k 1PG7OiApB1nwvP+rz05pAQ==
+  python meshtastic_decryptor.py --input <hex> --key <base64>
 
 If using 'ham' or unsecured mode, pass -k ham
 """,
