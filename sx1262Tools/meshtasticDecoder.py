@@ -11,7 +11,13 @@ from prompt_toolkit.patch_stdout import patch_stdout
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
-DEFAULT_MESHTASTIC_KEY = "1PG7OiApB1nwvP+rz05pAQ=="
+DEFAULT_MESHTASTIC_KEY = "OEu8wB3AItGBvza4YSHh+5a3LlW/dCJ+nWr7SNZMsaE="
+
+CANDIDATE_KEYS = [
+    "OEu8wB3AItGBvza4YSHh+5a3LlW/dCJ+nWr7SNZMsaE=",  # Key 1
+    "1PG7OiApB1nwvP+rz05pAQ==",                     # Key 2
+    "ApN47rJ6c5pT7LvYB8GJ6A=="                      # Key 3
+]
 
 SYNC_WORLD = 0x2B
 
@@ -78,6 +84,23 @@ CHANNELS_PRESET = {
     },
 }
 
+def extract_frame(raw):
+    if not raw.startswith(b"@S") or not raw.endswith(b"@E\r\n"):
+        raise ValueError("Invalid frame")
+
+    payload_len = int.from_bytes(raw[2:4], byteorder="big")
+    payload = raw[4 : 4 + payload_len]  # LoRa encrypted payload
+
+    meta_start = 4 + payload_len
+    modem_settings = raw[meta_start : meta_start + 8]
+    rssi_info = raw[meta_start + 8 : meta_start + 14]
+
+    return {
+        "payload": payload,
+        "modem_settings": modem_settings,
+        "rssi": rssi_info,
+    }
+
 
 class MeshtasticDecoder:
     def __init__(self) -> None:
@@ -116,6 +139,30 @@ class MeshtasticDecoder:
 
         return "\n".join(f"{h}  {a}" for h, a in zip(hex_lines, ascii_lines))
 
+    def print_header(self, packet):
+        print(f"\n\n{'='*25} Packet Info {'='*25}")
+        print(
+            f"Sender: {self.msb2lsb(packet['sender'].hex())} -> Destination: {self.msb2lsb(packet['dest'].hex())} PacketID: {self.msb2lsb(packet['packetid'].hex())}"
+        )
+        flags_bit = packet["flags"][0]
+        hop_limit = (flags_bit >> 5) & 0b111
+        want_ack = (flags_bit >> 4) & 0b1
+        via_mqtt = (flags_bit >> 3) & 0b1
+        hop_start = flags_bit & 0b111
+        print(f"Flags:\t {packet['flags'].decode('latin1')}")
+        print(f"╰──▶ Hop limit: {hop_limit}")
+        print(f"╰──▶ Want ACK:  {want_ack}")
+        print(f"╰──▶ Via MQTT:  {via_mqtt}")
+        print(f"╰──▶ Hop Start: {hop_start}")
+    
+    def print_decryption(self, decrypted, key_index):
+        if decrypted:
+            print(f"\n=== Attempt for channel #{key_index + 1} with Key #{key_index + 1} ===")
+            print(self.hexdump(decrypted))
+        else:
+            print(f"\n=== Attempt for channel #{key_index + 1} with Key #{key_index + 1} ===")
+            print("[ERROR] Could not decrypt with this key.")
+    
     def validate_key(self, key):
         try:
             key_decoded = base64.b64decode(key, validate=True)
@@ -127,8 +174,14 @@ class MeshtasticDecoder:
             print(f"[ERROR] {e}")
             return False
 
-    def get_aeskey(self):
-        return base64.b64decode(self.default_key.encode("ascii"))
+    def get_candidate_keys(self):
+        keys = []
+        for key_b64 in CANDIDATE_KEYS:
+            try:
+                keys.append(base64.b64decode(key_b64.encode("ascii")))
+            except Exception as e:
+                print(f"[ERROR] Invalid key: {key_b64} - {e}")
+        return keys
 
     def extract_data(self, packet):
         mesh_packet = {
@@ -160,10 +213,37 @@ class MeshtasticDecoder:
         decrypted = decryptor.update(packet["raw_data"]) + decryptor.finalize()
         return decrypted
 
-    def decrypt(self, raw_packet):
-        dic_packet = self.extract_data(raw_packet)
-        dic_packet["decrypted"] = self.__decrypt_packet(dic_packet)
-        return dic_packet
+    def decrypt_all(self, raw_packet):
+        results = []
+        packet = self.extract_data(raw_packet)
+        for i, key in enumerate(self.get_candidate_keys()):
+            try:
+                nonce = (
+                    packet["packetid"]
+                    + b"\x00\x00\x00\x00"
+                    + packet["sender"]
+                    + b"\x00\x00\x00\x00"
+                )
+                cipher = Cipher(
+                    algorithm=algorithms.AES(key=key),
+                    mode=modes.CTR(nonce),
+                    backend=default_backend(),
+                )
+                decryptor = cipher.decryptor()
+                decrypted = decryptor.update(packet["raw_data"]) + decryptor.finalize()
+                results.append({
+                    "key_index": i,
+                    "packet": packet,
+                    "decrypted": decrypted
+                })
+            except Exception as e:
+                results.append({
+                    "key_index": i,
+                    "packet": packet,
+                    "decrypted": None,
+                    "error": str(e)
+                })
+        return results
 
     def show_details(self, packet):
         print(f"\n\n{'='*25} Packet Info {'='*25}")
@@ -201,6 +281,7 @@ class Monitor(catsniffer.Catsniffer):
             try:
                 data = self.recv()
                 if data:
+                    #print("[RAW]", data)  # <-- This will show you what you're really getting
                     self.rx_queue.put(data)
             except Exception as e:
                 print(str(e))
@@ -281,10 +362,23 @@ If you encounter any issues, make sure you are uploading the correct firmware ve
                 data = rx_queue.get(timeout=2)
                 if data:
                     if b"@S" in data:
-                        data = data[4:-4]
-                        decrypted_dict = m_decoder.decrypt(data.hex())
-                        if decrypted_dict:
-                            m_decoder.show_details(decrypted_dict)
+                        try:
+                            frame = extract_frame(data)
+                            results = m_decoder.decrypt_all(frame["payload"].hex())
+                            # Print metadata only once (from first result)
+                            if results:
+                                m_decoder.print_header(results[0]["packet"])
+
+                            # Print each key result
+                            for result in results:
+                                m_decoder.print_decryption(result.get("decrypted"), result["key_index"])
+                        except Exception as e:
+                            print(f"[ERROR] Failed to decode frame: {e}")
+                    # if b"@S" in data:
+                    #     data = data[4:-4]
+                    #     decrypted_dict = m_decoder.decrypt(data.hex())
+                    #     if decrypted_dict:
+                    #         m_decoder.show_details(decrypted_dict)
                 rx_queue.task_done()
             time.sleep(0.1)
     except KeyboardInterrupt:
