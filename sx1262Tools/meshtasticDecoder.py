@@ -15,8 +15,8 @@ DEFAULT_MESHTASTIC_KEY = "OEu8wB3AItGBvza4YSHh+5a3LlW/dCJ+nWr7SNZMsaE="
 
 CANDIDATE_KEYS = [
     "OEu8wB3AItGBvza4YSHh+5a3LlW/dCJ+nWr7SNZMsaE=",  # Key 1
-    "1PG7OiApB1nwvP+rz05pAQ==",                     # Key 2
-    "ApN47rJ6c5pT7LvYB8GJ6A=="                      # Key 3
+    "6IzsaoVhx1ETWeWuu0dUWMLqItvYJLbRzwgTAKCfvtY=",  # Key 2
+    "TiIdi8MJG+IRnIkS8iUZXRU+MHuGtuzEasOWXp4QndU="                      # Key 3
 ]
 
 SYNC_WORLD = 0x2B
@@ -136,7 +136,6 @@ class MeshtasticDecoder:
             )
             hex_lines.append(hex_part.ljust(width * 3))
             ascii_lines.append(ascii_part)
-
         return "\n".join(f"{h}  {a}" for h, a in zip(hex_lines, ascii_lines))
 
     def print_header(self, packet):
@@ -260,7 +259,10 @@ class MeshtasticDecoder:
         print(f"╰──▶ Want ACK:  {want_ack}")
         print(f"╰──▶ Via MQTT:  {via_mqtt}")
         print(f"╰──▶ Hop Start: {hop_start}")
-        print(f"{self.hexdump(packet['decrypted'])}")
+        print("\n".join(
+            " ".join(f"{b:02X}" for b in packet["decrypted"][i:i+16])
+            for i in range(0, len(packet["decrypted"]), 16)
+        ))
 
 
 class Monitor(catsniffer.Catsniffer):
