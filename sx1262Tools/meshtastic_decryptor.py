@@ -60,9 +60,28 @@ def decode_protobuf(decrypted, source_id, dest_id):
         return f"[PORT {data.portnum}] Raw: {data.payload.hex()}"
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-i", "--input", required=True, help="Hex-encoded payload from SDR")
-    parser.add_argument("-k", "--key", required=False, default="1PG7OiApB1nwvP+rz05pAQ==", help="Base64 AES key")
+    parser = argparse.ArgumentParser(
+        description="Decrypt and decode a hex-encoded Meshtastic packet captured from SDR or LoRa sniffer.",
+        epilog="""Examples:
+  python decode_meshtastic_packet.py -i 02010a0b0c0d0e0f... -k 1PG7OiApB1nwvP+rz05pAQ==
+  python decode_meshtastic_packet.py --input <hex> --key <base64>
+
+If using 'ham' or unsecured mode, pass -k ham
+""",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument(
+        "-i", "--input",
+        required=True,
+        help="Hex-encoded payload (raw packet data starting with dest, sender, etc.)"
+    )
+    parser.add_argument(
+        "-k", "--key",
+        required=False,
+        default="1PG7OiApB1nwvP+rz05pAQ==",
+        help="Base64-encoded AES key. Use 'ham' or 'nokey' for open channels"
+    )
+
     args = parser.parse_args()
 
     key = parse_aes_key(args.key)
