@@ -16,6 +16,12 @@ DEFAULT_MESHTASTIC_KEY = "1PG7OiApB1nwvP+rz05pAQ=="
 SYNC_WORLD = 0x2B
 
 CHANNELS_PRESET = {
+    "defcon33": {
+        "sf": 7, 
+        "bw": 9, 
+        "cr": 5, 
+        "pl": 16
+    },
     "ShortTurbo": {
         "sf": 7,
         "bw": 9,
@@ -267,7 +273,7 @@ If you encounter any issues, make sure you are uploading the correct firmware ve
         mon.transmit(f"set_sf {CHANNELS_PRESET[args.preset]['sf']}\n")
         mon.transmit(f"set_cr {CHANNELS_PRESET[args.preset]['cr']}\n")
         mon.transmit(f"set_pl {CHANNELS_PRESET[args.preset]['pl']}\n")
-        mon.transmit(f"set_pl {SYNC_WORLD}\n")
+        mon.transmit(f"set_sw {SYNC_WORLD}\n")
         mon.transmit(f"set_freq {args.frequency}\n")
         mon.transmit("set_rx\n")
         while True:
