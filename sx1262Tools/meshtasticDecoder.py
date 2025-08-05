@@ -96,6 +96,9 @@ def decode_protobuf(data, src, dst):
         elif pb.portnum == 6:
             a = admin_pb2.AdminMessage()
             a.ParseFromString(pb.payload)
+            if a.HasField("peerSessionInitiation"):
+                pk = a.peerSessionInitiation.pub_key
+                return f"[KEY EXCHANGE DETECTED] Ephemeral pubkey: {pk.hex()}"
             return f"[ADMIN]\n{a}"
         elif pb.portnum == 67:
             t = telemetry_pb2.Telemetry()
