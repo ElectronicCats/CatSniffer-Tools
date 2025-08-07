@@ -321,12 +321,30 @@ class BoardUart:
     def send_firmware(self, firmware_path):
         self.send_connect_boot()
         time.sleep(1)
-        # TODO: Add a check to see if the command was successful
-        # Get path to python script
+
         script_path = os.path.join(ABS_FILE_PATH, UPLOADER_FILE_NAME)
-        os.system(
-            f"{self.python_command} {script_path} {self.command_to_send} {firmware_path}"
-        )
+    
+        try:
+            command = [
+                sys.executable,
+                script_path,
+                '-e', '-w', '-v', '-p', self.serial_worker.port, 
+                firmware_path,
+                "--validate"           # Add flags as separate elements
+            ]
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            print("Firmware uploaded successfully.")
+            print(result.stdout)
+        except subprocess.CalledProcessError as e:
+            print("Error during firmware upload:")
+            print(e.stdout)
+            print(e.stderr)
+
         time.sleep(1)
         self.send_disconnect_boot()
         return True
