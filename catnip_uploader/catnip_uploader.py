@@ -93,7 +93,10 @@ class Release:
             return os.path.abspath(firmware)
 
         for release in self.releases:
-            if release.startswith(firmware) or firmware in release:
+            if (
+                release.lower().startswith(firmware)
+                or firmware.lower() in release.lower()
+            ):
                 return os.path.join(
                     ABS_FILE_PATH, f"{RELEASE_FOLDER_NAME}{self.tag_version}/{release}"
                 )
@@ -323,21 +326,20 @@ class BoardUart:
         time.sleep(1)
 
         script_path = os.path.join(ABS_FILE_PATH, UPLOADER_FILE_NAME)
-    
+
         try:
             command = [
                 sys.executable,
                 script_path,
-                '-e', '-w', '-v', '-p', self.serial_worker.port, 
+                "-e",
+                "-w",
+                "-v",
+                "-p",
+                self.serial_worker.port,
                 firmware_path,
-                "--validate"           # Add flags as separate elements
+                "--validate",  # Add flags as separate elements
             ]
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            result = subprocess.run(command, capture_output=True, text=True, check=True)
             print("Firmware uploaded successfully.")
             print(result.stdout)
         except subprocess.CalledProcessError as e:
