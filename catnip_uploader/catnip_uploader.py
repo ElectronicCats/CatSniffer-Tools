@@ -1,5 +1,3 @@
-#! /usr/bin/env python3
-
 # Kevin Leon @ Electronic Cats
 # Original Creation Date: May 23, 2024
 # This code is beerware; if you see me (or any other Electronic Cats
@@ -230,6 +228,8 @@ class Release:
                     return asset
             else:
                 return asset
+        elif asset["name"].endswith(".uf2"):
+            return asset
         return None
 
     def download_remote_release(self):
@@ -270,7 +270,6 @@ class Release:
     @staticmethod
     def normalize_firmware_name(name):
         name = name.lower()
-        name = name.split("_v")[0]
         return name
 
     def get_descriptions_file(self):
@@ -288,7 +287,10 @@ class Release:
         for line in description.strip().split("\n"):
             try:
                 key, description = line.split(": ", 1)
-                descriptions_dict[self.normalize_firmware_name(key)] = description
+                if key.startswith("-"):
+                    key = key.replace("- ", "")
+                if key.endswith(".hex") or key.endswith(".uf2"):
+                    descriptions_dict[self.normalize_firmware_name(key)] = description
             except ValueError:
                 pass
         return descriptions_dict
@@ -351,6 +353,25 @@ class BoardUart:
         self.send_disconnect_boot()
         return True
 
+    def load_pico_firmware(self, firmware_path):
+        try:
+            command = [
+                "picotool",
+                "load",
+                firmware_path,
+                "-F",
+                "--vid",
+                f"0x{BoardUart.get_vid_from_port(self.serial_worker.port).to_bytes(2).hex()}",
+            ]
+            result = subprocess.run(command, capture_output=True, text=True)
+            if "100%" in result.stdout:
+                LOG_SUCCESS("RP2040 Firmware loader finished")
+                LOG_WARNING("Reset you board before start using it")
+            else:
+                LOG_ERROR(result.stdout)
+        except Exception as e:
+            LOG_ERROR(e)
+
     def validate_python_call(self):
         try:
             output = subprocess.check_output(
@@ -376,9 +397,23 @@ class BoardUart:
     @staticmethod
     def find_catsniffer():
         for port in comports():
-            if port.vid == CATSNIFFER_VID and port.pid == CATSNIFFER_PID:
+            if port.vid == CATSNIFFER_VID or port.pid == CATSNIFFER_PID:
                 return port.device
         return DEFAULT_COMPORT
+
+    @staticmethod
+    def get_vid_from_port(ser_port):
+        for port in comports():
+            if port.device == ser_port:
+                return port.vid
+        return CATSNIFFER_VID
+
+    @staticmethod
+    def get_pid_from_port(ser_port):
+        for port in comports():
+            if port.device == ser_port:
+                return port.pid
+        return CATSNIFFER_PID
 
 
 class CatnipUploader:
@@ -391,24 +426,21 @@ class CatnipUploader:
         )
         self.app.command("load")(self.load_firmware)
         self.app.command("releases")(self.get_firmwares)
+        self.has_picotool = self.validate_picotool_call()
         self.releases = Release()
 
-    def load_firmware(
-        self,
-        firmware: str = typer.Argument(
-            help="Name of the firmware to load, or the path to the firmware file."
-        ),
-        comport: str = typer.Argument(
-            help="COM port", default=BoardUart.find_catsniffer
-        ),
-        validate: bool = typer.Option(help="Bypass validation", default=False),
-    ):
-        """Load firmware to CatSniffer boards V3."""
-        validate_firmware = self.releases.validate_file(firmware)
-        if validate_firmware == None:
-            LOG_ERROR(f"Firmware {firmware} not found.")
-            sys.exit(1)
+    def validate_picotool_call(self):
+        try:
+            subprocess.check_output(
+                "picotool version", stderr=subprocess.STDOUT, shell=True, text=True
+            )
+            LOG_SUCCESS("PICOTOOL Found! You can upload UF2 Firmwares")
+            return True
+        except Exception:
+            LOG_WARNING("PICOTOOL Not found! You can't upload UF2 Firmwares")
+            return False
 
+    def load_cc_firmware(self, comport, validate, validate_firmware):
         board_uart = BoardUart(comport)
         if not board_uart.validate_connection():
             LOG_ERROR(f"Error: Could not connect to {comport}.")
@@ -429,17 +461,51 @@ class CatnipUploader:
         if board_uart.send_firmware(validate_firmware.replace("\r", "")):
             LOG_SUCCESS("Firmware loaded successfully.")
 
+    def handle_firmware_upload(self, comport, firmware, validate):
+        board_uart = BoardUart(comport)
+        if firmware.endswith(".hex"):
+            self.load_cc_firmware(comport, validate, firmware)
+        else:
+            if self.has_picotool:
+                board_uart.load_pico_firmware(firmware)
+            else:
+                LOG_WARNING("Install picotool first!")
+
+    def load_firmware(
+        self,
+        firmware: str = typer.Argument(
+            help="Name of the firmware to load, or the path to the firmware file."
+        ),
+        comport: str = typer.Argument(
+            help="COM port", default=BoardUart.find_catsniffer
+        ),
+        validate: bool = typer.Option(help="Bypass validation", default=False),
+    ):
+        """Load firmware to CatSniffer boards V3."""
+        validate_firmware = self.releases.validate_file(firmware)
+        if validate_firmware == None:
+            LOG_ERROR(f"Firmware {firmware} not found.")
+            sys.exit(1)
+        self.handle_firmware_upload(comport, validate_firmware, validate)
+
     def get_firmwares(self):
         """Get the latest firmware releases."""
         table = Table(title="Releases")
         table.add_column("Firmware")
+        table.add_column("Microcontroller")
         table.add_column("Description")
         try:
             description = self.releases.parse_descriptions()
             if description:
                 for key, value in description.items():
+                    micro = ""
                     if "cc1" in key:
-                        table.add_row(key, value)
+                        micro = "[green]CC1352"
+                        table.add_row(f"[green]{key}", micro, f"[green]{value}")
+                    else:
+                        micro = "[purple]RP2040"
+                        if self.has_picotool:
+                            table.add_row(f"[purple]{key}", micro, f"[purple]{value}")
             else:
                 LOG_WARNING("No descriptions file found.")
         except FileNotFoundError:
