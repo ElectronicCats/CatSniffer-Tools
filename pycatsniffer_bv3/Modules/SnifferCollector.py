@@ -100,6 +100,7 @@ class SnifferCollector(threading.Thread):
         self.lora_channel = channel
 
     def set_output_workers(self, output_workers):
+        self.logger.info(f"Set output worker")
         self.output_workers = output_workers
 
     def set_board_uart(self, board_uart) -> bool:
@@ -279,6 +280,7 @@ class SnifferCollector(threading.Thread):
         """Dissector the packet"""
         if self.is_catsniffer == 2:
             data_packet = LoraUARTPacket(packet)
+            self.logger.info(f"LoRa Packet: {data_packet}")
             return data_packet
 
         general_packet = GeneralUARTPacket(packet)
@@ -329,19 +331,16 @@ class SnifferCollector(threading.Thread):
 
     def set_and_send_lora_config(self):
         lora_cmd_bandwidth = f"set_bw {self.lora_bandwidth}\r\n"
-        lora_cmd_channel = f"set_chann {self.lora_channel}\r\n"
-        # lora_cmd_frequency = f"set_freq {self.lora_frequency}\r\n"
+        lora_cmd_frequency = f"set_freq {self.lora_frequency}\r\n"
         lora_cmd_spreading_factor = f"set_sf {self.lora_spreading_factor}\r\n"
         lora_cmd_coding_rate = f"set_cr {self.lora_coding_rate}\r\n"
         self.board_uart.send(bytes(lora_cmd_bandwidth, "utf-8"))
-        self.board_uart.send(bytes(lora_cmd_channel, "utf-8"))
-        # self.board_uart.send(bytes(lora_cmd_frequency, "utf-8"))
+        self.board_uart.send(bytes(lora_cmd_frequency, "utf-8"))
         self.board_uart.send(bytes(lora_cmd_coding_rate, "utf-8"))
         self.board_uart.send(bytes(lora_cmd_spreading_factor, "utf-8"))
         self.board_uart.send(b"set_rx\r\n")
-        self.logger.info(f"Bandwidth: {self.lora_bandwidth}")
-        self.logger.info(f"Channel: {self.lora_channel}")
         self.logger.info(f"Frequency: {self.lora_frequency}")
+        self.logger.info(f"Bandwidth: {self.lora_bandwidth}")
         self.logger.info(f"Spreading Factor: {self.lora_spreading_factor}")
         self.logger.info(f"Coding Rate: {self.lora_coding_rate}")
 
@@ -357,14 +356,6 @@ class SnifferCollector(threading.Thread):
             else:
                 if self.is_catsniffer == 2:
                     self.set_and_send_lora_config()
-                    lora_cmd_frequency = f"set_freq {self.lora_frequency}\r\n"
-                    self.board_uart.send(bytes(lora_cmd_frequency, "utf-8"))
-                    self.logger.info(f"Bandwidth: {self.lora_bandwidth}")
-                    self.logger.info(f"Channel: {self.lora_channel}")
-                    self.logger.info(f"Frequency: {self.lora_frequency}")
-                    self.logger.info(f"Spreading Factor: {self.lora_spreading_factor}")
-                    self.logger.info(f"Coding Rate: {self.lora_coding_rate}")
-                    self.board_uart.send(b"set_rx\r\n")
                 self.board_uart.set_serial_baudrate(115200)
 
             while not self.sniffer_recv_cancel:
@@ -375,11 +366,14 @@ class SnifferCollector(threading.Thread):
                         self.sniffer_data = packet_frame
                 time.sleep(0.01)
         except Exception as e:
+            self.logger.error(f"Error: {e}")
             LOG_ERROR(e)
         finally:
+            self.logger.info(f"Closing serial port")
             self.close_board_uart()
 
     def run_workers(self):
+        self.logger.info(f"Running workers")
         # Open output workers
         for output_worker in self.output_workers:
             output_worker.start()
