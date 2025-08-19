@@ -361,6 +361,7 @@ class SnifferCollector(threading.Thread):
             while not self.sniffer_recv_cancel:
                 frame = self.board_uart.recv()
                 if frame is not None:
+                    self.logger.info(f"Recv: {frame}")
                     packet_frame = self.dissector(frame)
                     if packet_frame:
                         self.sniffer_data = packet_frame
