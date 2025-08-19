@@ -15,7 +15,7 @@ from serial.tools.list_ports import comports
 scriptName = os.path.basename(sys.argv[0])
 
 CTRL_NUM_LOGGER = 0
-CTRL_NUM_REGION = 1
+CTRL_NUM_FREQUENCY = 1
 CTRL_NUM_CHANNEL = 2
 CTRL_NUM_SPREADFACTOR = 3
 CTRL_NUM_BANDWIDTH = 4
@@ -144,7 +144,7 @@ class MinimalExtcap:
         )
         parser.add_argument("--serport", help="Sniffer serial port name")
         parser.add_argument(
-            "--region",
+            "--frequency",
             type=float,
             default=915,
             help="Regiion to listen on",
@@ -182,7 +182,7 @@ class MinimalExtcap:
         if not self.args.op or len(self.args.op) != 1:
             raise UsageError("Please specify exactly one operation")
         self.args.op = self.args.op[0]
-        self.args.region = float(self.args.region)
+        self.args.frequency = float(self.args.frequency)
         self.args.spread_factor = int(self.args.spread_factor)
         self.args.bandwidth = int(self.args.bandwidth)
         self.args.coding_rate = int(self.args.coding_rate)
@@ -204,6 +204,7 @@ class MinimalExtcap:
 
     def extcap_interfaces(self):
         lines = []
+        self.logger.info(f"Frequency: {self.args.frequency}")
         lines.append(self.extcap_version())
         lines.append(
             "interface {value=catsniffer_lora}{display=CatSniffer Extcap Lora}"
@@ -211,6 +212,10 @@ class MinimalExtcap:
         lines.append(
             "control {number=%d}{type=button}{role=logger}{display=Log}{tooltip=Show capture log}"
             % CTRL_NUM_LOGGER
+        )
+        lines.append(
+            "control {number=%d}{type=string}{display=Frequency in MHz}{tooltip=Frequency in MHz}"
+            % CTRL_NUM_FREQUENCY
         )
         lines.append(
             "control {number=%d}{type=selector}{display=Bandwidth}{tooltip=Bandwidth to listen on}"
@@ -223,6 +228,10 @@ class MinimalExtcap:
         lines.append(
             "control {number=%d}{type=selector}{display=Coding Rate}{tooltip=Coding Rate to listen on}"
             % CTRL_NUM_CODINGRATE
+        )
+        lines.append(
+            "value {control=%d}{value=%f}{display=%f MHz}"
+            % (CTRL_NUM_FREQUENCY, 915, self.args.frequency)
         )
         # Bandwidth
         lines.append("value {control=%d}{value=0}{display=7.8}" % CTRL_NUM_BANDWIDTH)
@@ -265,9 +274,9 @@ class MinimalExtcap:
             "{tooltip=Sniffer device serial port}"
         )
         lines.append(
-            "arg {number=1}{call=--region}{type=double}{default=915}"
-            "{display=Region}"
-            "{tooltip=Region to listen on}"
+            "arg {number=1}{call=--frequency}{type=double}{default=915}"
+            "{display=Frequency}"
+            "{tooltip=Frequency to listen on}"
         )
         lines.append(
             "arg {number=3}{call=--spread-factor}{type=selector}{default=7}"
@@ -340,7 +349,7 @@ class MinimalExtcap:
         self.hw.set_board_uart(self.args.serport)
         self.hw.set_is_catsniffer(CATSNIFFER_BOARD)
         self.hw.set_lora_bandwidth(self.args.bandwidth)
-        self.hw.set_lora_frequency(self.args.region)
+        self.hw.set_lora_frequency(self.args.frequency)
         self.hw.set_lora_spread_factor(self.args.spread_factor)
         self.hw.set_lora_coding_rate(self.args.coding_rate)
 
@@ -409,6 +418,16 @@ class MinimalExtcap:
                 self.logger.info("Control message received: %d %d" % (cmd, controlNum))
                 if cmd == CTRL_CMD_INITIALIZED:
                     self.controlsInitialized = True
+                elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_FREQUENCY:
+                    self.logger.info("Changing Frequency: %s" % payload)
+                    self.args.frequency = float(payload)
+                    self.hw.set_lora_frequency(self.args.frequency)
+                    self.hw.set_and_send_lora_config()
+                    self.writeControlMessage(
+                        CTRL_CMD_SET,
+                        CTRL_NUM_FREQUENCY,
+                        str(self.args.frequency),
+                    )
                 elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_SPREADFACTOR:
                     self.logger.info("Changing Spread factor: %s" % payload)
                     self.args.spread_factor = int(payload)
@@ -488,7 +507,6 @@ class MinimalExtcap:
             "!bBHBB", ord("T"), msgLen >> 16, msgLen & 0xFFFF, controlNum, cmd
         )
         msg += payload
-        print(msg)
         self.controlWriteStream.write(msg)
 
 
