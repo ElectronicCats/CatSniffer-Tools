@@ -20,6 +20,7 @@ CTRL_NUM_CHANNEL = 2
 CTRL_NUM_SPREADFACTOR = 3
 CTRL_NUM_BANDWIDTH = 4
 CTRL_NUM_CODINGRATE = 5
+CTRL_NUM_PREAMBLE = 6
 # Loggers
 CTRL_CMD_INITIALIZED = 0
 CTRL_CMD_SET = 1
@@ -171,6 +172,12 @@ class MinimalExtcap:
             help="Coding rate to listen on",
         )
         parser.add_argument(
+            "--preamble",
+            type=int,
+            default=8,
+            help="Preamble Length",
+        )
+        parser.add_argument(
             "--log-level",
             default="INFO",
             choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
@@ -228,6 +235,10 @@ class MinimalExtcap:
         lines.append(
             "control {number=%d}{type=selector}{display=Coding Rate}{tooltip=Coding Rate to listen on}"
             % CTRL_NUM_CODINGRATE
+        )
+        lines.append(
+            "control {number=%d}{type=string}{display=Preamble}{tooltip=Preamble Length}"
+            % CTRL_NUM_PREAMBLE
         )
         lines.append(
             "value {control=%d}{value=%f}{display=%f MHz}"
@@ -294,6 +305,11 @@ class MinimalExtcap:
             "{tooltip=Coding Rate to listen on}"
         )
         lines.append(
+            "arg {number=6}{call=--preamble}{type=double}{default=8}"
+            "{display=Preamble}"
+            "{tooltip=Preamble Length}"
+        )
+        lines.append(
             "arg {number=6}{call=--log-level}{type=selector}{display=Log Level}{tooltip=Set the log level}{default=INFO}{group=Logger}"
         )
         other_ports = []
@@ -352,6 +368,7 @@ class MinimalExtcap:
         self.hw.set_lora_frequency(self.args.frequency)
         self.hw.set_lora_spread_factor(self.args.spread_factor)
         self.hw.set_lora_coding_rate(self.args.coding_rate)
+        self.hw.set_lora_preamble(self.args.preamble)
 
         signal.signal(signal.SIGINT, lambda sig, frame: self.stopCapture())
         signal.signal(signal.SIGTERM, lambda sig, frame: self.stopCapture())
@@ -453,6 +470,14 @@ class MinimalExtcap:
                     self.hw.set_and_send_lora_config()
                     self.writeControlMessage(
                         CTRL_CMD_SET, CTRL_NUM_CODINGRATE, str(self.args.coding_rate)
+                    )
+                elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_PREAMBLE:
+                    self.logger.info("Changing Preamble: %s" % payload)
+                    self.args.preamble = int(payload)
+                    self.hw.set_lora_preamble(self.args.preamble)
+                    self.hw.set_and_send_lora_config()
+                    self.writeControlMessage(
+                        CTRL_CMD_SET, CTRL_NUM_PREAMBLE, str(self.args.preamble)
                     )
 
         except EOFError:

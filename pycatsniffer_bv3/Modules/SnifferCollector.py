@@ -65,12 +65,13 @@ class SnifferCollector(threading.Thread):
         self.time_hopper = 0.2  # Seconds
         self.last_channel_index = 0
         self.hopping_channel = False
-        self.hopp_channels = []
-        self.lora_bandwidth = 0
-        self.lora_channel = 0
-        self.lora_frequency = 0
+        self.hopp_channels         = []
+        self.lora_bandwidth        = 0
+        self.lora_channel          = 0
+        self.lora_frequency        = 0
         self.lora_spreading_factor = 0
-        self.lora_coding_rate = 0
+        self.lora_coding_rate      = 0
+        self.lora_preamble_length  = 8
         self.logger = logger if logger else TrivialLogger()
 
     def set_is_catsniffer(self, is_catsniffer: int):
@@ -87,6 +88,9 @@ class SnifferCollector(threading.Thread):
 
     def set_lora_coding_rate(self, coding_rate: int):
         self.lora_coding_rate = coding_rate
+    
+    def set_lora_preamble(self, preamble: int):
+        self.lora_preamble_length = preamble
 
     def set_lora_channel(self, channel: int):
         if channel > -1 and channel < 64:
@@ -330,19 +334,24 @@ class SnifferCollector(threading.Thread):
             time.sleep(0.1)
 
     def set_and_send_lora_config(self):
-        lora_cmd_bandwidth = f"set_bw {self.lora_bandwidth}\r\n"
-        lora_cmd_frequency = f"set_freq {self.lora_frequency}\r\n"
+        lora_cmd_bandwidth        = f"set_bw {self.lora_bandwidth}\r\n"
+        lora_cmd_frequency        = f"set_freq {self.lora_frequency}\r\n"
         lora_cmd_spreading_factor = f"set_sf {self.lora_spreading_factor}\r\n"
-        lora_cmd_coding_rate = f"set_cr {self.lora_coding_rate}\r\n"
+        lora_cmd_coding_rate      = f"set_cr {self.lora_coding_rate}\r\n"
+        lora_cmd_preamble         = f"set_pl {self.lora_preamble_length}\r\n"
+        
         self.board_uart.send(bytes(lora_cmd_bandwidth, "utf-8"))
         self.board_uart.send(bytes(lora_cmd_frequency, "utf-8"))
         self.board_uart.send(bytes(lora_cmd_coding_rate, "utf-8"))
         self.board_uart.send(bytes(lora_cmd_spreading_factor, "utf-8"))
+        self.board_uart.send(bytes(lora_cmd_preamble, "utf-8"))
+        
         self.board_uart.send(b"set_rx\r\n")
         self.logger.info(f"Frequency: {self.lora_frequency}")
         self.logger.info(f"Bandwidth: {self.lora_bandwidth}")
         self.logger.info(f"Spreading Factor: {self.lora_spreading_factor}")
         self.logger.info(f"Coding Rate: {self.lora_coding_rate}")
+        self.logger.info(f"Preamble: {self.lora_preamble_length}")
 
     def recv_worker(self):
         try:
