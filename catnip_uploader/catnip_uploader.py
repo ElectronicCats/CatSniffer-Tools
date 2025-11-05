@@ -479,14 +479,14 @@ class CatnipUploader:
         comport: str = typer.Argument(
             help="COM port", default=BoardUart.find_catsniffer
         ),
-        validate: bool = typer.Option(help="Bypass validation", default=False),
+        skip_validation: bool = typer.Option(False, "-skip", "--skip-validation", help="Skip firmware validation. Validation is applied by default."),
     ):
         """Load firmware to CatSniffer boards V3."""
         validate_firmware = self.releases.validate_file(firmware)
         if validate_firmware == None:
             LOG_ERROR(f"Firmware {firmware} not found.")
             sys.exit(1)
-        self.handle_firmware_upload(comport, validate_firmware, validate)
+        self.handle_firmware_upload(comport, validate_firmware, skip_validation)
 
     def get_firmwares(self):
         """Get the latest firmware releases."""
