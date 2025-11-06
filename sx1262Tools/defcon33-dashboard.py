@@ -142,7 +142,11 @@ def sanitize_text(s: str) -> str:
     """Escape Rich markup and replace control chars except newlines and tabs."""
     s = s.replace("\r\n", "\n").replace("\r", "\n")
     s = "".join(
-        (ch if (ch == "\n" or ch == "\t" or (31 < ord(ch) < 127) or ord(ch) >= 0xA0) else CONTROL_REPLACEMENT)
+        (
+            ch
+            if (ch == "\n" or ch == "\t" or (31 < ord(ch) < 127) or ord(ch) >= 0xA0)
+            else CONTROL_REPLACEMENT
+        )
         for ch in s
     )
     return rich_escape(s)
@@ -152,7 +156,7 @@ def sanitize_text(s: str) -> str:
 class Monitor(catsniffer.Catsniffer):
     def __init__(self, port: str, baudrate: int, rx_queue: queue.Queue) -> None:
         super().__init__(port, baudrate)
-        self.port = port          # <-- add this
+        self.port = port  # <-- add this
         self.baudrate = baudrate  # <-- and this
         self.rx_queue = rx_queue
         self.running = True
@@ -194,7 +198,13 @@ class HeaderBar(Static):
     def on_mount(self) -> None:
         self.update(self.render())  # was: self._render()
 
-    def set_status(self, *, port: Optional[str] = None, preset: Optional[str] = None, freq: Optional[str] = None) -> None:
+    def set_status(
+        self,
+        *,
+        port: Optional[str] = None,
+        preset: Optional[str] = None,
+        freq: Optional[str] = None,
+    ) -> None:
         if port:
             self._port = port
         if preset:
@@ -209,7 +219,10 @@ class HeaderBar(Static):
         t.append(f"  Port: {self._port}  ")
         t.append(f"Preset: {self._preset}  ")
         t.append(f"Freq: {self._freq} MHz  ")
-        t.append(" — Press Q to quit, A for All, 0-7 for channel, F to filter, C to clear", style="dim")
+        t.append(
+            " — Press Q to quit, A for All, 0-7 for channel, F to filter, C to clear",
+            style="dim",
+        )
         return t
 
 
@@ -232,14 +245,18 @@ class ChannelSidebar(Static):
     def render(self) -> Text:  # was: _render
         t = Text()
         t.append(" Channels\n", style="bold underline")
+
         def line(label: str, ch_key: Optional[int]) -> None:
             count = self._counts.get(ch_key, 0)
             is_active = self.active_channel == ch_key
             style = "bold white on blue" if is_active else ""
             t.append(f"{label:<10} ", style=style)
             t.append(f"{count:>5}\n", style="dim")
+
         line("All", None)
-        for ch in sorted(k for k in self._counts.keys() if isinstance(k, int)) or list(range(0, 8)):
+        for ch in sorted(k for k in self._counts.keys() if isinstance(k, int)) or list(
+            range(0, 8)
+        ):
             if ch not in self._counts:
                 self._counts[ch] = 0
             line(f"Ch {ch}", ch)
@@ -253,7 +270,7 @@ class ChatTable(DataTable):
         self.zebra_stripes = True
         self.fixed_columns = 1
         self.show_header = True
-        #self.styles.border = ("heavy",)
+        # self.styles.border = ("heavy",)
         self.styles.height = "100%"
 
     def add_message(self, msg: ChatMessage) -> None:
@@ -330,7 +347,6 @@ class MeshtasticChatApp(App):
         # periodic status refresh
         self.set_interval(1.0, lambda: self.header.set_status())
 
-
     def _pump_thread_queue(self) -> None:
         moved = 0
         while True:
@@ -355,7 +371,9 @@ class MeshtasticChatApp(App):
         # try keys
         for key in self.keys:
             try:
-                decrypted = decrypt(fields["payload"], key, fields["sender"], fields["packet_id"])
+                decrypted = decrypt(
+                    fields["payload"], key, fields["sender"], fields["packet_id"]
+                )
             except Exception:
                 continue
             msg = self._decode_any(decrypted, fields)
@@ -363,7 +381,9 @@ class MeshtasticChatApp(App):
                 await self._handle_decoded(msg)
                 break
 
-    def _decode_any(self, decrypted: bytes, fields: Dict[str, bytes]) -> Optional[Tuple[str, Dict]]:
+    def _decode_any(
+        self, decrypted: bytes, fields: Dict[str, bytes]
+    ) -> Optional[Tuple[str, Dict]]:
         # return (type, data)
         pb = mesh_pb2.Data()
         try:
@@ -410,7 +430,13 @@ class MeshtasticChatApp(App):
             src_hex = data["src_hex"]
             text = data["text"]
             name = self.node_registry.resolve(src_hex)
-            msg = ChatMessage(ts=time.time(), channel=ch, sender_id_hex=src_hex, sender_name=name, text=text)
+            msg = ChatMessage(
+                ts=time.time(),
+                channel=ch,
+                sender_id_hex=src_hex,
+                sender_name=name,
+                text=text,
+            )
             # Filter logic
             if self._passes_filter(msg):
                 self.table.add_message(msg)
@@ -465,7 +491,11 @@ class MeshtasticChatApp(App):
         # In a longer-running app, you may store a ring buffer of recent messages and re-render from that.
         self.table.clear(columns=False)
         # No backlog available; future messages will respect filters.
-        status = "All channels" if self.active_channel is None else f"Channel {self.active_channel}"
+        status = (
+            "All channels"
+            if self.active_channel is None
+            else f"Channel {self.active_channel}"
+        )
         if self.filter_text:
             status += f" — filter: {self.filter_text!r}"
         self.status.set_text(status)
@@ -512,7 +542,9 @@ async def run_app(args) -> None:
     mon.transmit("set_rx")
 
     try:
-        app = MeshtasticChatApp(monitor=mon, preset=args.preset, freq=str(args.frequency))
+        app = MeshtasticChatApp(
+            monitor=mon, preset=args.preset, freq=str(args.frequency)
+        )
         await app.run_async()
 
     finally:
@@ -521,10 +553,16 @@ async def run_app(args) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("-p", "--port", default=catsniffer.find_catsniffer_serial_port())
-    parser.add_argument("-baud", "--baudrate", type=int, default=catsniffer.DEFAULT_BAUDRATE)
+    parser.add_argument(
+        "-p", "--port", default=catsniffer.find_catsniffer_serial_port()
+    )
+    parser.add_argument(
+        "-baud", "--baudrate", type=int, default=catsniffer.DEFAULT_BAUDRATE
+    )
     parser.add_argument("-f", "--frequency", default=902)
-    parser.add_argument("-ps", "--preset", choices=CHANNELS_PRESET.keys(), default="LongFast")
+    parser.add_argument(
+        "-ps", "--preset", choices=CHANNELS_PRESET.keys(), default="LongFast"
+    )
     args = parser.parse_args()
 
     try:

@@ -48,18 +48,19 @@ import serial
 from rich.console import Console
 
 try:
-  import magic
+    import magic
 
-  magic.from_file
-  have_magic = True
+    magic.from_file
+    have_magic = True
 except (ImportError, AttributeError):
-  have_magic = False
+    have_magic = False
 
 try:
-  from intelhex import IntelHex
-  have_hex_support = True
+    from intelhex import IntelHex
+
+    have_hex_support = True
 except ImportError:
-  have_hex_support = False
+    have_hex_support = False
 
 # version
 __version__ = "2.1"
@@ -69,11 +70,12 @@ QUIET = 5
 
 console = Console()
 
+
 def mdebug(level, message, attr="\n"):
-  pass
-  # if QUIET >= level:
-  #   console.log(f"[*] {message}")
-  #   print(message, end=attr, file=sys.stderr)
+    pass
+    # if QUIET >= level:
+    #   console.log(f"[*] {message}")
+    #   print(message, end=attr, file=sys.stderr)
 
 
 # Takes chip IDs (obtained via Get ID command) to human-readable names
@@ -95,95 +97,95 @@ COMMAND_RET_FLASH_FAIL = 0x44
 
 
 class CmdException(Exception):
-  pass
+    pass
 
 
 class FirmwareFile(object):
-  HEX_FILE_EXTENSIONS = ("hex", "ihx", "ihex")
+    HEX_FILE_EXTENSIONS = ("hex", "ihx", "ihex")
 
-  def __init__(self, path):
-      """
-      Read a firmware file and store its data ready for device programming.
+    def __init__(self, path):
+        """
+        Read a firmware file and store its data ready for device programming.
 
-      This class will try to guess the file type if python-magic is available.
+        This class will try to guess the file type if python-magic is available.
 
-      If python-magic indicates a plain text file, and if IntelHex is
-      available, then the file will be treated as one of Intel HEX format.
+        If python-magic indicates a plain text file, and if IntelHex is
+        available, then the file will be treated as one of Intel HEX format.
 
-      In all other cases, the file will be treated as a raw binary file.
+        In all other cases, the file will be treated as a raw binary file.
 
-      In both cases, the file's contents are stored in bytes for subsequent
-      usage to program a device or to perform a crc check.
+        In both cases, the file's contents are stored in bytes for subsequent
+        usage to program a device or to perform a crc check.
 
-      Parameters:
-          path -- A str with the path to the firmware file.
+        Parameters:
+            path -- A str with the path to the firmware file.
 
-      Attributes:
-          bytes: A bytearray with firmware contents ready to send to the
-          device
-      """
-      self._crc32 = None
-      firmware_is_hex = False
+        Attributes:
+            bytes: A bytearray with firmware contents ready to send to the
+            device
+        """
+        self._crc32 = None
+        firmware_is_hex = False
 
-      if have_magic:
-          file_type = magic.from_file(path, mime=True)
+        if have_magic:
+            file_type = magic.from_file(path, mime=True)
 
-          if file_type == "text/plain":
-              firmware_is_hex = True
-              mdebug(5, "Firmware file: Intel Hex")
-          elif file_type == "text/x-hex":
-              firmware_is_hex = True
-              mdebug(5, "Firmware file: Intel Hex")
-          elif file_type == "application/octet-stream":
-              mdebug(5, "Firmware file: Raw Binary")
-          else:
-              error_str = (
-                  "Could not determine firmware type. Magic "
-                  "indicates '%s'" % (file_type)
-              )
-              raise CmdException(error_str)
-      else:
-          if os.path.splitext(path)[1][1:] in self.HEX_FILE_EXTENSIONS:
-              firmware_is_hex = True
-              mdebug(5, "Your firmware looks like an Intel Hex file")
-          else:
-              mdebug(5, "Cannot auto-detect firmware filetype: Assuming .bin")
+            if file_type == "text/plain":
+                firmware_is_hex = True
+                mdebug(5, "Firmware file: Intel Hex")
+            elif file_type == "text/x-hex":
+                firmware_is_hex = True
+                mdebug(5, "Firmware file: Intel Hex")
+            elif file_type == "application/octet-stream":
+                mdebug(5, "Firmware file: Raw Binary")
+            else:
+                error_str = (
+                    "Could not determine firmware type. Magic "
+                    "indicates '%s'" % (file_type)
+                )
+                raise CmdException(error_str)
+        else:
+            if os.path.splitext(path)[1][1:] in self.HEX_FILE_EXTENSIONS:
+                firmware_is_hex = True
+                mdebug(5, "Your firmware looks like an Intel Hex file")
+            else:
+                mdebug(5, "Cannot auto-detect firmware filetype: Assuming .bin")
 
-          mdebug(
-              10,
-              "For more solid firmware type auto-detection, install " "python-magic.",
-          )
-          mdebug(10, "Please see the readme for more details.")
+            mdebug(
+                10,
+                "For more solid firmware type auto-detection, install " "python-magic.",
+            )
+            mdebug(10, "Please see the readme for more details.")
 
-      if firmware_is_hex:
-          if have_hex_support:
-              self.bytes = bytearray(IntelHex(path).tobinarray())
-              return
-          else:
-              error_str = (
-                  "Firmware is Intel Hex, but the IntelHex library "
-                  "could not be imported.\n"
-                  "Install IntelHex in site-packages or program "
-                  "your device with a raw binary (.bin) file.\n"
-                  "Please see the readme for more details."
-              )
-              raise CmdException(error_str)
+        if firmware_is_hex:
+            if have_hex_support:
+                self.bytes = bytearray(IntelHex(path).tobinarray())
+                return
+            else:
+                error_str = (
+                    "Firmware is Intel Hex, but the IntelHex library "
+                    "could not be imported.\n"
+                    "Install IntelHex in site-packages or program "
+                    "your device with a raw binary (.bin) file.\n"
+                    "Please see the readme for more details."
+                )
+                raise CmdException(error_str)
 
-      with open(path, "rb") as f:
-          self.bytes = bytearray(f.read())
+        with open(path, "rb") as f:
+            self.bytes = bytearray(f.read())
 
-  def crc32(self):
-    """
-    Return the crc32 checksum of the firmware image
+    def crc32(self):
+        """
+        Return the crc32 checksum of the firmware image
 
-    Return:
-        The firmware's CRC32, ready for comparison with the CRC
-        returned by the ROM bootloader's COMMAND_CRC32
-    """
-    if self._crc32 == None:
-      self._crc32 = binascii.crc32(bytearray(self.bytes)) & 0xFFFFFFFF
+        Return:
+            The firmware's CRC32, ready for comparison with the CRC
+            returned by the ROM bootloader's COMMAND_CRC32
+        """
+        if self._crc32 == None:
+            self._crc32 = binascii.crc32(bytearray(self.bytes)) & 0xFFFFFFFF
 
-    return self._crc32
+        return self._crc32
 
 
 class CommandInterface(object):
@@ -309,25 +311,25 @@ class CommandInterface(object):
         ) & 0xFF
 
     def _write(self, data, is_retry=False):
-      if type(data) == int:
-        assert data < 256
-        goal = 1
-        written = self.sp.write(bytes([data]))
-      elif type(data) == bytes or type(data) == bytearray:
-        goal = len(data)
-        written = self.sp.write(data)
-      else:
-        raise CmdException("Internal Error. Bad data type: {}".format(type(data)))
-
-      if written < goal:
-        mdebug(10, "*** Only wrote {} of target {} bytes".format(written, goal))
-        if is_retry and written == 0:
-          raise CmdException("Failed to write data on the serial bus")
-        mdebug(10, "*** Retrying write for remainder")
         if type(data) == int:
-          return self._write(data, is_retry=True)
+            assert data < 256
+            goal = 1
+            written = self.sp.write(bytes([data]))
+        elif type(data) == bytes or type(data) == bytearray:
+            goal = len(data)
+            written = self.sp.write(data)
         else:
-          return self._write(data[written:], is_retry=True)
+            raise CmdException("Internal Error. Bad data type: {}".format(type(data)))
+
+        if written < goal:
+            mdebug(10, "*** Only wrote {} of target {} bytes".format(written, goal))
+            if is_retry and written == 0:
+                raise CmdException("Failed to write data on the serial bus")
+            mdebug(10, "*** Retrying write for remainder")
+            if type(data) == int:
+                return self._write(data, is_retry=True)
+            else:
+                return self._write(data[written:], is_retry=True)
 
     def _read(self, length):
         return bytearray(self.sp.read(length))
@@ -821,7 +823,7 @@ class CC26xx(Chip):
         ccfg_len = 88
         ieee_address_secondary_offset = 0x20
         bootloader_dis_offset = 0x30
-        sram = "Unknown"
+        self.sram = "Unknown"
 
         # Determine CC13xx vs CC26xx via ICEPICK_DEVICE_ID::WAFER_ID and store
         # PG revision
@@ -846,15 +848,15 @@ class CC26xx(Chip):
 
         # We can now detect the exact device
         if wafer_id == 0xB99A:
-            chip = self._identify_cc26xx(pg_rev, protocols)
+            self.chipid = self._identify_cc26xx(pg_rev, protocols)
         elif wafer_id == 0xB9BE:
-            chip = self._identify_cc13xx(pg_rev, protocols)
+            self.chipid = self._identify_cc13xx(pg_rev, protocols)
         elif wafer_id == 0xBB41:
-            chip = self._identify_cc13xx(pg_rev, protocols)
+            self.chipid = self._identify_cc13xx(pg_rev, protocols)
             self.page_size = 8192
         elif wafer_id == 0xBB77:
             pg_rev = 3
-            chip = self._identify_cc13xx(pg_rev, protocols)
+            self.chipid = self._identify_cc13xx(pg_rev, protocols)
             self.page_size = 8192
 
         # Read flash size, calculate and store bootloader disable address
@@ -869,27 +871,34 @@ class CC26xx(Chip):
         # RAM size
         ramhwopt_size = self.command_interface.cmdMemReadCC26xx(PRCM_RAMHWOPT)[0] & 3
         if ramhwopt_size == 3:
-            sram = "20KB"
+            self.sram = "20KB"
         elif ramhwopt_size == 2:
-            sram = "16KB"
+            self.sram = "16KB"
         else:
-            sram = "Unknown"
+            self.sram = "Unknown"
 
         # Primary IEEE address. Stored with the MSB at the high address
-        ieee_addr = self.command_interface.cmdMemReadCC26xx(
+        self.ieee_addr = self.command_interface.cmdMemReadCC26xx(
             addr_ieee_address_primary + 4
         )[::-1]
-        ieee_addr += self.command_interface.cmdMemReadCC26xx(addr_ieee_address_primary)[
-            ::-1
-        ]
+        self.ieee_addr += self.command_interface.cmdMemReadCC26xx(
+            addr_ieee_address_primary
+        )[::-1]
 
         mdebug(
             5,
             "%s (%s): %dKB Flash, %s SRAM, CCFG.BL_CONFIG at 0x%08X"
-            % (chip, package, self.size >> 10, sram, self.bootloader_address),
+            % (
+                self.chipid,
+                package,
+                self.size >> 10,
+                self.sram,
+                self.bootloader_address,
+            ),
         )
         mdebug(
-            5, "Primary IEEE Address: %s" % (":".join("%02X" % x for x in ieee_addr))
+            5,
+            "Primary IEEE Address: %s" % (":".join("%02X" % x for x in self.ieee_addr)),
         )
 
     def _identify_cc26xx(self, pg, protocols):
@@ -1038,15 +1047,15 @@ def parse_page_address_range(device, pg_range):
 
 
 def print_version():
-  # Get the version using "git describe".
-  try:
-      p = Popen(
-          ["git", "describe", "--tags", "--match", "[0-9]*"], stdout=PIPE, stderr=PIPE
-      )
-      p.stderr.close()
-      line = p.stdout.readlines()[0]
-      version = line.decode("utf-8").strip()
-  except:
-      # We're not in a git repo, or git failed, use fixed version string.
-      version = __version__
-  print("%s %s" % (sys.argv[0], version))
+    # Get the version using "git describe".
+    try:
+        p = Popen(
+            ["git", "describe", "--tags", "--match", "[0-9]*"], stdout=PIPE, stderr=PIPE
+        )
+        p.stderr.close()
+        line = p.stdout.readlines()[0]
+        version = line.decode("utf-8").strip()
+    except:
+        # We're not in a git repo, or git failed, use fixed version string.
+        version = __version__
+    print("%s %s" % (sys.argv[0], version))

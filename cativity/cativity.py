@@ -1,12 +1,13 @@
 """
- CativityDetector - A tool to analyze the channel activity for Zigbee Networks
- Developed by astrobyte
+CativityDetector - A tool to analyze the channel activity for Zigbee Networks
+Developed by astrobyte
 
- Thanks to @kevlem97 for the catbee repository, which was used as a reference for this project.
- GNU General Public License v3.0
+Thanks to @kevlem97 for the catbee repository, which was used as a reference for this project.
+GNU General Public License v3.0
 
-  Usage: cativity.py catsniffer [options]
+ Usage: cativity.py catsniffer [options]
 """
+
 import os
 import sys
 import logging

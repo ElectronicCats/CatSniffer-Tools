@@ -1,6 +1,7 @@
 import threading
 from .Definitions import DEFAULT_TIMEOUT_JOIN
 
+
 # Worker API to handle the communications with the Modules
 class Worker(threading.Thread):
     def __init__(self, module):

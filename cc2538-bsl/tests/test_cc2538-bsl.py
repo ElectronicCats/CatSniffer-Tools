@@ -6,6 +6,7 @@ env = TestFileEnvironment("./test-output")
 
 # Tests
 
+
 # Make sure there is help output
 def test_help_output():
     res = env.run("python", "./../cc2538-bsl.py", "-h", "--help")
