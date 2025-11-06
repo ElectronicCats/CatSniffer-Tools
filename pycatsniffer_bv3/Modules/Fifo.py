@@ -6,6 +6,7 @@ import typer
 
 DEFAULT_FILENAME = "fcatsniffer"
 
+
 class AsyncFifoLinux:
     def __init__(self, fifo_filename: str = DEFAULT_FILENAME):
         self.fifo_filename = fifo_filename
@@ -41,7 +42,9 @@ class AsyncFifoLinux:
             self.fifo_writer.write(data)
             await asyncio.to_thread(self.fifo_writer.flush)
         except BrokenPipeError:
-            typer.secho("[FIFO] Broken pipe, reiniciando encabezado", fg=typer.colors.YELLOW)
+            typer.secho(
+                "[FIFO] Broken pipe, reiniciando encabezado", fg=typer.colors.YELLOW
+            )
             self.fifo_need_header = True
         except Exception as e:
             typer.secho(f"[FIFO] Error: {e}", fg=typer.colors.RED)

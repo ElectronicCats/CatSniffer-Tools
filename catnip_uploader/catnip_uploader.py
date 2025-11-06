@@ -479,7 +479,12 @@ class CatnipUploader:
         comport: str = typer.Argument(
             help="COM port", default=BoardUart.find_catsniffer
         ),
-        skip_validation: bool = typer.Option(False, "-skip", "--skip-validation", help="Skip firmware validation. Validation is applied by default."),
+        skip_validation: bool = typer.Option(
+            False,
+            "-skip",
+            "--skip-validation",
+            help="Skip firmware validation. Validation is applied by default.",
+        ),
     ):
         """Load firmware to CatSniffer boards V3."""
         validate_firmware = self.releases.validate_file(firmware)

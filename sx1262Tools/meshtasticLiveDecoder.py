@@ -14,7 +14,7 @@ from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
 DEFAULT_KEYS = [
     "OEu8wB3AItGBvza4YSHh+5a3LlW/dCJ+nWr7SNZMsaE=",
     "6IzsaoVhx1ETWeWuu0dUWMLqItvYJLbRzwgTAKCfvtY=",
-    "TiIdi8MJG+IRnIkS8iUZXRU+MHuGtuzEasOWXp4QndU="
+    "TiIdi8MJG+IRnIkS8iUZXRU+MHuGtuzEasOWXp4QndU=",
 ]
 
 SYNC_WORLD = 0x2B
@@ -32,17 +32,21 @@ CHANNELS_PRESET = {
     "VLongSlow": {"sf": 11, "bw": 7, "cr": 8, "pl": 8},
 }
 
+
 def hexlify(b):
     return b.hex().upper()
 
+
 def msb2lsb(hexstr):
     return hexstr[6:8] + hexstr[4:6] + hexstr[2:4] + hexstr[0:2]
+
 
 def extract_frame(raw):
     if not raw.startswith(b"@S") or not raw.endswith(b"@E\r\n"):
         raise ValueError("Invalid frame")
     length = int.from_bytes(raw[2:4], byteorder="big")
-    return raw[4:4+length]
+    return raw[4 : 4 + length]
+
 
 def extract_fields(data):
     return {
@@ -53,13 +57,16 @@ def extract_fields(data):
         "payload": data[16:],
     }
 
+
 def decrypt(payload, key, sender, packet_id):
     nonce = packet_id + b"\x00\x00\x00\x00" + sender + b"\x00\x00\x00\x00"
     cipher = Cipher(algorithms.AES(key), modes.CTR(nonce), backend=default_backend())
     return cipher.decryptor().update(payload)
 
+
 def format_mac(mac_bytes):
     return ":".join(f"{b:02x}" for b in mac_bytes)
+
 
 def decode_nodeinfo(data):
     info = mesh_pb2.User()
@@ -76,12 +83,13 @@ def decode_nodeinfo(data):
     output += f"  Messaging  : {'Disabled' if info.is_unmessagable else 'Enabled'}"
     return output
 
+
 def decode_protobuf(data, src, dst):
     pb = mesh_pb2.Data()
     try:
         pb.ParseFromString(data)
         if pb.portnum == 1:
-            text = pb.payload.decode(errors='ignore')
+            text = pb.payload.decode(errors="ignore")
             return f"[TEXT] {src} -> {dst}: {text}"
         elif pb.portnum == 3:
             pos = mesh_pb2.Position()
@@ -109,19 +117,23 @@ def decode_protobuf(data, src, dst):
     except:
         return None
 
+
 def print_packet_info(fields, decrypted):
     print("\n========================= Packet Info =========================")
-    print(f"Sender: {msb2lsb(fields['sender'].hex())} -> Destination: {msb2lsb(fields['dest'].hex())} PacketID: {msb2lsb(fields['packet_id'].hex())}")
-    flags = fields['flags'][0]
+    print(
+        f"Sender: {msb2lsb(fields['sender'].hex())} -> Destination: {msb2lsb(fields['dest'].hex())} PacketID: {msb2lsb(fields['packet_id'].hex())}"
+    )
+    flags = fields["flags"][0]
     print(f"Flags:   {chr(flags)}")
     print(f"╰──▶ Hop limit: {(flags >> 5) & 0b111}")
     print(f"╰──▶ Want ACK:  {(flags >> 4) & 1}")
     print(f"╰──▶ Via MQTT:  {(flags >> 3) & 1}")
     print(f"╰──▶ Hop Start: {flags & 0b111}")
     print("\n--- Raw Payload (Encrypted) ---")
-    print(" ".join(f"{b:02X}" for b in fields['payload']))
+    print(" ".join(f"{b:02X}" for b in fields["payload"]))
     print("\n--- First Valid Decrypted Protobuf (Hex) ---")
     print(" ".join(f"{b:02X}" for b in decrypted))
+
 
 class Monitor(catsniffer.Catsniffer):
     def __init__(self, port, baudrate, rx_queue=queue.Queue()) -> None:
@@ -154,12 +166,17 @@ class Monitor(catsniffer.Catsniffer):
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=1)
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-p", "--port", default=catsniffer.find_catsniffer_serial_port())
+    parser.add_argument(
+        "-p", "--port", default=catsniffer.find_catsniffer_serial_port()
+    )
     parser.add_argument("-baud", "--baudrate", default=catsniffer.DEFAULT_BAUDRATE)
     parser.add_argument("-f", "--frequency", default=902)
-    parser.add_argument("-ps", "--preset", choices=CHANNELS_PRESET.keys(), default="LongFast")
+    parser.add_argument(
+        "-ps", "--preset", choices=CHANNELS_PRESET.keys(), default="LongFast"
+    )
     args = parser.parse_args()
 
     rx_queue = queue.Queue()
@@ -184,11 +201,20 @@ if __name__ == "__main__":
                     for key_b64 in DEFAULT_KEYS:
                         key = base64.b64decode(key_b64)
                         try:
-                            decrypted = decrypt(fields['payload'], key, fields['sender'], fields['packet_id'])
-                            decoded = decode_protobuf(decrypted, fields['sender'].hex(), fields['dest'].hex())
+                            decrypted = decrypt(
+                                fields["payload"],
+                                key,
+                                fields["sender"],
+                                fields["packet_id"],
+                            )
+                            decoded = decode_protobuf(
+                                decrypted, fields["sender"].hex(), fields["dest"].hex()
+                            )
                             if decoded:
                                 print_packet_info(fields, decrypted)
-                                print(f"[INFO] Successfully decrypted using key: {key_b64}")
+                                print(
+                                    f"[INFO] Successfully decrypted using key: {key_b64}"
+                                )
                                 print(decoded)
                                 break
                         except Exception:
