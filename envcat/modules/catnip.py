@@ -1,4 +1,7 @@
-import time
+import os
+import json
+import hashlib
+import io
 
 # Internal
 from .catsniffer import catsniffer_get_port, cmd_bootloader_enter, cmd_bootloader_exit
@@ -12,7 +15,21 @@ from .cc2538 import (
 )
 
 # External
+import requests
 from rich.console import Console
+from rich.progress import track
+
+GITHUB_RELEASE_URL = (
+    "https://api.github.com/repos/ElectronicCats/CatSniffer-Firmware/releases/latest"
+)
+GITHUB_RELEASE_URL_SNIFFLE = (
+    "https://api.github.com/repos/nccgroup/Sniffle/releases/latest"
+)
+GITHUB_SNIFFLE_HEX = "sniffle_cc1352p7_1M"
+RELEASE_FOLDER_NAME = "release"
+RELEASE_METADATA_NAME = "releases.json"
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(CURRENT_DIR)
 
 __version__ = "1.0"
 
@@ -115,7 +132,199 @@ class CCLoader:
 
 class Catnip:
     def __init__(self):
-        pass
+        self.release_assets = []
+        self.release_tag = None
+        self.release_published_date = None
+        self.release_description = None
+        self.release_dir_path = os.path.join(ROOT_DIR, RELEASE_FOLDER_NAME)
+
+        self.load_contex()
+
+    def load_contex(self) -> None:
+        console.log("[*] Looking for local releases")
+        if self.find_local_release():
+            console.log("[*] Local release folder found!", style="green")
+            self.load_metadata()
+        else:
+            console.log("[*] No Local release folder found!", style="yellow")
+            with console.status("[bold magenta][*] Fetching remote firmware..."):
+                self.get_remote_firmware()
+                self.create_release_dir()
+                self.create_local_metadata()
+                self.download_remote_firmware()
+
+        console.log(
+            f"[*] Current Release {self.release_tag} - {self.release_published_date}",
+            style="magenta",
+        )
+
+    def __create_release_path(self):
+        return f"{self.release_dir_path}_{self.release_tag}"
+
+    def calculate_checksum(self, data) -> str:
+        h = hashlib.new("sha256")
+        h.update(data)
+        return h.hexdigest()
+
+    def load_metadata(self):
+        dir_list = os.listdir(ROOT_DIR)
+        for f in dir_list:
+            if f.startswith(RELEASE_FOLDER_NAME):
+                self.release_tag = f.replace(f"{RELEASE_FOLDER_NAME}_", "")
+                folder_path = os.path.join(
+                    self.__create_release_path(), RELEASE_METADATA_NAME
+                )
+                metadata = open(folder_path, "r")
+                json_data = json.loads(metadata.readlines()[0])
+
+                self.release_tag = json_data["tag"]
+                self.release_published_date = json_data["published_date"]
+                self.release_description = json_data["description"]
+                self.release_assets = json_data["assets"]
+                console.log("[*] Local metadata loaded", style="green")
+                return
+
+        console.log("[X] Error: Release folder not found", style="red")
+
+    def create_local_metadata(self) -> None:
+        folder_path = os.path.join(self.__create_release_path(), RELEASE_METADATA_NAME)
+        metadata = open(folder_path, "w")
+        meta_dict = {
+            "tag": self.release_tag,
+            "published_date": self.release_published_date,
+            "description": self.release_description,
+            "assets": self.release_assets,
+        }
+        metadata.write(json.dumps(meta_dict))
+        metadata.close()
+        console.log("[*] Local metadata created", style="green")
+
+    def check_release_dir_content(self) -> bool:
+        folder_path = self.__create_release_path()
+        if os.path.exists(folder_path):
+            dir_list = os.listdir(folder_path)
+            if len(dir_list) > 0:
+                return True
+        return False
+
+    def create_release_dir(self) -> None:
+        try:
+            folder_path = self.__create_release_path()
+            if os.path.exists(folder_path):
+                console.log("[-] Local release folder already exists", style="yellow")
+                return
+
+            os.mkdir(folder_path)
+            console.log(
+                f"[*] Local release folder created: {folder_path}", style="green"
+            )
+        except Exception as e:
+            console.log(f"[X] Error: {e}", style="red")
+
+    def remove_release_dir(self) -> None:
+        folder_path = self.__create_release_path()
+        if os.path.exists(folder_path):
+            files = os.listdir(folder_path)
+            for f in files:
+                path = os.path.join(folder_path, f)
+                if os.path.isfile(path):
+                    os.remove(path)
+            os.removedirs(folder_path)
+
+    def get_cc_firmware(self, asset) -> bool:
+        name = asset["name"]
+        if name.endswith(".hex"):
+            return True
+        return False
+
+    def save_firmware_hex(self, name, content) -> str:
+        f_writer = open(os.path.join(self.__create_release_path(), name), "wb")
+        content_bytes = io.BytesIO(content)
+        f_writer.write(content_bytes.read())
+        content_bytes.close()
+        return self.calculate_checksum(content)
+
+    def compare_checksum(self, name, local_digest, remote_digest):
+        local_checksum = local_digest
+        remote_checksum = remote_digest.replace("sha256:", "")
+        if local_checksum == remote_checksum:
+            console.log(f"[*] {name} Checksum SHA256 verified", style="green")
+        else:
+            console.log(f"[X] {name} Checksum SHA256 Failed", style="red")
+
+    def download_remote_firmware(self) -> None:
+        tasks = [f"Firmware {n}" for n in range(1, len(self.release_assets) + 1)]
+        with console.status("[bold magenta][*] Downloading firmwares ..."):
+            for asset in self.release_assets:
+                if self.get_cc_firmware(asset):
+                    fname = asset["name"]
+                    with console.status(f"[bold green] Downloading {fname}..."):
+                        try:
+                            request_content = requests.get(
+                                asset["browser_download_url"], timeout=5
+                            )
+                            request_content.raise_for_status()
+                            local_checksum = self.save_firmware_hex(
+                                fname, request_content.content
+                            )
+
+                            console.log(
+                                f"[*] Firmware [bold white]{fname}[/bold white] done.",
+                                style="cyan",
+                            )
+
+                            self.compare_checksum(
+                                fname, local_checksum, asset["digest"]
+                            )
+                        except requests.exceptions.ConnectionError as e:
+                            console.log(
+                                "[X] Error: No internet connection.", style="red"
+                            )
+                            continue
+                        except requests.exceptions.RequestException as e:
+                            console.log(f"[X] HTTP Error: {e}", style="red")
+                            continue
+                        except Exception as e:
+                            console.log(f"[X] Error: {e}", style="red")
+                            continue
+                        finally:
+                            task = tasks.pop(0)
+
+    def get_remote_firmware(self) -> None:
+        try:
+            fetch_releases = requests.get(GITHUB_RELEASE_URL, timeout=1)
+            fetch_releases.raise_for_status()
+
+            data = fetch_releases.json()
+            self.release_tag = data.get("tag_name")
+            self.release_published_date = data.get("published_at")
+            self.release_description = data.get("body", "")
+            self.release_assets = data.get("assets", [])
+
+            # Sniffle release
+            fetch_releases = requests.get(GITHUB_RELEASE_URL_SNIFFLE, timeout=1)
+            fetch_releases.raise_for_status()
+            sniffle_assets = fetch_releases.json().get("assets", [])
+
+            for asset in sniffle_assets:
+                if GITHUB_SNIFFLE_HEX.lower() in asset["name"].lower():
+                    self.release_assets.append(asset)
+        except requests.exceptions.ConnectionError as e:
+            console.log("[X] Error: No internet connection.", style="red")
+            exit(1)
+        except requests.exceptions.RequestException as e:
+            console.log(f"[X] HTTP Error: {e}", style="red")
+            exit(1)
+        except Exception as e:
+            console.log(f"[X] Error: {e}", style="red")
+            exit(1)
+
+    def find_local_release(self) -> bool:
+        dir_files = os.listdir(ROOT_DIR)
+        for dir_name in dir_files:
+            if dir_name.startswith(RELEASE_FOLDER_NAME):
+                return True
+        return False
 
     def flash_firmware(self, firmware) -> bool:
         try:
