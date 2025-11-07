@@ -101,7 +101,8 @@ def cativity() -> None:
 def flash(firmware) -> None:
     """Flash firmware"""
     console.log(f"[*] Flashing firmware: {firmware}")
-    Catnip().flash_firmware(firmware)
+    catnip.find_local_release()
+    # catnip.flash_firmware(firmware)
 
 
 @cli.command()
