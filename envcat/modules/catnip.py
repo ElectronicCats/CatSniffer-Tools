@@ -17,7 +17,7 @@ from .cc2538 import (
 # External
 import requests
 from rich.console import Console
-from rich.progress import track
+from rich.table import Table
 
 GITHUB_RELEASE_URL = (
     "https://api.github.com/repos/ElectronicCats/CatSniffer-Firmware/releases/latest"
@@ -165,6 +165,46 @@ class Catnip:
         h = hashlib.new("sha256")
         h.update(data)
         return h.hexdigest()
+
+    def parse_descriptions(self) -> dict:
+        description = self.release_description.strip().split("\n")
+        descriptions_dict = {}
+        for line in description:
+            try:
+                key, desc = line.split(": ", 1)
+                if key.endswith(".hex"):
+                    descriptions_dict[key.lower()] = desc
+            except ValueError:
+                pass
+        return descriptions_dict
+
+    def get_local_firmware(self):
+        try:
+            dir_list = os.listdir(
+                os.path.join(ROOT_DIR, f"{RELEASE_FOLDER_NAME}_{self.release_tag}")
+            )
+            dir_list.pop(dir_list.index(RELEASE_METADATA_NAME))
+            return dir_list
+        except Exception as e:
+            console.log(f"[X] Error. {e}", style="red")
+            exit(1)
+
+    def show_releases(self) -> None:
+        table = Table(title=f"Releases {self.release_tag}")
+        description = self.parse_descriptions()
+
+        table.add_column("No.")
+        table.add_column("Firmware")
+        table.add_column("Microcontrolador")
+        table.add_column("Description")
+
+        for i, firmware in enumerate(self.get_local_firmware()):
+            try:
+                table.add_row(str(i), firmware, "CC1352", description[firmware.lower()])
+            except Exception:
+                table.add_row(str(i), firmware, "CC1352", "Description not found")
+
+        console.print(table)
 
     def load_metadata(self):
         dir_list = os.listdir(ROOT_DIR)

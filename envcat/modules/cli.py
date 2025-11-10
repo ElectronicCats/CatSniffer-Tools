@@ -108,7 +108,7 @@ def flash(firmware) -> None:
 @cli.command()
 def releases() -> None:
     """Show Firmware releases"""
-    console.log(f"[*] Releases")
+    catnip.show_releases()
 
 
 def main_cli() -> None:
