@@ -1,11 +1,16 @@
 import os
 import asyncio
 import platform
+import threading
+import platform
+import subprocess
+from pathlib import Path
 
 # External
 from rich.console import Console
 
-DEFAULT_UNIX_PATH = "/tmp/fcatsniffer"
+DEFAULT_PIPELINE_NAME = "fcatsniffer"
+DEFAULT_UNIX_PATH = f"/tmp/{DEFAULT_PIPELINE_NAME}"
 
 console = Console()
 
@@ -81,3 +86,67 @@ class UnixPipe:
             show_generic_error("Writing Pipeline", e)
             self.remove()
             exit(1)
+
+
+class Wireshark(threading.Thread):
+    def __init__(self, pipe_name=DEFAULT_UNIX_PATH, profile=None):
+        super().__init__(daemon=True)
+        self.pipe_name = pipe_name
+        self.profile = profile
+        self.running = True
+        self.wireshark_process: subprocess.Popen | None = None
+        self.system = platform.system()
+
+    def get_wireshark_path(self):
+        if self.system == "Windows":
+            exe_path = Path("C:\\Program Files\\Wireshark\\Wireshark.exe")
+            if not exe_path.exists():
+                exe_path = Path("C:\\Program Files (x86)\\Wireshark\\Wireshark.exe")
+        elif self.system == "Linux":
+            exe_path = Path("/usr/bin/wireshark")
+        elif self.system == "Darwin":
+            exe_path = Path("/Applications/Wireshark.app/Contents/MacOS/Wireshark")
+        else:
+            console.log("[X] Error. Unsupported OS", style="red")
+            return None
+        return exe_path
+
+    def get_wireshark_pipepath(self):
+        fifo_path = (
+            DEFAULT_UNIX_PATH
+            if self.system != "Windows"
+            else f"\\\\.\\pipe\\{DEFAULT_PIPELINE_NAME}"
+        )
+        return fifo_path
+
+    def get_wireshark_cmd(self):
+        exe_path = self.get_wireshark_path()
+        fifo_path = self.get_wireshark_pipepath()
+        cmd = [str(exe_path), "-k", "-i", fifo_path]
+        if self.profile:
+            cmd = [str(exe_path), "-k", "-i", fifo_path, "-C", self.profile]
+        return cmd
+
+    def run(self):
+        cmd = self.get_wireshark_cmd()
+        if not cmd:
+            self.running = False
+            return
+
+        try:
+            self.wireshark_process = subprocess.Popen(cmd, start_new_session=True)
+        except Exception as e:
+            console.log("[X] Error. Can't start Wireshark", style="red")
+        finally:
+            self.running = False
+
+    def stop_thread(self):
+        self.running = False
+        if self.wireshark_process and self.wireshark_process.poll() is None:
+            try:
+                self.wireshark_process.terminate()
+                self.wireshark_process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.wireshark_process.kill()
+            self.join(2)
+            self.wireshark_process = None
