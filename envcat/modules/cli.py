@@ -1,13 +1,20 @@
 import asyncio
+import signal
 
 # Internal
 from .catnip import Catnip
-from .pipes import DEFAULT_UNIX_PATH
+from .pipes import Wireshark
 from .bridge import main_serial_pipeline
-from .catsniffer import SniffingFirmware, Catsniffer
+from .catsniffer import (
+    SniffingFirmware,
+    SniffingBaseFirmware,
+    Catsniffer,
+    catsniffer_get_port,
+)
 
 # External
 import click
+import serial_asyncio
 from rich.console import Console
 
 __version__ = "1.0"
@@ -15,6 +22,7 @@ __version__ = "1.0"
 console = Console()
 cat = Catsniffer()
 catnip = Catnip()
+wireshark = Wireshark()
 
 
 @click.group()
@@ -36,37 +44,47 @@ def sniff_ble():
         console.log(f"[*] Firmware found!", style="green")
     else:
         console.log(f"[-] Firmware not found! - Flashing Sniffle", style="yellow")
-        firmware = "/Users/astrobyte/ElectronicCats/CatSniffer-Tools/catnip_uploader/releases_board-v3.x-v1.2.2/sniffle_cc1352p7_1M.hex"
-        if not catnip.flash_firmware(firmware):
+        if not catnip.find_flash_firmware(SniffingBaseFirmware.BLE.value):
             return
 
-    console.log("[*] Sniffing BLE", style="cyan")
+    console.log("[*] Now you can open Sniffle extcap from Wireshark", style="cyan")
 
 
 @sniff.command(SniffingFirmware.ZIGBEE.name.lower())
+@click.option("-ws", is_flag=True, help="Open Wireshark")
 @click.option(
     "--channel", "-c", required=True, type=click.IntRange(11, 26), help="Zigbee chanel"
 )
-def sniff_zigbee(channel):
+def sniff_zigbee(ws, channel):
     """Sniffing Zigbee with Sniffer TI firmware"""
     if cat.check_ti_firmware():
         console.log(f"[*] Firmware found!", style="green")
     else:
         console.log(f"[-] Firmware not found! - Flashing Sniffer TI", style="yellow")
-        firmware = "/Users/astrobyte/ElectronicCats/CatSniffer-Tools/catnip_uploader/releases_board-v3.x-v1.2.2/sniffer_fw_CC1352P_7_v1.10.hex"
-        if not catnip.flash_firmware(firmware):
+        if not catnip.find_flash_firmware(SniffingBaseFirmware.ZIGBEE.value):
             return
 
     console.log(f"[*] Sniffing Zigbee at channel: {channel}", style="cyan")
+    asyncio.run(main_serial_pipeline(channel=channel, open_wireshark=ws))
 
 
 @sniff.command(SniffingFirmware.THREAD.name.lower())
+@click.option("-ws", is_flag=True, help="Open Wireshark")
 @click.option(
     "--channel", "-c", required=True, type=click.IntRange(11, 26), help="Thread chanel"
 )
-def sniff_thread(channel):
+def sniff_thread(ws, channel):
     """Sniffing Thread with Sniffer TI firmware"""
+    if cat.check_ti_firmware():
+        console.log(f"[*] Firmware found!", style="green")
+    else:
+        console.log(f"[-] Firmware not found! - Flashing Sniffer TI", style="yellow")
+        if not catnip.find_flash_firmware(SniffingBaseFirmware.THREAD.value):
+            return
     console.log(f"[*] Sniffing Thread at channel: {channel}", style="cyan")
+    if ws:
+        console.log("[*] Opening Wireshark")
+        wireshark.start()
 
 
 @cli.command()

@@ -140,18 +140,25 @@ class Catnip:
 
         self.load_contex()
 
+    def get_remove_firmware(self) -> None:
+        self.get_remote_firmware()
+        self.create_release_dir()
+        self.create_local_metadata()
+        self.download_remote_firmware()
+
     def load_contex(self) -> None:
         console.log("[*] Looking for local releases")
         if self.find_local_release():
             console.log("[*] Local release folder found!", style="green")
             self.load_metadata()
+            # if self.check_new_remote_version():
+            #     console.log("[*] Updating version", style="yellow")
+            #     self.remove_release_dir()
+            #     self.get_remove_firmware()
         else:
             console.log("[*] No Local release folder found!", style="yellow")
             with console.status("[bold magenta][*] Fetching remote firmware..."):
-                self.get_remote_firmware()
-                self.create_release_dir()
-                self.create_local_metadata()
-                self.download_remote_firmware()
+                self.get_remove_firmware()
 
         console.log(
             f"[*] Current Release {self.release_tag} - {self.release_published_date}",
@@ -178,11 +185,12 @@ class Catnip:
                 pass
         return descriptions_dict
 
+    def get_releases_path(self) -> str:
+        return os.path.join(ROOT_DIR, f"{RELEASE_FOLDER_NAME}_{self.release_tag}")
+
     def get_local_firmware(self):
         try:
-            dir_list = os.listdir(
-                os.path.join(ROOT_DIR, f"{RELEASE_FOLDER_NAME}_{self.release_tag}")
-            )
+            dir_list = os.listdir(self.get_releases_path())
             dir_list.pop(dir_list.index(RELEASE_METADATA_NAME))
             return dir_list
         except Exception as e:
@@ -292,6 +300,20 @@ class Catnip:
         else:
             console.log(f"[X] {name} Checksum SHA256 Failed", style="red")
 
+    def check_new_remote_version(self) -> bool:
+        try:
+            fetch_releases = requests.get(GITHUB_RELEASE_URL, timeout=1)
+            fetch_releases.raise_for_status()
+
+            data = fetch_releases.json()
+            remote_tag = data.get("tag_name")
+            if remote_tag != self.release_tag:
+                return True
+            return False
+        except Exception as e:
+            console.log(f"[X] Error. {e}", style="red")
+            return False
+
     def download_remote_firmware(self) -> None:
         tasks = [f"Firmware {n}" for n in range(1, len(self.release_assets) + 1)]
         with console.status("[bold magenta][*] Downloading firmwares ..."):
@@ -364,6 +386,14 @@ class Catnip:
         for dir_name in dir_files:
             if dir_name.startswith(RELEASE_FOLDER_NAME):
                 return True
+        return False
+
+    def find_flash_firmware(self, firmware_str):
+        firmwares = self.get_local_firmware()
+        for firm in firmwares:
+            if firm.startswith(firmware_str):
+                path = os.path.join(self.get_releases_path(), firm)
+                return self.flash_firmware(path)
         return False
 
     def flash_firmware(self, firmware) -> bool:

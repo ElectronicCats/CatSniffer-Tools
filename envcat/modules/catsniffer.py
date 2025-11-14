@@ -1,8 +1,10 @@
-# External
 import enum
 import time
 from base64 import b64encode, b64decode
 from binascii import Error as BAError
+
+# Internal
+from protocol.sniffer_ti import SnifferTI
 
 # External
 import serial
@@ -20,6 +22,14 @@ class SniffingFirmware(enum.Enum):
     BLE = enum.auto()  # Sniffle Firmware
     ZIGBEE = enum.auto()  # TI Sniffer Firmware
     THREAD = enum.auto()  # TI Sniffer Firmware
+    JWORKS = enum.auto()  # Just works
+
+
+class SniffingBaseFirmware(enum.Enum):
+    BLE = "sniffle"
+    ZIGBEE = "sniffer"
+    THREAD = "sniffer"
+    JWORKS = "justworks"
 
 
 def catsniffer_get_port():
