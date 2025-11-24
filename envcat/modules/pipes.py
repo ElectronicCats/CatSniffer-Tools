@@ -30,16 +30,13 @@ def show_generic_error(title="", e="") -> None:
     console.log(f"[bold red][X] Error {title}[/bold red]: {e}")
 
 
-class UnixPipe(threading.Thread):
+class UnixPipe:
     def __init__(self, path=DEFAULT_UNIX_PATH) -> None:
-        super().__init__(daemon=True)
         self.pipe_path = path
         self.pipe_writer = None
 
         # Initial configuration
         self.create()
-        self.open()
-        self.start()
 
     def create(self):
         try:
@@ -57,7 +54,6 @@ class UnixPipe(threading.Thread):
             self.create()
         try:
             self.pipe_writer = open(self.pipe_path, "ab")
-            self.pipe_writer.flush()
             console.log(f"[*] Pipeline Open: {self.pipe_path}", style="green")
         except Exception as e:
             show_generic_error("Opening Pipeline", e)
@@ -82,8 +78,6 @@ class UnixPipe(threading.Thread):
         except Exception as e:
             show_generic_error("Removing Pipeline", e)
             pass
-        finally:
-            self.join()
 
     def write_packet(self, data: bytes) -> None:
         try:
@@ -92,8 +86,9 @@ class UnixPipe(threading.Thread):
             console.log(f"[*] Writing to Pipeline ({self.pipe_path}): {data}")
         except Exception as e:
             show_generic_error("Writing Pipeline", e)
-            self.remove()
-            exit(1)
+            pass
+            # self.remove()
+            # exit(1)
 
 
 class Wireshark(threading.Thread):
@@ -137,24 +132,7 @@ class Wireshark(threading.Thread):
 
     def run(self):
         cmd = self.get_wireshark_cmd()
-        if not cmd:
-            self.running = False
-            return
-
         try:
-            self.wireshark_process = subprocess.Popen(cmd, start_new_session=True)
+            self.wireshark_process = subprocess.Popen(cmd)
         except Exception as e:
-            console.log("[X] Error. Can't start Wireshark", style="red")
-        finally:
-            self.running = False
-
-    def stop_thread(self):
-        self.running = False
-        if self.wireshark_process and self.wireshark_process.poll() is None:
-            try:
-                self.wireshark_process.terminate()
-                self.wireshark_process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                self.wireshark_process.kill()
-            self.join(2)
-            self.wireshark_process = None
+            console.log(f"[X] Error. Can't start Wireshark: {e}", style="red")
