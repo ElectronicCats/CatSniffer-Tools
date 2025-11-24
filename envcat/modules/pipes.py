@@ -1,5 +1,4 @@
 import os
-import asyncio
 import platform
 import threading
 import platform
@@ -31,12 +30,18 @@ def show_generic_error(title="", e="") -> None:
     console.log(f"[bold red][X] Error {title}[/bold red]: {e}")
 
 
-class UnixPipe:
+class UnixPipe(threading.Thread):
     def __init__(self, path=DEFAULT_UNIX_PATH) -> None:
+        super().__init__(daemon=True)
         self.pipe_path = path
         self.pipe_writer = None
 
-    async def create(self):
+        # Initial configuration
+        self.create()
+        self.open()
+        self.start()
+
+    def create(self):
         try:
             os.mkfifo(self.pipe_path)
             console.log(f"[*] Pipeline created: {self.pipe_path}", style="green")
@@ -47,19 +52,20 @@ class UnixPipe:
             show_generic_error("Creating Pipeline", e)
             exit(1)
 
-    async def open(self) -> None:
+    def open(self) -> None:
         if not os.path.exists(self.pipe_path):
-            await self.create()
+            self.create()
         try:
-            self.pipe_writer = await asyncio.to_thread(open, self.pipe_path, "ab")
+            self.pipe_writer = open(self.pipe_path, "ab")
+            self.pipe_writer.flush()
             console.log(f"[*] Pipeline Open: {self.pipe_path}", style="green")
         except Exception as e:
             show_generic_error("Opening Pipeline", e)
             exit(1)
 
-    async def close(self) -> None:
+    def close(self) -> None:
         try:
-            await asyncio.to_thread(self.pipe_writer.close)
+            self.pipe_writer.close()
             self.pipe_writer = None
             console.log(f"[*] Pipeline Closed: {self.pipe_path}", style="green")
         except Exception as e:
@@ -76,11 +82,13 @@ class UnixPipe:
         except Exception as e:
             show_generic_error("Removing Pipeline", e)
             pass
+        finally:
+            self.join()
 
-    async def write_packet(self, data: bytes) -> None:
+    def write_packet(self, data: bytes) -> None:
         try:
             self.pipe_writer.write(data)
-            await asyncio.to_thread(self.pipe_writer.flush)
+            self.pipe_writer.flush()
             console.log(f"[*] Writing to Pipeline ({self.pipe_path}): {data}")
         except Exception as e:
             show_generic_error("Writing Pipeline", e)
