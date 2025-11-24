@@ -4,7 +4,7 @@ import signal
 # Internal
 from .catnip import Catnip
 from .pipes import Wireshark
-from .bridge import wun
+from .bridge import run_bridge
 from .catsniffer import (
     SniffingFirmware,
     SniffingBaseFirmware,
@@ -64,7 +64,7 @@ def sniff_zigbee(ws, channel):
             return
 
     console.log(f"[*] Sniffing Zigbee at channel: {channel}", style="cyan")
-    wun(cat)
+    run_bridge(cat, channel, ws)
 
 
 @sniff.command(SniffingFirmware.THREAD.name.lower())

@@ -1,13 +1,57 @@
 import enum
+import struct
+import binascii
+import time
 
 START_OF_FRAME = b"\x40\x53"
 END_OF_FRAME = b"\x40\x45"
-
-BYTE_IEEE802145 = b"\x13"
+BYTE_IEEE802145 = b"\x12"
 CHANNEL_RANGE_IEEE802145 = [
     (channel, (2405.0 + (5 * (channel - 11)))) for channel in range(11, 27)
 ]
 CONST_FRECUENCY = 65536  # 2^16 -> 16 bits -> MHz
+PACKET_PDU_LEN = 5
+PCAP_PACKET_HEADER_FORMAT = "<llll"
+
+
+class Pcap:
+    def __init__(self, packet: bytes, timestamp_seconds: float):
+        self.packet = packet
+        self.timestamp_seconds = timestamp_seconds
+        self.pcap_packet = self.pack()
+
+    def pack(self):
+        int_timestamp = int(self.timestamp_seconds)
+        timestamp_offset = int((self.timestamp_seconds - int_timestamp) / 1_000_000)
+        return (
+            struct.pack(
+                PCAP_PACKET_HEADER_FORMAT,  # Block Type
+                int_timestamp,  # timestamp_seconds,
+                timestamp_offset,  # timestamp_offset,
+                len(self.packet),  # Snapshot Length
+                len(self.packet),  # Packet Length
+            )
+            + self.packet
+        )
+
+    def packet_to_hex(self):
+        return self.packet.hex()
+
+    def get_pcap(self):
+        return self.pcap_packet
+
+    def pcap_hex(self):
+        return binascii.hexlify(self.pcap_packet).decode("utf-8")
+
+    def __str__(self) -> str:
+        return f"{self.packet}"
+
+
+class PacketCategory(enum.Enum):
+    RESERVED = 0x0
+    COMMAND = 0x1
+    COMMAND_RESPONSE = 0x2
+    DATA_STREAMING_AND_ERROR = 0x3
 
 
 class TIBaseCommand:
@@ -54,6 +98,7 @@ class TIBaseCommand:
 
 
 class SnifferTI:
+
     class Commands:
         def __init__(self):
             pass
@@ -72,40 +117,104 @@ class SnifferTI:
             return self._calculate_frequency(CHANNEL_RANGE_IEEE802145[0][1])
 
         def ping(self) -> bytes:
-            return TIBaseCommand(TIBaseCommand.ByteCommands.PING.value)
+            return TIBaseCommand(TIBaseCommand.ByteCommands.PING.value).packet
 
         def start(self) -> bytes:
-            return TIBaseCommand(TIBaseCommand.ByteCommands.START.value)
+            return TIBaseCommand(TIBaseCommand.ByteCommands.START.value).packet
 
         def stop(self) -> bytes:
-            return TIBaseCommand(TIBaseCommand.ByteCommands.STOP.value)
+            return TIBaseCommand(TIBaseCommand.ByteCommands.STOP.value).packet
 
         def pause(self) -> bytes:
-            return TIBaseCommand(TIBaseCommand.ByteCommands.PAUSE.value)
+            return TIBaseCommand(TIBaseCommand.ByteCommands.PAUSE.value).packet
 
         def resume(self) -> bytes:
-            return TIBaseCommand(TIBaseCommand.ByteCommands.RESUME.value)
+            return TIBaseCommand(TIBaseCommand.ByteCommands.RESUME.value).packet
 
         def config_freq(self, channel) -> bytes:
             frequency = self._convert_channel_to_freq(channel=channel)
+            print(channel, frequency)
             return TIBaseCommand(
                 TIBaseCommand.ByteCommands.CFG_FREQUENCY.value, frequency
-            )
+            ).packet
 
         def config_phy(self) -> bytes:
             return TIBaseCommand(
                 TIBaseCommand.ByteCommands.CFG_PHY.value, BYTE_IEEE802145
-            )
+            ).packet
 
         def get_startup_cmd(self, channel=11):
             startup_cmds = [
-                SnifferTI.Commands().ping().packet,
-                SnifferTI.Commands().stop().packet,
-                SnifferTI.Commands().config_phy().packet,
-                SnifferTI.Commands().config_freq(channel=channel).packet,
-                SnifferTI.Commands().start().packet,
+                SnifferTI.Commands().ping(),
+                SnifferTI.Commands().stop(),
+                SnifferTI.Commands().config_phy(),
+                SnifferTI.Commands().config_freq(channel=channel),
+                SnifferTI.Commands().start(),
             ]
             return startup_cmds
+
+    class Packet:
+        def __init__(self, packet_bytes: bytes):
+            self.packet_bytes = packet_bytes
+            self.type = 0x00
+            self.category = 0x00
+            self.length = 0
+            self.payload = None
+            self.pcap = None
+            self.rssi = 0
+            self.status = 0
+            self.conn_info = 0
+            self.connect_evt = 0
+            self.dissect()
+
+        def unpack_packet_info(self, info) -> None:
+            """Unpack the packet info.
+            Parameters:
+            packet_info (bytes): The packet info to unpack.
+            Returns: (packet_category, packet_type)
+            Category: 2 bits -> Index: 6-7
+            Type:     6 bits -> Index: 0-5"""
+            self.category = (info >> 6) & 0b11
+            self.type = info & 0b00111111
+
+        def dissect(self) -> None:
+            (_, pkt_info, self.length) = struct.unpack_from("<HBH", self.packet_bytes)
+            self.unpack_packet_info(pkt_info)
+            metadata_payload = self.packet_bytes[PACKET_PDU_LEN:-2]
+            self.rssi = metadata_payload[-2]
+            self.status = metadata_payload[-1]
+            self.payload = self.packet_bytes[10:-4]
+            version = b"\x00"
+            interfaceType = b"\x00"
+            interfaceId = bytes.fromhex("0300")
+            protocol = b"\x02"
+            phy = bytes.fromhex("03")
+            packet = (
+                version
+                + self.length.to_bytes(2, "little")
+                + interfaceType
+                + interfaceId
+                + protocol
+                + phy
+                + int(2405.0).to_bytes(4, "little")
+                + int(13).to_bytes(2, "little")
+                + self.rssi.to_bytes(1, "little")
+                + self.status.to_bytes(1, "little")
+                + version
+                + version
+                + self.payload
+            )
+            pcap_file = Pcap(packet, time.time())
+            self.pcap = pcap_file.get_pcap()
+
+        def hex_digiest(self, packet_bytes: bytes) -> str:
+            string_hex = packet_bytes.hex()
+            return " ".join(
+                [string_hex[i : i + 2] for i in range(0, len(string_hex), 2)]
+            )
+
+        def __str__(self):
+            return f"Packet Info: Type ({self.type}) Category ({self.category})\n{self.hex_digiest(self.payload)}"
 
     def __init__(self):
         pass

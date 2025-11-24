@@ -60,13 +60,27 @@ class SerialConnection:
 
     def connect(self) -> bool:
         try:
-            self.connection = serial.Serial(self.port, self.baudrate)
+            self.connection = serial.Serial(self.port, self.baudrate, timeout=2)
             return True
         except Exception as e:
             return False
 
     def read(self, size=1024) -> bytes:
         return self.connection.read(size)
+
+    def read_until(self, frame: bytes) -> bytes:
+        try:
+            bytestream = self.connection.read_until(frame)
+            sof_index = 0
+
+            eof_index = bytestream.find(frame, sof_index)
+            if eof_index == -1:
+                return None
+
+            bytestream = bytestream[sof_index : eof_index + 2]
+            return bytestream
+        except serial.SerialException as e:
+            return None
 
     def readline(self) -> bytes:
         return self.connection.readline()
@@ -90,7 +104,7 @@ class Catsniffer(SerialConnection):
         super(Catsniffer, self).__init__()
         self.set_port(catsniffer_get_port())
 
-    def check_flag(self, flag, timeout=1) -> bool:
+    def check_flag(self, flag, timeout=2) -> bool:
         stop = time.time() + timeout
         got = b""
         if not self.connect():
@@ -103,11 +117,11 @@ class Catsniffer(SerialConnection):
         self.disconnect()
         return True
 
-    def check_ti_firmware(self, timeout=1) -> bool:
+    def check_ti_firmware(self, timeout=2) -> bool:
         flag = b"TI Packet"
         return self.check_flag(flag=flag, timeout=timeout)
 
-    def check_sniffle_firmware(self, timeout=1) -> bool:
+    def check_sniffle_firmware(self) -> bool:
         flag = [0x24]
         b0 = (len(flag) + 3) // 3
         cmd = bytes([b0, *flag])
