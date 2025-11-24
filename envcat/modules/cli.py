@@ -81,9 +81,7 @@ def sniff_thread(ws, channel):
         if not catnip.find_flash_firmware(SniffingBaseFirmware.THREAD.value):
             return
     console.log(f"[*] Sniffing Thread at channel: {channel}", style="cyan")
-    if ws:
-        console.log("[*] Opening Wireshark")
-        wireshark.start()
+    run_bridge(cat, channel, ws)
 
 
 @cli.command()
