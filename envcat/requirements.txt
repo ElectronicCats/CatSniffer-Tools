@@ -3,7 +3,6 @@ aiohttp==3.13.2
 aiohttp-jinja2==1.6
 aiosignal==1.4.0
 attrs==25.4.0
-catnip @ file:///Users/astrobyte/ElectronicCats/CatSniffer-Tools/catnip_uploader
 certifi==2025.10.5
 charset-normalizer==3.4.4
 click==8.3.0
