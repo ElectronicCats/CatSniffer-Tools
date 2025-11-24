@@ -4,7 +4,7 @@ import signal
 # Internal
 from .catnip import Catnip
 from .pipes import Wireshark
-from .bridge import main_serial_pipeline
+from .bridge import wun
 from .catsniffer import (
     SniffingFirmware,
     SniffingBaseFirmware,
@@ -14,7 +14,6 @@ from .catsniffer import (
 
 # External
 import click
-import serial_asyncio
 from rich.console import Console
 
 __version__ = "1.0"
@@ -65,7 +64,7 @@ def sniff_zigbee(ws, channel):
             return
 
     console.log(f"[*] Sniffing Zigbee at channel: {channel}", style="cyan")
-    asyncio.run(main_serial_pipeline(channel=channel, open_wireshark=ws))
+    wun(cat)
 
 
 @sniff.command(SniffingFirmware.THREAD.name.lower())
