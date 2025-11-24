@@ -54,6 +54,21 @@ class PacketCategory(enum.Enum):
     DATA_STREAMING_AND_ERROR = 0x3
 
 
+def calculate_frequency(frequency) -> bytes:
+    integer_value = int(frequency)
+    fractional_value = int((integer_value - integer_value) * CONST_FRECUENCY)
+    frequency_int_bytes = integer_value.to_bytes(2, byteorder="little")
+    frequency_frac_bytes = fractional_value.to_bytes(2, byteorder="little")
+    return frequency_int_bytes + frequency_frac_bytes
+
+
+def convert_channel_to_freq(channel) -> bytes:
+    for _channel in CHANNEL_RANGE_IEEE802145:
+        if _channel[0] == channel:
+            return _channel[1]
+    return calculate_frequency(CHANNEL_RANGE_IEEE802145[0][1])
+
+
 class TIBaseCommand:
     class ByteCommands(enum.Enum):
         PING = 0x40
@@ -98,23 +113,9 @@ class TIBaseCommand:
 
 
 class SnifferTI:
-
     class Commands:
         def __init__(self):
             pass
-
-        def _calculate_frequency(self, frequency) -> bytes:
-            integer_value = int(frequency)
-            fractional_value = int((integer_value - integer_value) * CONST_FRECUENCY)
-            frequency_int_bytes = integer_value.to_bytes(2, byteorder="little")
-            frequency_frac_bytes = fractional_value.to_bytes(2, byteorder="little")
-            return frequency_int_bytes + frequency_frac_bytes
-
-        def _convert_channel_to_freq(self, channel) -> bytes:
-            for _channel in CHANNEL_RANGE_IEEE802145:
-                if _channel[0] == channel:
-                    return self._calculate_frequency(_channel[1])
-            return self._calculate_frequency(CHANNEL_RANGE_IEEE802145[0][1])
 
         def ping(self) -> bytes:
             return TIBaseCommand(TIBaseCommand.ByteCommands.PING.value).packet
@@ -132,10 +133,10 @@ class SnifferTI:
             return TIBaseCommand(TIBaseCommand.ByteCommands.RESUME.value).packet
 
         def config_freq(self, channel) -> bytes:
-            frequency = self._convert_channel_to_freq(channel=channel)
-            print(channel, frequency)
+            frequency = convert_channel_to_freq(channel=channel)
+            frequency_bytes = calculate_frequency(frequency)
             return TIBaseCommand(
-                TIBaseCommand.ByteCommands.CFG_FREQUENCY.value, frequency
+                TIBaseCommand.ByteCommands.CFG_FREQUENCY.value, frequency_bytes
             ).packet
 
         def config_phy(self) -> bytes:
@@ -154,8 +155,9 @@ class SnifferTI:
             return startup_cmds
 
     class Packet:
-        def __init__(self, packet_bytes: bytes):
+        def __init__(self, packet_bytes: bytes, channel: int = 11):
             self.packet_bytes = packet_bytes
+            self.channel = channel
             self.type = 0x00
             self.category = 0x00
             self.length = 0
@@ -196,8 +198,8 @@ class SnifferTI:
                 + interfaceId
                 + protocol
                 + phy
-                + int(2405.0).to_bytes(4, "little")
-                + int(13).to_bytes(2, "little")
+                + int(convert_channel_to_freq(self.channel)).to_bytes(4, "little")
+                + int(self.channel).to_bytes(2, "little")
                 + self.rssi.to_bytes(1, "little")
                 + self.status.to_bytes(1, "little")
                 + version

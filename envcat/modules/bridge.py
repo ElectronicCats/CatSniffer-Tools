@@ -58,7 +58,7 @@ def run_bridge(serial_worker: Catsniffer, channel: int = 11, wireshark: bool = F
         try:
             data = serial_worker.read_until((END_OF_FRAME + START_OF_FRAME))
             if data:
-                ti_packet = sniffer.Packet((START_OF_FRAME + data))
+                ti_packet = sniffer.Packet((START_OF_FRAME + data), channel)
                 if ti_packet.category == PacketCategory.DATA_STREAMING_AND_ERROR.value:
                     console.log(f"Recv -> {ti_packet}")
                     if not header_flag:
