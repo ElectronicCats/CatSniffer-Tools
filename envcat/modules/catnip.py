@@ -2,6 +2,7 @@ import os
 import json
 import hashlib
 import io
+from datetime import datetime
 
 # Internal
 from .catsniffer import catsniffer_get_port, cmd_bootloader_enter, cmd_bootloader_exit
@@ -137,6 +138,7 @@ class Catnip:
         self.release_published_date = None
         self.release_description = None
         self.release_dir_path = os.path.join(ROOT_DIR, RELEASE_FOLDER_NAME)
+        self.last_date = datetime.now().strftime("%d/%m/%Y")
 
         self.load_contex()
 
@@ -151,10 +153,11 @@ class Catnip:
         if self.find_local_release():
             console.log("[*] Local release folder found!", style="green")
             self.load_metadata()
-            # if self.check_new_remote_version():
-            #     console.log("[*] Updating version", style="yellow")
-            #     self.remove_release_dir()
-            #     self.get_remove_firmware()
+            if self.last_date != datetime.now().strftime("%d/%m/%Y"):
+                if self.check_new_remote_version():
+                    console.log("[*] Updating version", style="yellow")
+                    self.remove_release_dir()
+                    self.get_remove_firmware()
         else:
             console.log("[*] No Local release folder found!", style="yellow")
             with console.status("[bold magenta][*] Fetching remote firmware..."):
@@ -203,7 +206,7 @@ class Catnip:
 
         table.add_column("No.")
         table.add_column("Firmware")
-        table.add_column("Microcontrolador")
+        table.add_column("Microcontroller")
         table.add_column("Description")
 
         for i, firmware in enumerate(self.get_local_firmware()):
@@ -229,6 +232,10 @@ class Catnip:
                 self.release_published_date = json_data["published_date"]
                 self.release_description = json_data["description"]
                 self.release_assets = json_data["assets"]
+                if not "last_date" in json_data:
+                    self.create_local_metadata()
+                else:
+                    self.last_date = datetime.now().strftime("%d/%m/%Y")
                 console.log("[*] Local metadata loaded", style="green")
                 return
 
@@ -242,6 +249,7 @@ class Catnip:
             "published_date": self.release_published_date,
             "description": self.release_description,
             "assets": self.release_assets,
+            "last_date": datetime.now().strftime("%d/%m/%Y"),
         }
         metadata.write(json.dumps(meta_dict))
         metadata.close()
