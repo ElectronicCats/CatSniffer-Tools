@@ -5,36 +5,21 @@ import threading
 # Internal
 from .catsniffer import catsniffer_get_port, Catsniffer
 from .pipes import UnixPipe, Wireshark
-from protocol.sniffer_ti import SnifferTI, PacketCategory, START_OF_FRAME, END_OF_FRAME
+from protocol.sniffer_ti import (
+    SnifferTI,
+    PacketCategory,
+    START_OF_FRAME,
+    END_OF_FRAME,
+    get_global_header,
+)
 
 # External
 
 from rich.console import Console
 
-PCAP_GLOBAL_HEADER_FORMAT = "<LHHIILL"
-PCAP_PACKET_HEADER_FORMAT = "<llll"
-PCAP_MAGIC_NUMBER = 0xA1B2C3D4
-PCAP_VERSION_MAJOR = 2
-PCAP_VERSION_MINOR = 4
-PCAP_MAX_PACKET_SIZE = 0x0000FFFF
-
 console = Console()
 sniffer = SnifferTI()
 snifferTICmd = sniffer.Commands()
-
-
-def get_global_header(interface=147):
-    global_header = struct.pack(
-        PCAP_GLOBAL_HEADER_FORMAT,
-        PCAP_MAGIC_NUMBER,
-        PCAP_VERSION_MAJOR,
-        PCAP_VERSION_MINOR,
-        0,  # Reserved
-        0,  # Reserved
-        PCAP_MAX_PACKET_SIZE,
-        interface,
-    )
-    return global_header
 
 
 def run_bridge(serial_worker: Catsniffer, channel: int = 11, wireshark: bool = False):

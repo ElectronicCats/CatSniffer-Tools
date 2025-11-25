@@ -11,7 +11,26 @@ CHANNEL_RANGE_IEEE802145 = [
 ]
 CONST_FRECUENCY = 65536  # 2^16 -> 16 bits -> MHz
 PACKET_PDU_LEN = 5
+PCAP_GLOBAL_HEADER_FORMAT = "<LHHIILL"
 PCAP_PACKET_HEADER_FORMAT = "<llll"
+PCAP_MAGIC_NUMBER = 0xA1B2C3D4
+PCAP_VERSION_MAJOR = 2
+PCAP_VERSION_MINOR = 4
+PCAP_MAX_PACKET_SIZE = 0x0000FFFF
+
+
+def get_global_header(interface=147):
+    global_header = struct.pack(
+        PCAP_GLOBAL_HEADER_FORMAT,
+        PCAP_MAGIC_NUMBER,
+        PCAP_VERSION_MAJOR,
+        PCAP_VERSION_MINOR,
+        0,  # Reserved
+        0,  # Reserved
+        PCAP_MAX_PACKET_SIZE,
+        interface,
+    )
+    return global_header
 
 
 class Pcap:

@@ -90,34 +90,14 @@ def cativity() -> None:
     console.log("[*] Monitoring IQ activity")
 
 
-# @cli.command()
-# @click.argument("protocol", type=click.Choice(SniffingFirmware, case_sensitive=False))
-# def sniff(protocol) -> None:
-#   """Sniffing protocol"""
-#   sniff()
-#   print("hello")
-# catnip = Catnip()
-# console.print(f"[*] Running Sniffer for: {protocol.name}")
-# if protocol.name == SniffingFirmware.BLE.name:
-#   console.print("[*] Flashing BLE Sniffle", style="magenta")
-#   firmware = "/Users/astrobyte/ElectronicCats/CatSniffer-Tools/catnip_uploader/releases_board-v3.x-v1.2.2/sniffle_cc1352p7_1M.hex"
-#   catnip.flash_firmware(firmware)
-# else:
-#   console.print("[*] Flashing Sniffer", style="magenta")
-#   firmware = "/Users/astrobyte/ElectronicCats/CatSniffer-Tools/catnip_uploader/releases_board-v3.x-v1.2.2/sniffer_fw_CC1352P_7_v1.10.hex"
-#   catnip.flash_firmware(firmware)
-
-# asyncio.run(main_serial_pipeline())
-
-
 @cli.command()
 @click.argument("firmware")
 @click.option("--firmware", "-f", default="sniffle", help="Firmware name or path.")
 def flash(firmware) -> None:
     """Flash firmware"""
     console.log(f"[*] Flashing firmware: {firmware}")
-    catnip.find_local_release()
-    # catnip.flash_firmware(firmware)
+    if not catnip.find_flash_firmware(firmware):
+        console.log(f"[X] Error flashing: {firmware}", style="red")
 
 
 @cli.command()
