@@ -504,8 +504,7 @@ class CatnipUploader:
                         table.add_row(f"[green]{key}", micro, f"[green]{value}")
                     else:
                         micro = "[purple]RP2040"
-                        if self.has_picotool:
-                            table.add_row(f"[purple]{key}", micro, f"[purple]{value}")
+                        table.add_row(f"[purple]{key}", micro, f"[purple]{value}")
             else:
                 LOG_WARNING("No descriptions file found.")
         except FileNotFoundError:
