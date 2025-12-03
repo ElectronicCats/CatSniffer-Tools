@@ -71,6 +71,7 @@ class SnifferCollector(threading.Thread):
         self.lora_frequency = 0
         self.lora_spreading_factor = 0
         self.lora_coding_rate = 0
+        self.lora_sync_word = "0x12"
         self.logger = logger if logger else TrivialLogger()
 
     def set_is_catsniffer(self, is_catsniffer: int):
@@ -87,6 +88,9 @@ class SnifferCollector(threading.Thread):
 
     def set_lora_coding_rate(self, coding_rate: int):
         self.lora_coding_rate = coding_rate
+
+    def set_lora_sync_word(self, sync_word: int):
+        self.lora_sync_word = sync_word
 
     def set_lora_channel(self, channel: int):
         if channel > -1 and channel < 64:
@@ -333,11 +337,13 @@ class SnifferCollector(threading.Thread):
         # lora_cmd_frequency = f"set_freq {self.lora_frequency}\r\n"
         lora_cmd_spreading_factor = f"set_sf {self.lora_spreading_factor}\r\n"
         lora_cmd_coding_rate = f"set_cr {self.lora_coding_rate}\r\n"
+        lora_cmd_sync_word = f"set_cr {self.lora_sync_word}\r\n"
         self.board_uart.send(bytes(lora_cmd_bandwidth, "utf-8"))
         self.board_uart.send(bytes(lora_cmd_channel, "utf-8"))
         # self.board_uart.send(bytes(lora_cmd_frequency, "utf-8"))
         self.board_uart.send(bytes(lora_cmd_coding_rate, "utf-8"))
         self.board_uart.send(bytes(lora_cmd_spreading_factor, "utf-8"))
+        self.board_uart.send(bytes(lora_cmd_sync_word, "utf-8"))
         self.board_uart.send(b"set_rx\r\n")
         self.logger.info(f"Bandwidth: {self.lora_bandwidth}")
         self.logger.info(f"Channel: {self.lora_channel}")

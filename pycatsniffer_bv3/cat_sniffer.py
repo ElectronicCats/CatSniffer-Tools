@@ -246,6 +246,13 @@ class CatsnifferLora:
             show_default=True,
             help="Set the Coding Rate. Range: 5 - 8",
         ),
+        sync_word: int = typer.Option(
+            "0x12",
+            "-sw",
+            "--sync-word",
+            show_default=True,
+            help="Set the Sync Word",
+        ),
         fifo: bool = typer.Option(
             False,
             "-ff",
@@ -312,6 +319,7 @@ class CatsnifferLora:
         self.sniffer_collector.set_lora_frequency(freq)
         self.sniffer_collector.set_lora_spread_factor(spread_factor)
         self.sniffer_collector.set_lora_coding_rate(coding_rate)
+        self.sniffer_collector.set_sync_word(sync_word)
         if fifo or fifo_name != Fifo.DEFAULT_FILENAME:
             if platform.system() == "Windows":
                 self.output_workers.append(Fifo.FifoWindows(fifo_name))
