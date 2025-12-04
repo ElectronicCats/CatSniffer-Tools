@@ -4,10 +4,12 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
 
+
 def parse_aes_key(key_str):
     if key_str.lower() in ["0", "nokey", "none", "ham"]:
         key_str = "AAAAAAAAAAAAAAAAAAAAAA=="
     return base64.b64decode(key_str)
+
 
 def extract_fields(data_hex):
     return {
@@ -17,17 +19,25 @@ def extract_fields(data_hex):
         "flags": bytes.fromhex(data_hex[24:26]),
         "channel": bytes.fromhex(data_hex[26:28]),
         "reserved": bytes.fromhex(data_hex[28:32]),
-        "payload": bytes.fromhex(data_hex[32:])
+        "payload": bytes.fromhex(data_hex[32:]),
     }
 
+
 def decrypt_packet(packet, key):
-    nonce = packet["packet_id"] + b'\x00\x00\x00\x00' + packet["sender"] + b'\x00\x00\x00\x00'
+    nonce = (
+        packet["packet_id"]
+        + b"\x00\x00\x00\x00"
+        + packet["sender"]
+        + b"\x00\x00\x00\x00"
+    )
     cipher = Cipher(algorithms.AES(key), modes.CTR(nonce), backend=default_backend())
     decryptor = cipher.decryptor()
     return decryptor.update(packet["payload"]) + decryptor.finalize()
 
+
 def format_mac(mac_bytes):
     return ":".join(f"{b:02x}" for b in mac_bytes)
+
 
 def decode_nodeinfo(data):
     info = mesh_pb2.User()
@@ -44,6 +54,7 @@ def decode_nodeinfo(data):
     output += f"  Messaging  : {'Disabled' if info.is_unmessagable else 'Enabled'}"
     return output
 
+
 def decode_protobuf(decrypted, source_id, dest_id):
     data = mesh_pb2.Data()
     try:
@@ -53,7 +64,11 @@ def decode_protobuf(decrypted, source_id, dest_id):
 
     if data.portnum == 1:
         text = data.payload.decode("utf-8", errors="replace")
-        return f"[TEXT] {source_id} -> {dest_id}: {text}" if dest_id == "ffffffff" else "[TEXT] PRIVATE MESSAGE"
+        return (
+            f"[TEXT] {source_id} -> {dest_id}: {text}"
+            if dest_id == "ffffffff"
+            else "[TEXT] PRIVATE MESSAGE"
+        )
     elif data.portnum == 3:
         pos = mesh_pb2.Position()
         pos.ParseFromString(data.payload)
@@ -75,6 +90,7 @@ def decode_protobuf(decrypted, source_id, dest_id):
     else:
         return f"[PORT {data.portnum}] Raw: {data.payload.hex()}"
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Decrypt and decode a hex-encoded Meshtastic packet captured from SDR or LoRa sniffer.",
@@ -84,18 +100,20 @@ def main():
 
 If using 'ham' or unsecured mode, pass -k ham
 """,
-        formatter_class=argparse.RawTextHelpFormatter
+        formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
-        "-i", "--input",
+        "-i",
+        "--input",
         required=True,
-        help="Hex-encoded payload (raw packet data starting with dest, sender, etc.)"
+        help="Hex-encoded payload (raw packet data starting with dest, sender, etc.)",
     )
     parser.add_argument(
-        "-k", "--key",
+        "-k",
+        "--key",
         required=False,
         default="1PG7OiApB1nwvP+rz05pAQ==",
-        help="Base64-encoded AES key. Use 'ham' or 'nokey' for open channels"
+        help="Base64-encoded AES key. Use 'ham' or 'nokey' for open channels",
     )
 
     args = parser.parse_args()
@@ -108,6 +126,7 @@ If using 'ham' or unsecured mode, pass -k ham
     print(f"Decrypted raw (hex): {decrypted.hex()}")
     result = decode_protobuf(decrypted, src, dst)
     print(result)
+
 
 if __name__ == "__main__":
     main()

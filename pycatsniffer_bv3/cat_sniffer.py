@@ -8,6 +8,7 @@
 # Distributed as-is; no warranty is given.
 
 import sys
+import time
 import platform
 
 try:
@@ -120,6 +121,14 @@ class Catsniffer:
             help="Enable verbose mode.",
             rich_help_panel=HELP_PANEL_OUTPUT,
         ),
+        standalone: bool = typer.Option(
+            False,
+            "-st",
+            "--standalone",
+            is_flag=True,
+            help="For subprocess command",
+            rich_help_panel=HELP_PANEL_OUTPUT,
+        ),
     ):
 
         if not self.sniffer_collector.set_board_uart(comport):
@@ -170,7 +179,17 @@ class Catsniffer:
         console = Console()
         console.print(table_information)
 
-        Cmd.CMDInterface(self.sniffer_collector).cmdloop()
+        if standalone:
+            try:
+                while True:
+                    time.sleep(0.1)
+            except Exception as e:
+                print(e)
+                self.sniffer_collector.stop_workers()
+                self.sniffer_collector.delete_all_workers()
+                sys.exit(1)
+        else:
+            Cmd.CMDInterface(self.sniffer_collector).cmdloop()
 
 
 class ProtocolsInformation:
@@ -246,7 +265,7 @@ class CatsnifferLora:
             show_default=True,
             help="Set the Coding Rate. Range: 5 - 8",
         ),
-        sync_word: int = typer.Option(
+        sync_word: str = typer.Option(
             "0x12",
             "-sw",
             "--sync-word",
@@ -288,6 +307,14 @@ class CatsnifferLora:
             help="Enable verbose mode.",
             rich_help_panel=HELP_PANEL_OUTPUT,
         ),
+        standalone: bool = typer.Option(
+            False,
+            "-st",
+            "--standalone",
+            is_flag=True,
+            help="For subprocess command",
+            rich_help_panel=HELP_PANEL_OUTPUT,
+        ),
     ):
 
         if not self.sniffer_collector.set_board_uart(comport):
@@ -319,7 +346,7 @@ class CatsnifferLora:
         self.sniffer_collector.set_lora_frequency(freq)
         self.sniffer_collector.set_lora_spread_factor(spread_factor)
         self.sniffer_collector.set_lora_coding_rate(coding_rate)
-        self.sniffer_collector.set_sync_word(sync_word)
+        self.sniffer_collector.set_lora_sync_word(sync_word)
         if fifo or fifo_name != Fifo.DEFAULT_FILENAME:
             if platform.system() == "Windows":
                 self.output_workers.append(Fifo.FifoWindows(fifo_name))
@@ -327,10 +354,19 @@ class CatsnifferLora:
                 self.output_workers.append(Fifo.FifoLinux(fifo_name))
             if wireshark:
                 self.output_workers.append(Wireshark.Wireshark(fifo_name))
-
         self.sniffer_collector.set_output_workers(self.output_workers)
         self.sniffer_collector.run_workers()
-        Cmd.CMDInterface(self.sniffer_collector).cmdloop()
+        if standalone:
+            try:
+                while True:
+                    time.sleep(0.1)
+            except Exception as e:
+                print(e)
+                self.sniffer_collector.stop_workers()
+                self.sniffer_collector.delete_all_workers()
+                sys.exit(1)
+        else:
+            Cmd.CMDInterface(self.sniffer_collector).cmdloop()
 
 
 class BoardsWireshark:
@@ -415,6 +451,14 @@ class BoardsWireshark:
 If you are running in Windows, you need first set the Environment Variable to call wireshark as command.""",
             rich_help_panel=HELP_PANEL_OUTPUT,
         ),
+        standalone: bool = typer.Option(
+            False,
+            "-st",
+            "--standalone",
+            is_flag=True,
+            help="For subprocess command",
+            rich_help_panel=HELP_PANEL_OUTPUT,
+        ),
     ):
         if not self.sniffer_collector.set_board_uart(comport):
             typer.echo("Error: Invalid serial port not connection found")
@@ -451,7 +495,17 @@ If you are running in Windows, you need first set the Environment Variable to ca
 
         self.sniffer_collector.set_output_workers(self.output_workers)
         self.sniffer_collector.run_workers()
-        Cmd.CMDInterface(self.sniffer_collector).cmdloop()
+        if standalone:
+            try:
+                while True:
+                    time.sleep(0.1)
+            except Exception as e:
+                print(e)
+                self.sniffer_collector.stop_workers()
+                self.sniffer_collector.delete_all_workers()
+                sys.exit(1)
+        else:
+            Cmd.CMDInterface(self.sniffer_collector).cmdloop()
 
 
 class CLICatsniffer:
