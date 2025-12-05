@@ -23,8 +23,6 @@ class Wireshark(threading.Thread):
                     "-k",
                     "-i",
                     f"\\\\.\\pipe\\{self.fifo_name}",
-                    "-C",
-                    self.profile,
                 ]
             )
 
@@ -36,8 +34,6 @@ class Wireshark(threading.Thread):
                     "-k",
                     "-i",
                     f"/tmp/{self.fifo_name}",
-                    "-C",
-                    self.profile,
                 ]
             )
         elif platform.system() == "Darwin":
@@ -47,8 +43,6 @@ class Wireshark(threading.Thread):
                     "-k",
                     "-i",
                     f"/tmp/{self.fifo_name}",
-                    "-C",
-                    self.profile,
                 ]
             )
         else:
