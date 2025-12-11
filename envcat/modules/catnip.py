@@ -1,7 +1,8 @@
+import io
 import os
 import json
+import time
 import hashlib
-import io
 from datetime import datetime
 
 # Internal
@@ -38,16 +39,16 @@ console = Console()
 
 
 class CCLoader:
-    def __init__(self, firmware=None):
+    def __init__(self, firmware=None, port=catsniffer_get_port()):
         self.cmd = CommandInterface()
         self.firmware = FirmwareFile(firmware)
+        self.cat_port = port
 
     def init(self):
-        cat_port = catsniffer_get_port()
         cat_baud = 500000
 
-        console.log(f"[*] Opening port {cat_port} at baud: {cat_baud}")
-        self.cmd.open(cat_port, cat_baud)
+        console.log(f"[*] Opening port {self.cat_port} at baud: {cat_baud}")
+        self.cmd.open(self.cat_port, cat_baud)
 
     def enter_bootloader(self):
         self.cmd._write(cmd_bootloader_enter())
@@ -184,6 +185,9 @@ class Catnip:
                 key, desc = line.split(": ", 1)
                 if key.endswith(".hex"):
                     descriptions_dict[key.lower()] = desc
+                if key.endswith(".uf2"):
+                    key = key.replace("- ", "")
+                    descriptions_dict[key.lower()] = desc
             except ValueError:
                 pass
         return descriptions_dict
@@ -211,9 +215,19 @@ class Catnip:
 
         for i, firmware in enumerate(self.get_local_firmware()):
             try:
-                table.add_row(str(i), firmware, "CC1352", description[firmware.lower()])
+                if firmware.lower().endswith(".uf2"):
+                    table.add_row(
+                        str(i), firmware, "RP2040", description[firmware.lower()]
+                    )
+                else:
+                    table.add_row(
+                        str(i), firmware, "CC1352", description[firmware.lower()]
+                    )
             except Exception:
-                table.add_row(str(i), firmware, "CC1352", "Description not found")
+                if firmware.lower().endswith(".uf2"):
+                    table.add_row(str(i), firmware, "RP2040", "Description not found")
+                else:
+                    table.add_row(str(i), firmware, "CC1352", "Description not found")
 
         console.print(table)
 
@@ -287,13 +301,13 @@ class Catnip:
                     os.remove(path)
             os.removedirs(folder_path)
 
-    def get_cc_firmware(self, asset) -> bool:
+    def get_firmware_cc_uf2(self, asset) -> bool:
         name = asset["name"]
-        if name.endswith(".hex"):
+        if name.endswith(".hex") or name.endswith(".uf2"):
             return True
         return False
 
-    def save_firmware_hex(self, name, content) -> str:
+    def save_firmware(self, name, content) -> str:
         f_writer = open(os.path.join(self.__create_release_path(), name), "wb")
         content_bytes = io.BytesIO(content)
         f_writer.write(content_bytes.read())
@@ -323,42 +337,32 @@ class Catnip:
             return False
 
     def download_remote_firmware(self) -> None:
-        tasks = [f"Firmware {n}" for n in range(1, len(self.release_assets) + 1)]
-        with console.status("[bold magenta][*] Downloading firmwares ..."):
-            for asset in self.release_assets:
-                if self.get_cc_firmware(asset):
-                    fname = asset["name"]
-                    with console.status(f"[bold green] Downloading {fname}..."):
-                        try:
-                            request_content = requests.get(
-                                asset["browser_download_url"], timeout=5
-                            )
-                            request_content.raise_for_status()
-                            local_checksum = self.save_firmware_hex(
-                                fname, request_content.content
-                            )
+        for asset in self.release_assets:
+            if self.get_firmware_cc_uf2(asset):
+                fname = asset["name"]
+                try:
+                    request_content = requests.get(
+                        asset["browser_download_url"], timeout=5
+                    )
+                    request_content.raise_for_status()
+                    local_checksum = self.save_firmware(fname, request_content.content)
 
-                            console.log(
-                                f"[*] Firmware [bold white]{fname}[/bold white] done.",
-                                style="cyan",
-                            )
+                    console.log(
+                        f"[*] Firmware [bold white]{fname}[/bold white] done.",
+                        style="cyan",
+                    )
 
-                            self.compare_checksum(
-                                fname, local_checksum, asset["digest"]
-                            )
-                        except requests.exceptions.ConnectionError as e:
-                            console.log(
-                                "[X] Error: No internet connection.", style="red"
-                            )
-                            continue
-                        except requests.exceptions.RequestException as e:
-                            console.log(f"[X] HTTP Error: {e}", style="red")
-                            continue
-                        except Exception as e:
-                            console.log(f"[X] Error: {e}", style="red")
-                            continue
-                        finally:
-                            task = tasks.pop(0)
+                    self.compare_checksum(fname, local_checksum, asset["digest"])
+                    time.sleep(0.5)
+                except requests.exceptions.ConnectionError as e:
+                    console.log("[X] Error: No internet connection.", style="red")
+                    continue
+                except requests.exceptions.RequestException as e:
+                    console.log(f"[X] HTTP Error: {e}", style="red")
+                    continue
+                except Exception as e:
+                    console.log(f"[X] Error: {e}", style="red")
+                    continue
 
     def get_remote_firmware(self) -> None:
         try:
@@ -396,17 +400,17 @@ class Catnip:
                 return True
         return False
 
-    def find_flash_firmware(self, firmware_str):
+    def find_flash_firmware(self, firmware_str, port):
         firmwares = self.get_local_firmware()
         for firm in firmwares:
             if firm.startswith(firmware_str):
                 path = os.path.join(self.get_releases_path(), firm)
-                return self.flash_firmware(path)
+                return self.flash_firmware(path, port)
         return False
 
-    def flash_firmware(self, firmware) -> bool:
+    def flash_firmware(self, firmware, port) -> bool:
         try:
-            ccloader = CCLoader(firmware=firmware)
+            ccloader = CCLoader(firmware=firmware, port=port)
             ccloader.init()
             ccloader.enter_bootloader()
             ccloader.sync_device()
