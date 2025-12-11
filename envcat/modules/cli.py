@@ -1,6 +1,3 @@
-import asyncio
-import signal
-
 # Internal
 from .catnip import Catnip
 from .pipes import Wireshark
@@ -19,7 +16,6 @@ from rich.console import Console
 __version__ = "1.0"
 
 console = Console()
-cat = Catsniffer()
 catnip = Catnip()
 wireshark = Wireshark()
 
@@ -39,6 +35,7 @@ def sniff():
 @sniff.command(SniffingFirmware.BLE.name.lower())
 def sniff_ble():
     """Sniffing BLE with Sniffle firmware"""
+    cat = Catsniffer()
     if cat.check_sniffle_firmware():
         console.log(f"[*] Firmware found!", style="green")
     else:
@@ -54,13 +51,15 @@ def sniff_ble():
 @click.option(
     "--channel", "-c", required=True, type=click.IntRange(11, 26), help="Zigbee chanel"
 )
-def sniff_zigbee(ws, channel):
+@click.option("--port", "-p", default=catsniffer_get_port(), help="Catsniffer Path")
+def sniff_zigbee(ws, channel, port):
     """Sniffing Zigbee with Sniffer TI firmware"""
+    cat = Catsniffer(port)
     if cat.check_ti_firmware():
         console.log(f"[*] Firmware found!", style="green")
     else:
         console.log(f"[-] Firmware not found! - Flashing Sniffer TI", style="yellow")
-        if not catnip.find_flash_firmware(SniffingBaseFirmware.ZIGBEE.value):
+        if not catnip.find_flash_firmware(SniffingBaseFirmware.ZIGBEE.value, port):
             return
 
     console.log(f"[*] Sniffing Zigbee at channel: {channel}", style="cyan")
@@ -72,13 +71,15 @@ def sniff_zigbee(ws, channel):
 @click.option(
     "--channel", "-c", required=True, type=click.IntRange(11, 26), help="Thread chanel"
 )
-def sniff_thread(ws, channel):
+@click.option("--port", "-p", default=catsniffer_get_port(), help="Catsniffer Path")
+def sniff_thread(ws, channel, port):
     """Sniffing Thread with Sniffer TI firmware"""
+    cat = Catsniffer(port)
     if cat.check_ti_firmware():
         console.log(f"[*] Firmware found!", style="green")
     else:
         console.log(f"[-] Firmware not found! - Flashing Sniffer TI", style="yellow")
-        if not catnip.find_flash_firmware(SniffingBaseFirmware.THREAD.value):
+        if not catnip.find_flash_firmware(SniffingBaseFirmware.THREAD.value, port):
             return
     console.log(f"[*] Sniffing Thread at channel: {channel}", style="cyan")
     run_bridge(cat, channel, ws)
@@ -86,17 +87,18 @@ def sniff_thread(ws, channel):
 
 @cli.command()
 def cativity() -> None:
-    """IQ Activity Monitor"""
+    """IQ Activity Monitor (Not implemented yet)"""
     console.log("[*] Monitoring IQ activity")
 
 
 @cli.command()
 @click.argument("firmware")
 @click.option("--firmware", "-f", default="sniffle", help="Firmware name or path.")
-def flash(firmware) -> None:
-    """Flash firmware"""
+@click.option("--port", "-p", default=catsniffer_get_port(), help="Catsniffer Path")
+def flash(firmware, port) -> None:
+    """Flash CC1352 Firmware"""
     console.log(f"[*] Flashing firmware: {firmware}")
-    if not catnip.find_flash_firmware(firmware):
+    if not catnip.find_flash_firmware(firmware, port):
         console.log(f"[X] Error flashing: {firmware}", style="red")
 
 

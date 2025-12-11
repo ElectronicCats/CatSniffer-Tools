@@ -100,9 +100,9 @@ class SerialConnection:
 
 
 class Catsniffer(SerialConnection):
-    def __init__(self):
+    def __init__(self, port=catsniffer_get_port()):
         super(Catsniffer, self).__init__()
-        self.set_port(catsniffer_get_port())
+        self.set_port(port)
 
     def check_flag(self, flag, timeout=2) -> bool:
         stop = time.time() + timeout
