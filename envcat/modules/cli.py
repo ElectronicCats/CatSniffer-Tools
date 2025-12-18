@@ -1,3 +1,5 @@
+import logging
+
 # Internal
 from .catnip import Catnip
 from .pipes import Wireshark
@@ -11,13 +13,18 @@ from .catsniffer import (
 
 # External
 import click
-from rich.console import Console
+from rich.logging import RichHandler
 
 __version__ = "1.0"
 
-console = Console()
 catnip = Catnip()
 wireshark = Wireshark()
+
+logger = logging.getLogger("rich")
+FORMAT = "%(message)s"
+logging.basicConfig(
+    level="WARNING", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
+)
 
 
 @click.group()
@@ -27,8 +34,11 @@ def cli():
 
 
 @click.group()
-def sniff():
+@click.option("--verbose", is_flag=True, help="Show Verbose mode")
+def sniff(verbose):
     """Sniffer protocol control"""
+    if verbose:
+        logger.level = logging.INFO
     pass
 
 
@@ -37,13 +47,13 @@ def sniff_ble():
     """Sniffing BLE with Sniffle firmware"""
     cat = Catsniffer()
     if cat.check_sniffle_firmware():
-        console.log(f"[*] Firmware found!", style="green")
+        logger.info(f"[*] Firmware found!")
     else:
-        console.log(f"[-] Firmware not found! - Flashing Sniffle", style="yellow")
+        logger.info(f"[-] Firmware not found! - Flashing Sniffle")
         if not catnip.find_flash_firmware(SniffingBaseFirmware.BLE.value):
             return
 
-    console.log("[*] Now you can open Sniffle extcap from Wireshark", style="cyan")
+    logger.info("[*] Now you can open Sniffle extcap from Wireshark")
 
 
 @sniff.command(SniffingFirmware.ZIGBEE.name.lower())
@@ -56,13 +66,13 @@ def sniff_zigbee(ws, channel, port):
     """Sniffing Zigbee with Sniffer TI firmware"""
     cat = Catsniffer(port)
     if cat.check_ti_firmware():
-        console.log(f"[*] Firmware found!", style="green")
+        logger.info(f"[*] Firmware found!")
     else:
-        console.log(f"[-] Firmware not found! - Flashing Sniffer TI", style="yellow")
+        logger.info(f"[-] Firmware not found! - Flashing Sniffer TI")
         if not catnip.find_flash_firmware(SniffingBaseFirmware.ZIGBEE.value, port):
             return
 
-    console.log(f"[* {port}] Sniffing Zigbee at channel: {channel}", style="cyan")
+    logger.info(f"[* {port}] Sniffing Zigbee at channel: {channel}")
     run_bridge(cat, channel, ws)
 
 
@@ -76,12 +86,12 @@ def sniff_thread(ws, channel, port):
     """Sniffing Thread with Sniffer TI firmware"""
     cat = Catsniffer(port)
     if cat.check_ti_firmware():
-        console.log(f"[*] Firmware found!", style="green")
+        logger.info(f"[*] Firmware found!")
     else:
-        console.log(f"[-] Firmware not found! - Flashing Sniffer TI", style="yellow")
+        logger.info(f"[-] Firmware not found! - Flashing Sniffer TI")
         if not catnip.find_flash_firmware(SniffingBaseFirmware.THREAD.value, port):
             return
-    console.log(f"[* {port}] Sniffing Thread at channel: {channel}", style="cyan")
+    logger.info(f"[* {port}] Sniffing Thread at channel: {channel}")
     run_bridge(cat, channel, ws)
 
 
@@ -126,7 +136,7 @@ def sniff_zigbee(
 ):
     """Sniffing LoRa with Sniffer SX1262 firmware"""
     cat = Catsniffer(port)
-    console.log(
+    logger.info(
         f"[* {port}] Sniffing LoRa with configuration: \nFrequency: {frequency}\nBandwidth: {bandwidth}\nSpreading Factor: {spread_factor}\nCoding Rate: {coding_rate}\nSync Word: {sync_word}\nPreamble Length: {preamble_length}"
     )
     run_sx_bridge(
@@ -144,7 +154,7 @@ def sniff_zigbee(
 @cli.command()
 def cativity() -> None:
     """IQ Activity Monitor (Not implemented yet)"""
-    console.log("[*] Monitoring IQ activity")
+    logger.info("[*] Monitoring IQ activity")
 
 
 @cli.command()
@@ -153,9 +163,9 @@ def cativity() -> None:
 @click.option("--port", "-p", default=catsniffer_get_port(), help="Catsniffer Path")
 def flash(firmware, port) -> None:
     """Flash CC1352 Firmware"""
-    console.log(f"[*] Flashing firmware: {firmware}")
+    logger.info(f"[*] Flashing firmware: {firmware}")
     if not catnip.find_flash_firmware(firmware, port):
-        console.log(f"[X] Error flashing: {firmware}", style="red")
+        logger.info(f"[X] Error flashing: {firmware}")
 
 
 @cli.command()
