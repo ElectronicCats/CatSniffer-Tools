@@ -23,6 +23,7 @@ class SniffingFirmware(enum.Enum):
     ZIGBEE = enum.auto()  # TI Sniffer Firmware
     THREAD = enum.auto()  # TI Sniffer Firmware
     JWORKS = enum.auto()  # Just works
+    LORA = enum.auto()
 
 
 class SniffingBaseFirmware(enum.Enum):
@@ -30,6 +31,7 @@ class SniffingBaseFirmware(enum.Enum):
     ZIGBEE = "sniffer"
     THREAD = "sniffer"
     JWORKS = "justworks"
+    LORA = "lora"
 
 
 def catsniffer_get_port():
