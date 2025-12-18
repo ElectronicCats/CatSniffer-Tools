@@ -31,6 +31,12 @@ def run_sx_bridge(
     wireshark: bool = False,
 ):
 
+    pipe = UnixPipe()
+    opening_worker = threading.Thread(target=pipe.open, daemon=True)
+    ws = Wireshark()
+    if wireshark:
+        ws.run()
+    opening_worker.start()
     serial_worker.connect()
 
     serial_worker.write(snifferSxCmd.set_freq(frequency))
@@ -41,6 +47,8 @@ def run_sx_bridge(
     serial_worker.write(snifferSxCmd.set_sw(sync_word))
     serial_worker.write(snifferSxCmd.start())
 
+    header_flag = False
+
     while True:
         try:
             data = serial_worker.readline()
@@ -49,6 +57,10 @@ def run_sx_bridge(
                 if data.startswith(START_OF_FRAME):
                     packet = snifferSx.Packet((START_OF_FRAME + data))
                     console.log(f"Packet -> {packet}")
+                    if not header_flag:
+                        header_flag = True
+                        pipe.write_packet(get_global_header(148))
+                    pipe.write_packet(packet.pcap)
 
             time.sleep(0.5)
         except KeyboardInterrupt:
