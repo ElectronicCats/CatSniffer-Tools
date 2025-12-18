@@ -31,22 +31,36 @@ class SnifferSx:
 
     class Packet:
         def __init__(self, packet_bytes: bytes):
-            self.packet_bytes = packet_bytes
+            self.packet_bytes = packet_bytes.replace(b"\r\n", b"")
             self.length = 0
             self.payload = None
             self.rssi = 0
             self.snr = None
             self.pcap = None
+            self.dissect()
 
         def dissect(self) -> None:
             (_, self.length) = struct.unpack_from("<HH", self.packet_bytes)
-            self.payload = self.packet_bytes[4:]
-            self.rssi = self.packet_bytes[8:-4]
-            self.snr = self.packet_bytes[-4:]
-            print(self.payload)
-            print(self.rssi)
-            print(self.snr)
+            self.payload = self.packet_bytes[6:-10]
+            self.rssi = struct.unpack_from("<f", self.packet_bytes[-10:])[0]
+            self.snr = struct.unpack_from("<f", self.packet_bytes[-6:])[0]
             version = b"\x00"
-            packet = version + self.payload
+            protocol = b"\x05"
+            phy = bytes.fromhex("06")
+            interfaceId = bytes.fromhex("0300")
+            packet = (
+                version
+                + int(self.length).to_bytes(2, "little")
+                + interfaceId
+                + protocol
+                + phy
+                + int(916).to_bytes(4, "little")
+                + int(9).to_bytes(1, "little")
+                + int(11).to_bytes(1, "little")
+                + int(5).to_bytes(1, "little")
+                + struct.pack("<f", self.rssi)
+                + struct.pack("<f", self.snr)
+                + self.payload
+            )
             pcap_file = Pcap(packet, time.time())
             self.pcap = pcap_file.get_pcap()
