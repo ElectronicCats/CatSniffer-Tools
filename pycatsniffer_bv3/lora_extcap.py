@@ -21,6 +21,7 @@ CTRL_NUM_SPREADFACTOR = 3
 CTRL_NUM_BANDWIDTH = 4
 CTRL_NUM_CODINGRATE = 5
 CTRL_NUM_PREAMBLE = 6
+CTRL_NUM_SYNC_WORD = 7
 # Loggers
 CTRL_CMD_INITIALIZED = 0
 CTRL_CMD_SET = 1
@@ -178,6 +179,12 @@ class MinimalExtcap:
             help="Preamble Length",
         )
         parser.add_argument(
+            "--sync-word",
+            type=str,
+            default=0x12,
+            help="Sync Word",
+        )
+        parser.add_argument(
             "--log-level",
             default="INFO",
             choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
@@ -239,6 +246,10 @@ class MinimalExtcap:
         lines.append(
             "control {number=%d}{type=string}{display=Preamble}{tooltip=Preamble Length}"
             % CTRL_NUM_PREAMBLE
+        )
+        lines.append(
+            "control {number=%d}{type=string}{display=Sync Word}{tooltip=Sync Word}"
+            % CTRL_NUM_SYNC_WORD
         )
         lines.append(
             "value {control=%d}{value=%f}{display=%f MHz}"
@@ -308,6 +319,11 @@ class MinimalExtcap:
             "arg {number=6}{call=--preamble}{type=double}{default=8}"
             "{display=Preamble}"
             "{tooltip=Preamble Length}"
+        )
+        lines.append(
+            "arg {number=7}{call=--sync-word}{type=string}{default=0x12}"
+            "{display=Sync Word}"
+            "{tooltip=Sync Word}"
         )
         lines.append(
             "arg {number=6}{call=--log-level}{type=selector}{display=Log Level}{tooltip=Set the log level}{default=INFO}{group=Logger}"
@@ -478,6 +494,14 @@ class MinimalExtcap:
                     self.hw.set_and_send_lora_config()
                     self.writeControlMessage(
                         CTRL_CMD_SET, CTRL_NUM_PREAMBLE, str(self.args.preamble)
+                    )
+                elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_SYNC_WORD:
+                    self.logger.info("Changing Sync word: %s" % payload)
+                    self.args.sync_word = payload
+                    self.hw.set_lora_sync_word(self.args.sync_word)
+                    self.hw.set_and_send_lora_config()
+                    self.writeControlMessage(
+                        CTRL_CMD_SET, CTRL_NUM_SYNC_WORD, str(self.args.sync_word)
                     )
 
         except EOFError:

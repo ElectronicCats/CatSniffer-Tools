@@ -101,8 +101,8 @@ def sniff_thread(ws, channel, port):
     "--frequency",
     "-freq",
     default=916,
-    type=click.FloatRange(900, 960),
-    help="Frequency",
+    type=float,
+    help="Frequency in MHz. Range 443 - 490 MHz or 868 - 960.0 MHz",
 )
 @click.option(
     "--bandwidth",
