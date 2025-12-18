@@ -1,7 +1,7 @@
 # Internal
 from .catnip import Catnip
 from .pipes import Wireshark
-from .bridge import run_bridge
+from .bridge import run_bridge, run_sx_bridge
 from .catsniffer import (
     SniffingFirmware,
     SniffingBaseFirmware,
@@ -49,7 +49,7 @@ def sniff_ble():
 @sniff.command(SniffingFirmware.ZIGBEE.name.lower())
 @click.option("-ws", is_flag=True, help="Open Wireshark")
 @click.option(
-    "--channel", "-c", required=True, type=click.IntRange(11, 26), help="Zigbee chanel"
+    "--channel", "-c", required=True, type=click.IntRange(11, 26), help="Zigbee channel"
 )
 @click.option("--port", "-p", default=catsniffer_get_port(), help="Catsniffer Path")
 def sniff_zigbee(ws, channel, port):
@@ -62,14 +62,14 @@ def sniff_zigbee(ws, channel, port):
         if not catnip.find_flash_firmware(SniffingBaseFirmware.ZIGBEE.value, port):
             return
 
-    console.log(f"[*] Sniffing Zigbee at channel: {channel}", style="cyan")
+    console.log(f"[* {port}] Sniffing Zigbee at channel: {channel}", style="cyan")
     run_bridge(cat, channel, ws)
 
 
 @sniff.command(SniffingFirmware.THREAD.name.lower())
 @click.option("-ws", is_flag=True, help="Open Wireshark")
 @click.option(
-    "--channel", "-c", required=True, type=click.IntRange(11, 26), help="Thread chanel"
+    "--channel", "-c", required=True, type=click.IntRange(11, 26), help="Thread channel"
 )
 @click.option("--port", "-p", default=catsniffer_get_port(), help="Catsniffer Path")
 def sniff_thread(ws, channel, port):
@@ -81,8 +81,64 @@ def sniff_thread(ws, channel, port):
         console.log(f"[-] Firmware not found! - Flashing Sniffer TI", style="yellow")
         if not catnip.find_flash_firmware(SniffingBaseFirmware.THREAD.value, port):
             return
-    console.log(f"[*] Sniffing Thread at channel: {channel}", style="cyan")
+    console.log(f"[* {port}] Sniffing Thread at channel: {channel}", style="cyan")
     run_bridge(cat, channel, ws)
+
+
+@sniff.command(SniffingFirmware.LORA.name.lower())
+@click.option("-ws", is_flag=True, help="Open Wireshark")
+@click.option(
+    "--frequency",
+    "-freq",
+    default=916,
+    type=click.FloatRange(900, 960),
+    help="Frequency",
+)
+@click.option(
+    "--bandwidth",
+    "-bw",
+    default=8,
+    type=click.IntRange(0, 9),
+    help="Bandwidth Index: 0:7.8 - 1:10.4 - 2:15.6 - 3:20.8 - 4:31.25 - 5:41.7 - 6:65.5 - 7:125 - 8:250 - 9:500",
+)
+@click.option(
+    "--spread_factor",
+    "-sf",
+    default=11,
+    type=click.IntRange(6, 12),
+    help="Spreading Factor",
+)
+@click.option(
+    "--coding_rate", "-cr", default=5, type=click.IntRange(5, 8), help="Coding Rate"
+)
+@click.option("--sync_word", "-sw", default=0x12, help="Sync Word")
+@click.option("--preamble_length", "-pl", default=8, help="Preamble Length")
+@click.option("--port", "-p", default=catsniffer_get_port(), help="Catsniffer Path")
+def sniff_zigbee(
+    ws,
+    frequency,
+    bandwidth,
+    spread_factor,
+    coding_rate,
+    sync_word,
+    preamble_length,
+    port,
+):
+    """Sniffing LoRa with Sniffer SX1262 firmware"""
+    cat = Catsniffer(port)
+    console.log(
+        f"[* {port}] Sniffing LoRa with configuration: \nFrequency: {frequency}\nBandwidth: {bandwidth}\nSpreading Factor: {spread_factor}\nCoding Rate: {coding_rate}\nSync Word: {sync_word}\nPreamble Length: {preamble_length}"
+    )
+    run_sx_bridge(
+        cat,
+        frequency,
+        bandwidth,
+        spread_factor,
+        coding_rate,
+        sync_word,
+        preamble_length,
+        ws,
+    )
 
 
 @cli.command()
