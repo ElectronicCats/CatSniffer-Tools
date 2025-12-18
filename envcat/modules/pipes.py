@@ -3,31 +3,29 @@ import platform
 import threading
 import platform
 import subprocess
+import logging
 from pathlib import Path
 
-# External
-from rich.console import Console
+logger = logging.getLogger("rich")
 
 DEFAULT_PIPELINE_NAME = "fcatsniffer"
 DEFAULT_UNIX_PATH = f"/tmp/{DEFAULT_PIPELINE_NAME}"
-
-console = Console()
 
 # Blocking method, this is required to run all the script
 if platform.system().lower() == "windows":
     try:
         import win32pipe, win32file, pywintypes
 
-        console.log("[*] Windows library import done!", style="bold green")
+        logger.info("[*] Windows library import done!")
     except:
-        console.log(
+        logger.error(
             "[bold red][X] Error[/bold red]: win32pipe, win32file, pywintypes modules not found. [yellow]Please install [bold]pywin32[/bold] package.[/yellow]"
         )
         exit(1)
 
 
 def show_generic_error(title="", e="") -> None:
-    console.log(f"[bold red][X] Error {title}[/bold red]: {e}")
+    logger.error(f"[bold red][X] Error {title}[/bold red]: {e}")
 
 
 class UnixPipe:
@@ -41,9 +39,9 @@ class UnixPipe:
     def create(self):
         try:
             os.mkfifo(self.pipe_path)
-            console.log(f"[*] Pipeline created: {self.pipe_path}", style="green")
+            logger.info(f"[*] Pipeline created: {self.pipe_path}")
         except FileExistsError:
-            console.log(f"[-] Pipeline already exists.", style="yellow")
+            logger.info(f"[-] Pipeline already exists.")
             pass
         except OSError as e:
             show_generic_error("Creating Pipeline", e)
@@ -54,7 +52,7 @@ class UnixPipe:
             self.create()
         try:
             self.pipe_writer = open(self.pipe_path, "ab")
-            console.log(f"[*] Pipeline Open: {self.pipe_path}", style="green")
+            logger.info(f"[*] Pipeline Open: {self.pipe_path}")
         except Exception as e:
             show_generic_error("Opening Pipeline", e)
             exit(1)
@@ -63,7 +61,7 @@ class UnixPipe:
         try:
             self.pipe_writer.close()
             self.pipe_writer = None
-            console.log(f"[*] Pipeline Closed: {self.pipe_path}", style="green")
+            logger.info(f"[*] Pipeline Closed: {self.pipe_path}")
         except Exception as e:
             show_generic_error("Closing Pipeline", e)
             pass
@@ -74,7 +72,7 @@ class UnixPipe:
                 self.pipe_writer.close()
             if os.path.exists(self.pipe_path):
                 os.remove(self.pipe_path)
-            console.log(f"[*] Pipeline removed: {self.pipe_path}", style="green")
+            logger.info(f"[*] Pipeline removed: {self.pipe_path}")
         except Exception as e:
             show_generic_error("Removing Pipeline", e)
             pass
@@ -83,7 +81,7 @@ class UnixPipe:
         try:
             self.pipe_writer.write(data)
             self.pipe_writer.flush()
-            console.log(f"[*] Writing to Pipeline ({self.pipe_path}): {data}")
+            logger.info(f"[*] Writing to Pipeline ({self.pipe_path}): {data}")
         except Exception as e:
             show_generic_error("Writing Pipeline", e)
             pass
@@ -110,7 +108,7 @@ class Wireshark(threading.Thread):
         elif self.system == "Darwin":
             exe_path = Path("/Applications/Wireshark.app/Contents/MacOS/Wireshark")
         else:
-            console.log("[X] Error. Unsupported OS", style="red")
+            show_generic_error("Unsupported OS", "We don't support this OS yet.")
             return None
         return exe_path
 
@@ -135,4 +133,4 @@ class Wireshark(threading.Thread):
         try:
             self.wireshark_process = subprocess.Popen(cmd)
         except Exception as e:
-            console.log(f"[X] Error. Can't start Wireshark: {e}", style="red")
+            show_generic_error("Can't start Wireshark", e)

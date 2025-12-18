@@ -1,5 +1,4 @@
 import time
-import struct
 import threading
 
 # Internal
