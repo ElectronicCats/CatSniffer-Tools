@@ -1,3 +1,12 @@
+#! /usr/bin/env python3
+
+# Kevin Leon @ Electronic Cats
+# Original Creation Date: Dec 19, 2025
+# This code is beerware; if you see me (or any other Electronic Cats
+# member) at the local, and you've found our code helpful,
+# please buy us a round!
+# Distributed as-is; no warranty is given.
+
 import logging
 
 # Internal
@@ -15,7 +24,31 @@ from .catsniffer import (
 import click
 from rich.logging import RichHandler
 
-__version__ = "1.0"
+# APP Information
+CLI_NAME = "Catsniffer"
+VERSION_NUMBER = "2.0.0"
+AUTHOR = "JahazielLem"
+COMPANY = "Electronic Cats - PWNLab"
+# Prompt
+PROMPT_ICON = "󰄛"
+PROMPT_DESCRIPTION = (
+    "PyCat-Sniffer CLI - For sniffing the TI CC1352 device communication inferfaces."
+)
+PROMPT_HEADER = f"""
+\x1b[36;1m      :-:              :--       |
+      ++++=.        .=++++       |
+      =+++++===++===++++++       |
+      -++++++++++++++++++-       |  Module:  {CLI_NAME}
+ .:   =++---++++++++---++=   :.  |  Author:  {AUTHOR}
+ ::---+++.   -++++-   .+++---::  |  Version: {VERSION_NUMBER}
+::1..:-++++:   ++++   :++++-::.::|  Company: {COMPANY}
+.:...:=++++++++++++++++++=:...:. |
+ :---.  -++++++++++++++-  .---:  |
+ ..        .:------:.        ..  |\x1b[0m
+
+"""
+
+__version__ = "2.0"
 
 catnip = Catnip()
 wireshark = Wireshark()
@@ -175,5 +208,6 @@ def releases() -> None:
 
 
 def main_cli() -> None:
+    print(PROMPT_HEADER)
     cli.add_command(sniff)
     cli()

@@ -34,8 +34,6 @@ RELEASE_METADATA_NAME = "releases.json"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(CURRENT_DIR)
 
-__version__ = "1.0"
-
 logger = logging.getLogger("rich")
 console = Console()
 
