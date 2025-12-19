@@ -130,6 +130,37 @@ python3 catsniffer.py flash sniffle -p /dev/tty.usbmodem2123401
 
 Podemos realizzar el sniffing utilizando el nombre del firmware, en caso de que no se detecte el firmware, este comenzara a flashearlo antes de inicializar el sniffer.
 
+### LoRa
+```bash
+python3 catsniffer.py sniff lora --help
+Usage: catsniffer.py sniff lora [OPTIONS]
+
+  Sniffing LoRa with Sniffer SX1262 firmware
+
+Options:
+  -ws                             Open Wireshark
+  -freq, --frequency FLOAT        Frequency in MHz. Range 443 - 490 MHz or 868
+                                  - 960.0 MHz
+  -bw, --bandwidth INTEGER RANGE  Bandwidth Index: 0:7.8 - 1:10.4 - 2:15.6 -
+                                  3:20.8 - 4:31.25 - 5:41.7 - 6:65.5 - 7:125 -
+                                  8:250 - 9:500  [0<=x<=9]
+  -sf, --spread_factor INTEGER RANGE
+                                  Spreading Factor  [6<=x<=12]
+  -cr, --coding_rate INTEGER RANGE
+                                  Coding Rate  [5<=x<=8]
+  -sw, --sync_word INTEGER        Sync Word
+  -pl, --preamble_length INTEGER  Preamble Length
+  -p, --port TEXT                 Catsniffer Path
+  --help                          Show this message and exit.
+```
+
+Sniffing configurado:
+```bash
+python3 catsniffer.py sniff lora -freq 916 -bw 8 -sf 11 -p /dev/tty.usbmodem101 -ws
+```
+
+El `-p` solo es necesario si se tiene mas de una catsniffer conectada
+
 ### Zigbee
 
 ```bash
@@ -182,6 +213,18 @@ Si existe una instancia de un pipeline en donde no se cerrara correctamente, nos
 [11:02:32] [*] Sniffing Thread at channel: 25
 [11:02:32] [-] Pipeline already exists.
 ```
+
+# Excap wireshark
+Linkeamos el archivo para mantener los archivos requeridos usamos la ubicacion del repo:
+```bash
+ln -s ${PWD}/lora_extcap.py ~/.local/lib/wireshark/extcap
+```
+
+Nota: La ubicacion a la que se debe enlazar va depender del sistema operativo.
+
+Una vez que se realizo el link del extcap, en wireshark debe aparecer el nuevo plugin y podeos empezar a capturar.
+
+Para el caso de LoRa se debe utilizar el dissector `catsniffersx1262_rpi` configurado en el `DLT_USER 148`.
 
 # Futuras mejoras
 [] Descargar el firmware con correccion de errores y reintentos
