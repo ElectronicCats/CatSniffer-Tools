@@ -32,7 +32,6 @@ class UnixPipe:
     def __init__(self, path=DEFAULT_UNIX_PATH) -> None:
         self.pipe_path = path
         self.pipe_writer = None
-
         # Initial configuration
         self.create()
 
@@ -42,12 +41,12 @@ class UnixPipe:
             logger.info(f"[*] Pipeline created: {self.pipe_path}")
         except FileExistsError:
             logger.info(f"[-] Pipeline already exists.")
-            pass
         except OSError as e:
             show_generic_error("Creating Pipeline", e)
             exit(1)
 
     def open(self) -> None:
+        logger.info(f"[*] Check if exist: {self.pipe_path}")
         if not os.path.exists(self.pipe_path):
             self.create()
         try:
@@ -79,14 +78,17 @@ class UnixPipe:
 
     def write_packet(self, data: bytes) -> None:
         try:
-            self.pipe_writer.write(data)
-            self.pipe_writer.flush()
-            logger.info(f"[*] Writing to Pipeline ({self.pipe_path}): {data}")
+            if self.pipe_writer:
+                self.pipe_writer.write(data)
+                self.pipe_writer.flush()
+                logger.info(f"[*] Writing to Pipeline ({self.pipe_path}): {data}")
+        except BrokenPipeError:
+            show_generic_error("BrokenPipe", "")
+            self.remove()
+            exit(1)
         except Exception as e:
             show_generic_error("Writing Pipeline", e)
             pass
-            # self.remove()
-            # exit(1)
 
 
 class Wireshark(threading.Thread):

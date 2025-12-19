@@ -53,7 +53,15 @@ def run_sx_bridge(
             data = serial_worker.readline()
             if data:
                 if data.startswith(START_OF_FRAME):
-                    packet = snifferSx.Packet((START_OF_FRAME + data))
+                    packet = snifferSx.Packet(
+                        (START_OF_FRAME + data),
+                        context={
+                            "frequency": frequency,
+                            "bandwidth": bandwidth,
+                            "spread_factor": spread_factor,
+                            "coding_rate": coding_rate,
+                        },
+                    )
                     if not header_flag:
                         header_flag = True
                         pipe.write_packet(get_global_header(148))
