@@ -53,7 +53,7 @@ def sniff_ble():
         if not catnip.find_flash_firmware(SniffingBaseFirmware.BLE.value):
             return
 
-    logger.info("[*] Now you can open Sniffle extcap from Wireshark")
+    print("[*] Now you can open Sniffle extcap from Wireshark")
 
 
 @sniff.command(SniffingFirmware.ZIGBEE.name.lower())
@@ -72,7 +72,7 @@ def sniff_zigbee(ws, channel, port):
         if not catnip.find_flash_firmware(SniffingBaseFirmware.ZIGBEE.value, port):
             return
 
-    logger.info(f"[* {port}] Sniffing Zigbee at channel: {channel}")
+    print(f"[* {port}] Sniffing Zigbee at channel: {channel}")
     run_bridge(cat, channel, ws)
 
 
@@ -91,7 +91,7 @@ def sniff_thread(ws, channel, port):
         logger.info(f"[-] Firmware not found! - Flashing Sniffer TI")
         if not catnip.find_flash_firmware(SniffingBaseFirmware.THREAD.value, port):
             return
-    logger.info(f"[* {port}] Sniffing Thread at channel: {channel}")
+    print(f"[* {port}] Sniffing Thread at channel: {channel}")
     run_bridge(cat, channel, ws)
 
 
@@ -136,7 +136,7 @@ def sniff_zigbee(
 ):
     """Sniffing LoRa with Sniffer SX1262 firmware"""
     cat = Catsniffer(port)
-    logger.info(
+    print(
         f"[* {port}] Sniffing LoRa with configuration: \nFrequency: {frequency}\nBandwidth: {bandwidth}\nSpreading Factor: {spread_factor}\nCoding Rate: {coding_rate}\nSync Word: {sync_word}\nPreamble Length: {preamble_length}"
     )
     run_sx_bridge(
