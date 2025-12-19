@@ -30,17 +30,27 @@ class SnifferSx:
             return bytes(f"set_rx\r\n", "utf-8")
 
     class Packet:
-        def __init__(self, packet_bytes: bytes):
+        def __init__(
+            self,
+            packet_bytes: bytes,
+            context={
+                "frequency": 916,
+                "bandwidth": 8,
+                "spread_factor": 11,
+                "coding_rate": 5,
+            },
+        ):
             self.packet_bytes = packet_bytes.replace(b"\r\n", b"")
             self.length = 0
             self.payload = None
             self.rssi = 0
             self.snr = None
             self.pcap = None
+            self.context = context
             self.dissect()
 
         def dissect(self) -> None:
-            (_, self.length) = struct.unpack_from("<HH", self.packet_bytes)
+            (_, _, self.length) = struct.unpack_from("<HHH", self.packet_bytes)
             self.payload = self.packet_bytes[6:-10]
             self.rssi = struct.unpack_from("<f", self.packet_bytes[-10:])[0]
             self.snr = struct.unpack_from("<f", self.packet_bytes[-6:])[0]
@@ -54,10 +64,10 @@ class SnifferSx:
                 + interfaceId
                 + protocol
                 + phy
-                + int(916).to_bytes(4, "little")
-                + int(9).to_bytes(1, "little")
-                + int(11).to_bytes(1, "little")
-                + int(5).to_bytes(1, "little")
+                + int(self.context["frequency"]).to_bytes(4, "little")
+                + int(self.context["bandwidth"]).to_bytes(1, "little")
+                + int(self.context["spread_factor"]).to_bytes(1, "little")
+                + int(self.context["coding_rate"]).to_bytes(1, "little")
                 + struct.pack("<f", self.rssi)
                 + struct.pack("<f", self.snr)
                 + self.payload
