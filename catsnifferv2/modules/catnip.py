@@ -47,7 +47,7 @@ class CCLoader:
     def init(self):
         cat_baud = 500000
 
-        logger.info(f"[*] Opening port {self.cat_port} at baud: {cat_baud}")
+        console.print(f"[*] Opening port {self.cat_port} at baud: {cat_baud}")
         self.cmd.open(self.cat_port, cat_baud)
 
     def enter_bootloader(self):
@@ -80,48 +80,46 @@ class CCLoader:
         chip_id_str = CHIP_ID_STRS.get(chip_id, None)
 
         if chip_id_str == None:
-            logger.warning(
-                f"[-] Unrecognized chip ID. Trying CC13xx/CC26xx", style="yellow"
-            )
+            logger.warning(f"[-] Unrecognized chip ID. Trying CC13xx/CC26xx")
             return CC26xx(self.cmd)
         else:
-            logger.info(f"[*] Chip ID: 0x{chip_id} ({chip_id_str})", style="green")
+            console.print(f"[*] Chip ID: 0x{chip_id} ({chip_id_str})")
             return CC2538(self.cmd)
 
     def show_chip_details(self, device) -> None:
-        logger.info("[*] Chip details:")
-        logger.info(
+        console.print("[*] Chip details:")
+        console.print(
             f"\tPackage: {device.chipid} - {device.size >> 10} KB Flash - {device.sram} SRAM - CCFG.BL_CONFIG at 0x%08X"
             % device.bootloader_address
         )
-        logger.info(
+        console.print(
             "\tPrimary IEEE Address: %s"
             % (":".join("%02X" % x for x in device.ieee_addr))
         )
 
     def erase_firmware(self, device) -> None:
-        logger.info(f"[*] Performing mass erase")
+        console.print(f"[*] Performing mass erase")
         if device.erase():
-            logger.info(f"[*] Erase done", style="green")
+            console.print(f"[*] Erase done", style="green")
         else:
-            logger.error(f"[X] Error: Erase failed", style="red")
+            logger.error(f"[X] Error: Erase failed")
             self.close_exit()
 
     def write_firmware(self, device) -> None:
         address = device.flash_start_addr
         if self.cmd.writeMemory(address, self.firmware.bytes):
-            logger.info(f"[*] Write done", style="green")
+            console.print(f"[*] Write done", style="green")
         else:
-            logger.error(f"[X] Error: Erase failed", style="red")
+            logger.error(f"[X] Error: Erase failed")
             self.close_exit()
 
     def verify_crc(self, device) -> None:
-        logger.info(f"[*] Verifying by comparing CRC32 calculations.")
+        console.print(f"[*] Verifying by comparing CRC32 calculations.")
         address = device.flash_start_addr
         crc_local = self.firmware.crc32()
         crc_target = device.crc(address=address, size=len(self.firmware.bytes))
         if crc_local == crc_target:
-            logger.info(f"[*] Verified match: 0x%08x" % crc_local, style="green")
+            console.print(f"[*] Verified match: 0x%08x" % crc_local, style="green")
         else:
             logger.error(
                 f"[X] NO CRC32 match: Local = 0x%x, Target = 0x%x"
@@ -150,7 +148,7 @@ class Catnip:
     def load_contex(self) -> None:
         logger.info("[*] Looking for local releases")
         if self.find_local_release():
-            logger.info("[*] Local release folder found!", style="green")
+            logger.info("[*] Local release folder found!")
             self.load_metadata()
             if self.last_date != datetime.now().strftime("%d/%m/%Y"):
                 if self.check_new_remote_version():
@@ -163,8 +161,7 @@ class Catnip:
                 self.get_remove_firmware()
 
         logger.info(
-            f"[*] Current Release {self.release_tag} - {self.release_published_date}",
-            style="magenta",
+            f"[*] Current Release {self.release_tag} - {self.release_published_date}"
         )
 
     def __create_release_path(self):
@@ -343,10 +340,7 @@ class Catnip:
                     request_content.raise_for_status()
                     local_checksum = self.save_firmware(fname, request_content.content)
 
-                    logger.info(
-                        f"[*] Firmware [bold white]{fname}[/bold white] done.",
-                        style="cyan",
-                    )
+                    logger.info(f"[*] Firmware [bold white]{fname}[/bold white] done.")
 
                     self.compare_checksum(fname, local_checksum, asset["digest"])
                     time.sleep(0.5)
