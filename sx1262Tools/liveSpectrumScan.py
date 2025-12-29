@@ -253,12 +253,16 @@ class SpectrumScan:
 
         try:
             self.device_uart.open()
+            self.device_uart.flush()
         except serial.SerialException as e:
             LOG_ERROR(e)
             return
+        time.sleep(0.2)
 
-        self.device_uart.write(f"set_start_freq {self.start_freq}\n".encode())
-        self.device_uart.write(f"set_end_freq {self.end_freq}\n".encode())
+        self.device_uart.write(f"stop\r\n".encode())
+        self.device_uart.write(f"set_start_freq {self.start_freq}\r\n".encode())
+        self.device_uart.write(f"set_end_freq {self.end_freq}\r\n".encode())
+        self.device_uart.write(f"start\r\n".encode())
 
         # Update the initial values with the args values
         self.delta_freq = (
