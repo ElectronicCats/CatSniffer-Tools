@@ -26,7 +26,7 @@ from rich.logging import RichHandler
 
 # APP Information
 CLI_NAME = "Catsniffer"
-VERSION_NUMBER = "2.0.0"
+VERSION_NUMBER = "2.0.1"
 AUTHOR = "JahazielLem"
 COMPANY = "Electronic Cats - PWNLab"
 # Prompt
@@ -61,8 +61,11 @@ logging.basicConfig(
 
 
 @click.group()
-def cli():
+@click.option("--verbose", is_flag=True, help="Show Verbose mode")
+def cli(verbose):
     """CatSniffer: All in one catsniffer tools environment."""
+    if verbose:
+        logger.level = logging.INFO
     pass
 
 

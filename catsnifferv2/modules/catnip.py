@@ -392,6 +392,9 @@ class Catnip:
 
     def find_flash_firmware(self, firmware_str, port):
         firmwares = self.get_local_firmware()
+        if os.path.exists(firmware_str):
+            return self.flash_firmware(firmware_str, port)
+
         for firm in firmwares:
             if firm.startswith(firmware_str):
                 path = os.path.join(self.get_releases_path(), firm)
