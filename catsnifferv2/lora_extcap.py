@@ -8,10 +8,11 @@ import logging
 import argparse
 import traceback
 import threading
+import platform
 from serial.tools.list_ports import comports
 
 from modules.catsniffer import Catsniffer
-from modules.pipes import UnixPipe, DEFAULT_UNIX_PATH
+from modules.pipes import UnixPipe, WindowsPipe, DEFAULT_UNIX_PATH
 from protocol.sniffer_sx import SnifferSx
 from protocol.common import START_OF_FRAME, get_global_header
 
@@ -414,7 +415,10 @@ class MinimalExtcap:
 
         # start the capture
         self.logger.info(f"Starting capture: {self.args.fifo}")
-        pipe = UnixPipe(fifo_path)
+        if platform.system() == "Windows":
+            pipe = WindowsPipe(fifo_path)
+        else:
+            pipe = UnixPipe(fifo_path)
         opening_worker = threading.Thread(target=pipe.open, daemon=True)
         opening_worker.start()
 

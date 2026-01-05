@@ -1,5 +1,6 @@
 import enum
 import time
+import struct
 from base64 import b64encode, b64decode
 from binascii import Error as BAError
 
@@ -111,13 +112,14 @@ class Catsniffer(SerialConnection):
         got = b""
         if not self.connect():
             return False
-        while flag not in got:
-            got += self.read(1)
-            if time.time() > stop:
-                self.disconnect()
-                return False
+        self.write(SnifferTI().Commands().stop())
+        self.write(SnifferTI().Commands().ping())
+        got += self.read(16)
+        if got[7:8].hex() == "40" or flag in got:
+            self.disconnect()
+            return True
         self.disconnect()
-        return True
+        return False
 
     def check_ti_firmware(self, timeout=2) -> bool:
         flag = b"TI Packet"

@@ -10,6 +10,7 @@ logger = logging.getLogger("rich")
 
 DEFAULT_PIPELINE_NAME = "fcatsniffer"
 DEFAULT_UNIX_PATH = f"/tmp/{DEFAULT_PIPELINE_NAME}"
+DEFAULT_WINDOWS_PATH = f"\\\\.\\pipe\\{DEFAULT_PIPELINE_NAME}"
 
 # Blocking method, this is required to run all the script
 if platform.system().lower() == "windows":
@@ -89,6 +90,82 @@ class UnixPipe:
         except Exception as e:
             show_generic_error("Writing Pipeline", e)
             pass
+
+
+class WindowsPipe:
+    def __init__(self, path=DEFAULT_WINDOWS_PATH) -> None:
+        self.pipe_path = path
+        self.pipe_writer = None
+        # Initial configuration
+        self.create()
+
+    def create(self):
+        try:
+            self.pipe_writer = win32pipe.CreateNamedPipe(
+                self.pipe_path,
+                win32pipe.PIPE_ACCESS_DUPLEX,
+                win32pipe.PIPE_TYPE_MESSAGE
+                | win32pipe.PIPE_READMODE_MESSAGE
+                | win32pipe.PIPE_WAIT,
+                1,
+                65536,
+                65536,
+                0,
+                None,
+            )
+        except FileExistsError:
+            logger.info(f"[-] Pipeline already exists.")
+        except pywintypes.error as e:
+            logger.error(f"[X] {e}")
+            exit(1)
+
+    def open(self) -> None:
+        logger.info(f"[*] Waiting for a client on {self.pipe_path}.")
+        try:
+            win32pipe.ConnectNamedPipe(self.pipe_writer, None)
+            logger.info(f"[*] Pipeline Open: {self.pipe_path}")
+        except pywintypes.error as e:
+            if e.winerror == 535:  # ERROR_PIPE_CONNECTED
+                logger.info("[*] Client already connected")
+            elif e.winerror == 232:  # ERROR_NO_DATA
+                logger.warning("[!] Client connected and disconnected immediately")
+                return
+            else:
+                show_generic_error("Opening Pipeline", e)
+                raise
+
+    def close(self) -> None:
+        try:
+            if self.pipe_writer:
+                win32pipe.DisconnectNamedPipe(self.pipe_writer)
+                win32file.CloseHandle(self.pipe_writer)
+                self.pipe_writer = None
+                logger.info(f"[*] Pipeline Closed: {self.pipe_path}")
+        except Exception as e:
+            show_generic_error("Closing Pipeline", e)
+
+    def remove(self) -> None:
+        try:
+            if self.pipe_writer:
+                self.pipe_writer.close()
+            if os.path.exists(self.pipe_path):
+                os.remove(self.pipe_path)
+            logger.info(f"[*] Pipeline removed: {self.pipe_path}")
+        except Exception as e:
+            show_generic_error("Removing Pipeline", e)
+            pass
+
+    def write_packet(self, data: bytes) -> None:
+        try:
+            win32file.WriteFile(self.pipe_writer, data)
+            win32file.FlushFileBuffers(self.pipe_writer)
+            logger.info(f"[*] Writing to Pipeline ({self.pipe_path}): {data}")
+        except pywintypes.error as e:
+            if e.winerror in (109, 232):
+                logger.warning("[!] Client disconnected")
+                self.close()
+            else:
+                show_generic_error("Writing Pipeline", e)
 
 
 class Wireshark(threading.Thread):

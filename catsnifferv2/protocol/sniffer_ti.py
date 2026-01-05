@@ -72,37 +72,42 @@ class TIBaseCommand:
 
 class SnifferTI:
     class Commands:
-        def __init__(self):
-            pass
-
-        def ping(self) -> bytes:
+        @staticmethod
+        def ping() -> bytes:
             return TIBaseCommand(TIBaseCommand.ByteCommands.PING.value).packet
 
-        def start(self) -> bytes:
+        @staticmethod
+        def start() -> bytes:
             return TIBaseCommand(TIBaseCommand.ByteCommands.START.value).packet
 
-        def stop(self) -> bytes:
+        @staticmethod
+        def stop() -> bytes:
             return TIBaseCommand(TIBaseCommand.ByteCommands.STOP.value).packet
 
-        def pause(self) -> bytes:
+        @staticmethod
+        def pause() -> bytes:
             return TIBaseCommand(TIBaseCommand.ByteCommands.PAUSE.value).packet
 
-        def resume(self) -> bytes:
+        @staticmethod
+        def resume() -> bytes:
             return TIBaseCommand(TIBaseCommand.ByteCommands.RESUME.value).packet
 
-        def config_freq(self, channel) -> bytes:
+        @staticmethod
+        def config_freq(channel) -> bytes:
             frequency = convert_channel_to_freq(channel=channel)
             frequency_bytes = calculate_frequency(frequency)
             return TIBaseCommand(
                 TIBaseCommand.ByteCommands.CFG_FREQUENCY.value, frequency_bytes
             ).packet
 
-        def config_phy(self) -> bytes:
+        @staticmethod
+        def config_phy() -> bytes:
             return TIBaseCommand(
                 TIBaseCommand.ByteCommands.CFG_PHY.value, BYTE_IEEE802145
             ).packet
 
-        def get_startup_cmd(self, channel=11):
+        @staticmethod
+        def get_startup_cmd(channel=11):
             startup_cmds = [
                 SnifferTI.Commands().ping(),
                 SnifferTI.Commands().stop(),

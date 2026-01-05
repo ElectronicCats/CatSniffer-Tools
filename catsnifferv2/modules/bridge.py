@@ -1,9 +1,10 @@
 import time
 import threading
+import platform
 
 # Internal
 from .catsniffer import Catsniffer
-from .pipes import UnixPipe, Wireshark
+from .pipes import UnixPipe, WindowsPipe, Wireshark
 from protocol.sniffer_sx import SnifferSx
 from protocol.sniffer_ti import SnifferTI, PacketCategory
 from protocol.common import START_OF_FRAME, END_OF_FRAME, get_global_header
@@ -30,7 +31,10 @@ def run_sx_bridge(
     wireshark: bool = False,
 ):
 
-    pipe = UnixPipe()
+    if platform.system() == "Windows":
+        pipe = WindowsPipe()
+    else:
+        pipe = UnixPipe()
     opening_worker = threading.Thread(target=pipe.open, daemon=True)
     ws = Wireshark()
     if wireshark:
@@ -74,7 +78,10 @@ def run_sx_bridge(
 
 
 def run_bridge(serial_worker: Catsniffer, channel: int = 11, wireshark: bool = False):
-    pipe = UnixPipe()
+    if platform.system() == "Windows":
+        pipe = WindowsPipe()
+    else:
+        pipe = UnixPipe()
     opening_worker = threading.Thread(target=pipe.open, daemon=True)
     ws = Wireshark()
     if wireshark:
