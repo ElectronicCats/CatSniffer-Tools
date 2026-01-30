@@ -1,4 +1,10 @@
-#!/opt/homebrew/bin/python3
+#!/usr/bin/env python3
+"""
+CatSniffer LoRa Extcap Plugin for Wireshark
+
+This plugin provides a Wireshark interface for capturing LoRa packets
+using the CatSniffer hardware with the new multi-endpoint architecture.
+"""
 import os
 import sys
 import time
@@ -11,22 +17,28 @@ import threading
 import platform
 from serial.tools.list_ports import comports
 
-from modules.catsniffer import Catsniffer
+from modules.catsniffer import (
+    ShellConnection,
+    LoRaConnection,
+    catsniffer_get_devices,
+    CATSNIFFER_VID,
+    CATSNIFFER_PID,
+)
 from modules.pipes import UnixPipe, WindowsPipe, DEFAULT_UNIX_PATH
 from protocol.sniffer_sx import SnifferSx
 from protocol.common import START_OF_FRAME, get_global_header
 
 scriptName = os.path.basename(sys.argv[0])
 
+# Control numbers for Wireshark toolbar
 CTRL_NUM_LOGGER = 0
 CTRL_NUM_FREQUENCY = 1
-CTRL_NUM_CHANNEL = 2
-CTRL_NUM_SPREADFACTOR = 3
-CTRL_NUM_BANDWIDTH = 4
-CTRL_NUM_CODINGRATE = 5
-CTRL_NUM_PREAMBLE = 6
-CTRL_NUM_SYNC_WORD = 7
-# Loggers
+CTRL_NUM_SPREADFACTOR = 2
+CTRL_NUM_BANDWIDTH = 3
+CTRL_NUM_CODINGRATE = 4
+CTRL_NUM_TXPOWER = 5
+
+# Control commands
 CTRL_CMD_INITIALIZED = 0
 CTRL_CMD_SET = 1
 CTRL_CMD_ADD = 2
@@ -37,11 +49,10 @@ CTRL_CMD_STATUSBAR = 6
 CTRL_CMD_INFORMATION = 7
 CTRL_CMD_WARNING = 8
 CTRL_CMD_ERROR = 9
+
 # Board and protocol
 CATSNIFFER_BOARD = 2
 CATSNIFFER_DLT = 148
-CATSNIFFER_VID = 11914
-CATSNIFFER_PID = 192
 
 snifferSx = SnifferSx()
 snifferSxCmd = snifferSx.Commands()
@@ -56,7 +67,7 @@ class ArgumentParser(argparse.ArgumentParser):
         raise UsageError(message)
 
 
-class SniffleExtcapLogHandler(logging.Handler):
+class CatSnifferExtcapLogHandler(logging.Handler):
     def __init__(self, plugin):
         logging.Handler.__init__(self)
         self.plugin = plugin
@@ -72,26 +83,6 @@ class SniffleExtcapLogHandler(logging.Handler):
             pass
 
 
-# Worker API to handle the communications with the Modules
-class Worker(threading.Thread):
-    def __init__(self, module):
-        threading.Thread.__init__(self)
-        self.module = module
-        self.running = False
-        self.daemon = True
-        self.worker = None
-
-    def run(self):
-        self.running = True
-        self.worker = threading.Thread(target=self.module.start_module)
-        self.worker.start()
-
-    def stop(self):
-        self.running = False
-        self.module.stop_worker()
-        self.worker.join(1)
-
-
 class MinimalExtcap:
     def __init__(self):
         self.args = None
@@ -102,15 +93,16 @@ class MinimalExtcap:
         self.controlThread = None
         self.captureStopped = False
         self.controlsInitialized = False
-        self.serial_worker = Catsniffer()
+        self.shell_connection = None
+        self.lora_connection = None
 
     def main(self, args=None):
-        log_handlers = [SniffleExtcapLogHandler(self)]
-        log_files = os.environ.get("CATSNIFER_LOG_FILE", None)
+        log_handlers = [CatSnifferExtcapLogHandler(self)]
+        log_files = os.environ.get("CATSNIFFER_LOG_FILE", None)
         if log_files:
             log_handlers.append(logging.FileHandler(log_files))
         log_levels = os.environ.get(
-            "CATSNIFER_LOG_LEVEL", "DEBUG" if log_files else "INFO"
+            "CATSNIFFER_LOG_LEVEL", "DEBUG" if log_files else "INFO"
         ).upper()
         logging.basicConfig(
             handlers=log_handlers,
@@ -171,45 +163,40 @@ class MinimalExtcap:
         parser.add_argument(
             "--extcap-control-out", help="Used to send control messages to toolbar"
         )
-        parser.add_argument("--serport", help="Sniffer serial port name")
+        parser.add_argument("--shell-port", help="Shell port for configuration")
+        parser.add_argument("--lora-port", help="LoRa port for data")
         parser.add_argument(
             "--frequency",
-            type=float,
-            default=915,
-            help="Regiion to listen on",
+            type=int,
+            default=915000000,
+            help="Frequency in Hz",
         )
         parser.add_argument(
             "--spread-factor",
             type=int,
             default=7,
             choices=[i for i in range(7, 13)],
-            help="Spreading factor to listen on",
+            help="Spreading factor (7-12)",
         )
         parser.add_argument(
             "--bandwidth",
             type=int,
-            default=7,
-            choices=[i for i in range(9)],
-            help="Bandwidth to listen on",
+            default=125,
+            choices=[125, 250, 500],
+            help="Bandwidth in kHz",
         )
         parser.add_argument(
             "--coding-rate",
             type=int,
             default=5,
-            choices=[i for i in range(5, 8)],
-            help="Coding rate to listen on",
+            choices=[i for i in range(5, 9)],
+            help="Coding rate (5-8)",
         )
         parser.add_argument(
-            "--preamble",
+            "--tx-power",
             type=int,
-            default=8,
-            help="Preamble Length",
-        )
-        parser.add_argument(
-            "--sync-word",
-            type=str,
-            default=0x12,
-            help="Sync Word",
+            default=20,
+            help="TX Power in dBm",
         )
         parser.add_argument(
             "--log-level",
@@ -223,10 +210,11 @@ class MinimalExtcap:
         if not self.args.op or len(self.args.op) != 1:
             raise UsageError("Please specify exactly one operation")
         self.args.op = self.args.op[0]
-        self.args.frequency = float(self.args.frequency)
+        self.args.frequency = int(self.args.frequency)
         self.args.spread_factor = int(self.args.spread_factor)
         self.args.bandwidth = int(self.args.bandwidth)
         self.args.coding_rate = int(self.args.coding_rate)
+        self.args.tx_power = int(self.args.tx_power)
 
         self.logger.setLevel(self.args.log_level)
 
@@ -236,165 +224,190 @@ class MinimalExtcap:
             )
         if self.args.op == "capture" and not self.args.fifo:
             raise UsageError("Please specify the --fifo option when capturing")
-        if self.args.op == "capture" and not self.args.serport:
-            raise UsageError("Please specify the --serport option when capturing")
+        if self.args.op == "capture" and not self.args.shell_port:
+            raise UsageError("Please specify the --shell-port option when capturing")
+        if self.args.op == "capture" and not self.args.lora_port:
+            raise UsageError("Please specify the --lora-port option when capturing")
 
-    # ---------- Extcap mandatory methods ----------
     def extcap_version(self):
-        return "extcap {version=1.0}{display=CatSniffer Extcap Lora}{help=https://github.com/ElectronicCats/CatSniffer}"
+        return "extcap {version=3.0}{display=CatSniffer LoRa Extcap}{help=https://github.com/ElectronicCats/CatSniffer}"
 
     def extcap_interfaces(self):
         lines = []
-        self.logger.info(f"Frequency: {self.args.frequency}")
         lines.append(self.extcap_version())
         lines.append(
-            "interface {value=catsniffer_lora}{display=CatSniffer Extcap Lora}"
+            "interface {value=catsniffer_lora}{display=CatSniffer LoRa Extcap}"
         )
         lines.append(
             "control {number=%d}{type=button}{role=logger}{display=Log}{tooltip=Show capture log}"
             % CTRL_NUM_LOGGER
         )
         lines.append(
-            "control {number=%d}{type=string}{display=Frequency in MHz}{tooltip=Frequency in MHz}"
+            "control {number=%d}{type=string}{display=Frequency (Hz)}{tooltip=Frequency in Hz}"
             % CTRL_NUM_FREQUENCY
         )
         lines.append(
-            "control {number=%d}{type=selector}{display=Bandwidth}{tooltip=Bandwidth to listen on}"
+            "control {number=%d}{type=selector}{display=Bandwidth (kHz)}{tooltip=Bandwidth}"
             % CTRL_NUM_BANDWIDTH
         )
         lines.append(
-            "control {number=%d}{type=selector}{display=Spreading Factor}{tooltip=Spreading Factor to listen on}"
+            "control {number=%d}{type=selector}{display=Spreading Factor}{tooltip=Spreading Factor}"
             % CTRL_NUM_SPREADFACTOR
         )
         lines.append(
-            "control {number=%d}{type=selector}{display=Coding Rate}{tooltip=Coding Rate to listen on}"
+            "control {number=%d}{type=selector}{display=Coding Rate}{tooltip=Coding Rate}"
             % CTRL_NUM_CODINGRATE
         )
         lines.append(
-            "control {number=%d}{type=string}{display=Preamble}{tooltip=Preamble Length}"
-            % CTRL_NUM_PREAMBLE
+            "control {number=%d}{type=string}{display=TX Power (dBm)}{tooltip=TX Power}"
+            % CTRL_NUM_TXPOWER
         )
+
+        # Default frequency
         lines.append(
-            "control {number=%d}{type=string}{display=Sync Word}{tooltip=Sync Word}"
-            % CTRL_NUM_SYNC_WORD
+            "value {control=%d}{value=%d}{display=%d Hz}"
+            % (CTRL_NUM_FREQUENCY, 915000000, 915000000)
         )
-        lines.append(
-            "value {control=%d}{value=%f}{display=%f MHz}"
-            % (CTRL_NUM_FREQUENCY, 915, self.args.frequency)
-        )
-        # Bandwidth
-        lines.append("value {control=%d}{value=0}{display=7.8}" % CTRL_NUM_BANDWIDTH)
-        lines.append("value {control=%d}{value=1}{display=10.4}" % CTRL_NUM_BANDWIDTH)
-        lines.append("value {control=%d}{value=2}{display=15.6}" % CTRL_NUM_BANDWIDTH)
-        lines.append("value {control=%d}{value=3}{display=20.8}" % CTRL_NUM_BANDWIDTH)
-        lines.append("value {control=%d}{value=4}{display=31.25}" % CTRL_NUM_BANDWIDTH)
-        lines.append("value {control=%d}{value=5}{display=41.7}" % CTRL_NUM_BANDWIDTH)
-        lines.append("value {control=%d}{value=6}{display=62.5}" % CTRL_NUM_BANDWIDTH)
-        lines.append(
-            "value {control=%d}{value=7}{display=125}{default=true}"
-            % CTRL_NUM_BANDWIDTH
-        )
-        lines.append("value {control=%d}{value=8}{display=250}" % CTRL_NUM_BANDWIDTH)
+
+        # Bandwidth options
+        for bw in [125, 250, 500]:
+            default = "{default=true}" if bw == 125 else ""
+            lines.append(
+                f"value {{control={CTRL_NUM_BANDWIDTH}}}{{value={bw}}}{{display={bw} kHz}}{default}"
+            )
+
         # Spreading Factor
         for i in range(7, 13):
+            default = "{default=true}" if i == 7 else ""
             lines.append(
-                "value {control=%d}{value=%d}{display=%d}"
-                % (CTRL_NUM_SPREADFACTOR, i, i)
+                f"value {{control={CTRL_NUM_SPREADFACTOR}}}{{value={i}}}{{display=SF{i}}}{default}"
             )
+
         # Coding Rate
         for i in range(5, 9):
+            default = "{default=true}" if i == 5 else ""
             lines.append(
-                "value {control=%d}{value=%d}{display=4/%d}"
-                % (CTRL_NUM_CODINGRATE, i, i)
+                f"value {{control={CTRL_NUM_CODINGRATE}}}{{value={i}}}{{display=4/{i}}}{default}"
             )
 
         return "\n".join(lines)
 
     def extcap_dlts(self):
-        return "dlt {number=%d}{name=catsniffer_lora_dlt}{display=Catsniffer DLT}" % (
+        return "dlt {number=%d}{name=catsniffer_lora_dlt}{display=CatSniffer LoRa DLT}" % (
             CATSNIFFER_DLT
         )
 
     def extcap_config(self):
         lines = []
+
+        # Shell port selector
         lines.append(
-            "arg {number=0}{call=--serport}{type=selector}{required=true}"
-            "{display=Sniffer serial port}"
-            "{tooltip=Sniffer device serial port}"
+            "arg {number=0}{call=--shell-port}{type=selector}{required=true}"
+            "{display=Shell Port (Config)}"
+            "{tooltip=CatSniffer Shell port for configuration}"
         )
+
+        # LoRa port selector
         lines.append(
-            "arg {number=1}{call=--frequency}{type=double}{default=915}"
-            "{display=Frequency}"
-            "{tooltip=Frequency to listen on}"
+            "arg {number=1}{call=--lora-port}{type=selector}{required=true}"
+            "{display=LoRa Port (Data)}"
+            "{tooltip=CatSniffer LoRa port for data stream}"
         )
+
+        # Frequency
+        lines.append(
+            "arg {number=2}{call=--frequency}{type=long}{default=915000000}"
+            "{display=Frequency (Hz)}"
+            "{tooltip=Frequency in Hz (e.g., 915000000 for 915 MHz)}"
+        )
+
+        # Spreading Factor
         lines.append(
             "arg {number=3}{call=--spread-factor}{type=selector}{default=7}"
             "{display=Spreading Factor}"
-            "{tooltip=Spreading Factor to listen on}"
+            "{tooltip=LoRa Spreading Factor (7-12)}"
         )
+
+        # Bandwidth
         lines.append(
-            "arg {number=4}{call=--bandwidth}{type=selector}{default=7}"
-            "{display=Bandwidth}"
-            "{tooltip=Bandwidth to listen on}"
+            "arg {number=4}{call=--bandwidth}{type=selector}{default=125}"
+            "{display=Bandwidth (kHz)}"
+            "{tooltip=LoRa Bandwidth in kHz}"
         )
+
+        # Coding Rate
         lines.append(
             "arg {number=5}{call=--coding-rate}{type=selector}{default=5}"
             "{display=Coding Rate}"
-            "{tooltip=Coding Rate to listen on}"
+            "{tooltip=LoRa Coding Rate (5-8)}"
         )
+
+        # TX Power
         lines.append(
-            "arg {number=6}{call=--preamble}{type=double}{default=8}"
-            "{display=Preamble}"
-            "{tooltip=Preamble Length}"
+            "arg {number=6}{call=--tx-power}{type=integer}{default=20}"
+            "{display=TX Power (dBm)}"
+            "{tooltip=Transmit power in dBm}"
         )
+
+        # Log Level
         lines.append(
-            "arg {number=7}{call=--sync-word}{type=string}{default=0x12}"
-            "{display=Sync Word}"
-            "{tooltip=Sync Word}"
+            "arg {number=7}{call=--log-level}{type=selector}{display=Log Level}"
+            "{tooltip=Set the log level}{default=INFO}{group=Logger}"
         )
-        lines.append(
-            "arg {number=6}{call=--log-level}{type=selector}{display=Log Level}{tooltip=Set the log level}{default=INFO}{group=Logger}"
-        )
-        other_ports = []
+
+        # Get available CatSniffer devices
+        devices = catsniffer_get_devices()
+
+        # Populate shell and lora port options from detected devices
+        shell_ports = []
+        lora_ports = []
+
+        for dev in devices:
+            if dev.shell_port:
+                shell_ports.append((dev.shell_port, f"CatSniffer #{dev.device_id} Shell - {dev.shell_port}"))
+            if dev.lora_port:
+                lora_ports.append((dev.lora_port, f"CatSniffer #{dev.device_id} LoRa - {dev.lora_port}"))
+
+        # Also add all serial ports as fallback
         for port in comports():
-            if sys.platform == "win32":
-                device = f"//./{port.device}"
-            else:
+            if port.vid == CATSNIFFER_VID and port.pid == CATSNIFFER_PID:
                 device = port.device
-            if port.vid is not None and port.pid is not None:
-                displayName = "%s" % (port.device)
-                lines.append(
-                    "value {arg=0}{value=%s}{display=%s}" % (device, displayName)
-                )
-            else:
-                if port.manufacturer is not None:
-                    displayName = "%s - %s" % (port.device, port.manufacturer)
-                else:
-                    displayName = port.device
-                other_ports.append((device, displayName))
-        for device, displayName in other_ports:
-            lines.append("value {arg=0}{value=%s}{display=%s}" % (device, displayName))
-        # Spreading Factor
+                if sys.platform == "win32":
+                    device = f"//./{port.device}"
+                if device not in [p[0] for p in shell_ports]:
+                    shell_ports.append((device, f"{port.device}"))
+                if device not in [p[0] for p in lora_ports]:
+                    lora_ports.append((device, f"{port.device}"))
+
+        # Add shell port values
+        for device, displayName in shell_ports:
+            lines.append(f"value {{arg=0}}{{value={device}}}{{display={displayName}}}")
+
+        # Add lora port values
+        for device, displayName in lora_ports:
+            lines.append(f"value {{arg=1}}{{value={device}}}{{display={displayName}}}")
+
+        # Spreading Factor values
         for i in range(7, 13):
-            lines.append("value {arg=3}{value=%d}{display=%d}" % (i, i))
-        # Bandwidth
-        lines.append("value {arg=4}{value=0}{display=7.8}")
-        lines.append("value {arg=4}{value=1}{display=10.4}")
-        lines.append("value {arg=4}{value=2}{display=15.6}")
-        lines.append("value {arg=4}{value=3}{display=20.8}")
-        lines.append("value {arg=4}{value=4}{display=31.25}")
-        lines.append("value {arg=4}{value=5}{display=41.7}")
-        lines.append("value {arg=4}{value=6}{display=62.5}")
-        lines.append("value {arg=4}{value=7}{display=125}{default=true}")
-        lines.append("value {arg=4}{value=8}{display=250}")
-        # Coding Rate
+            default = "{default=true}" if i == 7 else ""
+            lines.append(f"value {{arg=3}}{{value={i}}}{{display=SF{i}}}{default}")
+
+        # Bandwidth values
+        for bw in [125, 250, 500]:
+            default = "{default=true}" if bw == 125 else ""
+            lines.append(f"value {{arg=4}}{{value={bw}}}{{display={bw} kHz}}{default}")
+
+        # Coding Rate values
         for i in range(5, 9):
-            lines.append("value {arg=5}{value=%d}{display=4/%d}" % (i, i))
-        # Logger
-        lines.append("value {arg=6}{value=DEBUG}{display=DEBUG}")
-        lines.append("value {arg=6}{value=INFO}{display=INFO}")
-        lines.append("value {arg=6}{value=WARNING}{display=WARNING}")
-        lines.append("value {arg=6}{value=ERROR}{display=ERROR}")
+            default = "{default=true}" if i == 5 else ""
+            lines.append(f"value {{arg=5}}{{value={i}}}{{display=4/{i}}}{default}")
+
+        # Logger values
+        lines.append("value {arg=7}{value=DEBUG}{display=DEBUG}")
+        lines.append("value {arg=7}{value=INFO}{display=INFO}{default=true}")
+        lines.append("value {arg=7}{value=WARNING}{display=WARNING}")
+        lines.append("value {arg=7}{value=ERROR}{display=ERROR}")
+
         return "\n".join(lines)
 
     def capture(self):
@@ -408,40 +421,63 @@ class MinimalExtcap:
         signal.signal(signal.SIGINT, lambda sig, frame: self.stopCapture())
         signal.signal(signal.SIGTERM, lambda sig, frame: self.stopCapture())
 
-        self.serial_worker.set_port(self.args.serport)
         fifo_path = DEFAULT_UNIX_PATH
         if self.args.fifo:
             fifo_path = self.args.fifo
 
-        # start the capture
+        # Start the capture
         self.logger.info(f"Starting capture: {self.args.fifo}")
         if platform.system() == "Windows":
             pipe = WindowsPipe(fifo_path)
         else:
             pipe = UnixPipe(fifo_path)
+
         opening_worker = threading.Thread(target=pipe.open, daemon=True)
         opening_worker.start()
 
-        self.serial_worker.connect()
-        self.serial_worker.write(snifferSxCmd.set_freq(self.args.frequency))
-        self.serial_worker.write(snifferSxCmd.set_bw(self.args.bandwidth))
-        self.serial_worker.write(snifferSxCmd.set_sf(self.args.spread_factor))
-        self.serial_worker.write(snifferSxCmd.set_cr(self.args.coding_rate))
-        self.serial_worker.write(snifferSxCmd.set_pl(self.args.preamble))
-        self.serial_worker.write(snifferSxCmd.set_sw(self.args.sync_word))
-        self.serial_worker.write(snifferSxCmd.start())
+        # Connect to shell port for configuration
+        self.shell_connection = ShellConnection(port=self.args.shell_port)
+        if not self.shell_connection.connect():
+            self.logger.error(f"Failed to connect to shell port: {self.args.shell_port}")
+            return
+
+        # Connect to lora port for data
+        self.lora_connection = LoRaConnection(port=self.args.lora_port)
+        if not self.lora_connection.connect():
+            self.logger.error(f"Failed to connect to LoRa port: {self.args.lora_port}")
+            self.shell_connection.disconnect()
+            return
+
+        # Send configuration via shell port
+        self.logger.info("Configuring LoRa parameters...")
+        self.shell_connection.send_command(snifferSxCmd.set_freq(self.args.frequency))
+        self.shell_connection.send_command(snifferSxCmd.set_bw(self.args.bandwidth))
+        self.shell_connection.send_command(snifferSxCmd.set_sf(self.args.spread_factor))
+        self.shell_connection.send_command(snifferSxCmd.set_cr(self.args.coding_rate))
+        self.shell_connection.send_command(snifferSxCmd.set_power(self.args.tx_power))
+
+        # Apply configuration
+        self.shell_connection.send_command(snifferSxCmd.apply())
+        time.sleep(0.2)
+
+        # Start streaming mode
+        self.shell_connection.send_command(snifferSxCmd.start_streaming())
+        self.logger.info("LoRa streaming started")
 
         header_flag = False
         self.writeControlMessage(
             CTRL_CMD_SET, CTRL_NUM_BANDWIDTH, str(self.args.bandwidth)
         )
+        self.writeControlMessage(
+            CTRL_CMD_SET, CTRL_NUM_FREQUENCY, str(self.args.frequency)
+        )
 
-        # capture packets and write to the capture output until signaled to stop
+        # Capture packets and write to the capture output until signaled to stop
         while not self.captureStopped:
             try:
-                data = self.serial_worker.readline()
+                data = self.lora_connection.readline()
                 if data:
-                    self.logger.info(f"Recv: {data}")
+                    self.logger.debug(f"Recv: {data}")
                     if data.startswith(START_OF_FRAME):
                         packet = snifferSx.Packet(
                             (START_OF_FRAME + data),
@@ -457,34 +493,34 @@ class MinimalExtcap:
                             pipe.write_packet(get_global_header(148))
                         pipe.write_packet(packet.pcap)
 
-                time.sleep(0.5)
+                time.sleep(0.1)
             except KeyboardInterrupt:
-                self.serial_worker.disconnect()
-                if opening_worker.is_alive():
-                    opening_worker.join()
-                pipe.remove()
                 break
 
+        # Cleanup
+        self.logger.info("Stopping capture...")
+        if self.shell_connection:
+            self.shell_connection.send_command(snifferSxCmd.start_command())
+            self.shell_connection.disconnect()
+        if self.lora_connection:
+            self.lora_connection.disconnect()
+        if opening_worker.is_alive():
+            opening_worker.join(timeout=1)
+        pipe.remove()
         self.logger.info("Capture stopped")
 
     def stopCapture(self):
-        # signal the main thread that capturing has been stopped
         self.captureStopped = True
 
     def open_pipes(self):
-        # if a control-out FIFO has been given, open it for writing
         if self.args.extcap_control_out is not None:
             self.controlWriteStream = open(self.args.extcap_control_out, "wb", 0)
-
-            # Clear the logger control in preparation for writing new messages
             self.writeControlMessage(CTRL_CMD_SET, CTRL_NUM_LOGGER, "")
 
-        # if a control-in FIFO has been given, open it for reading
         if self.args.extcap_control_in is not None:
             self.controlReadStream = open(self.args.extcap_control_in, "rb", 0)
 
         if self.controlReadStream:
-            # start a thread to read control messages
             self.controlThread = threading.Thread(
                 target=self.controlThreadMain, daemon=True
             )
@@ -499,65 +535,66 @@ class MinimalExtcap:
             while True:
                 (cmd, controlNum, payload) = self.readControlMessage()
                 self.logger.info("Control message received: %d %d" % (cmd, controlNum))
+
                 if cmd == CTRL_CMD_INITIALIZED:
                     self.controlsInitialized = True
+
                 elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_FREQUENCY:
                     self.logger.info("Changing Frequency: %s" % payload)
-                    self.args.frequency = float(payload)
-                    self.serial_worker.write(snifferSxCmd.set_freq(self.args.frequency))
-                    self.serial_worker.write(snifferSxCmd.start())
+                    self.args.frequency = int(payload)
+                    if self.shell_connection:
+                        self.shell_connection.send_command(snifferSxCmd.set_freq(self.args.frequency))
+                        self.shell_connection.send_command(snifferSxCmd.apply())
+                        self.shell_connection.send_command(snifferSxCmd.start_streaming())
                     self.writeControlMessage(
-                        CTRL_CMD_SET,
-                        CTRL_NUM_FREQUENCY,
-                        str(self.args.frequency),
+                        CTRL_CMD_SET, CTRL_NUM_FREQUENCY, str(self.args.frequency)
                     )
+
                 elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_SPREADFACTOR:
                     self.logger.info("Changing Spread factor: %s" % payload)
                     self.args.spread_factor = int(payload)
-                    self.serial_worker.write(
-                        snifferSxCmd.set_sf(self.args.spread_factor)
-                    )
-                    self.serial_worker.write(snifferSxCmd.start())
+                    if self.shell_connection:
+                        self.shell_connection.send_command(snifferSxCmd.set_sf(self.args.spread_factor))
+                        self.shell_connection.send_command(snifferSxCmd.apply())
+                        self.shell_connection.send_command(snifferSxCmd.start_streaming())
                     self.writeControlMessage(
-                        CTRL_CMD_SET,
-                        CTRL_NUM_SPREADFACTOR,
-                        str(self.args.spread_factor),
+                        CTRL_CMD_SET, CTRL_NUM_SPREADFACTOR, str(self.args.spread_factor)
                     )
+
                 elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_BANDWIDTH:
                     self.logger.info("Changing bandwidth: %s" % payload)
                     self.args.bandwidth = int(payload)
-                    self.serial_worker.write(snifferSxCmd.set_bw(self.args.bandwidth))
-                    self.serial_worker.write(snifferSxCmd.start())
+                    if self.shell_connection:
+                        self.shell_connection.send_command(snifferSxCmd.set_bw(self.args.bandwidth))
+                        self.shell_connection.send_command(snifferSxCmd.apply())
+                        self.shell_connection.send_command(snifferSxCmd.start_streaming())
                     self.writeControlMessage(
                         CTRL_CMD_SET, CTRL_NUM_BANDWIDTH, str(self.args.bandwidth)
                     )
+
                 elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_CODINGRATE:
                     self.logger.info("Changing coding rate: %s" % payload)
                     self.args.coding_rate = int(payload)
-                    self.serial_worker.write(snifferSxCmd.set_cr(self.args.coding_rate))
-                    self.serial_worker.write(snifferSxCmd.start())
+                    if self.shell_connection:
+                        self.shell_connection.send_command(snifferSxCmd.set_cr(self.args.coding_rate))
+                        self.shell_connection.send_command(snifferSxCmd.apply())
+                        self.shell_connection.send_command(snifferSxCmd.start_streaming())
                     self.writeControlMessage(
                         CTRL_CMD_SET, CTRL_NUM_CODINGRATE, str(self.args.coding_rate)
                     )
-                elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_PREAMBLE:
-                    self.logger.info("Changing Preamble: %s" % payload)
-                    self.args.preamble = int(payload)
-                    self.serial_worker.write(snifferSxCmd.set_pl(self.args.preamble))
-                    self.serial_worker.write(snifferSxCmd.start())
+
+                elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_TXPOWER:
+                    self.logger.info("Changing TX Power: %s" % payload)
+                    self.args.tx_power = int(payload)
+                    if self.shell_connection:
+                        self.shell_connection.send_command(snifferSxCmd.set_power(self.args.tx_power))
+                        self.shell_connection.send_command(snifferSxCmd.apply())
+                        self.shell_connection.send_command(snifferSxCmd.start_streaming())
                     self.writeControlMessage(
-                        CTRL_CMD_SET, CTRL_NUM_PREAMBLE, str(self.args.preamble)
-                    )
-                elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_SYNC_WORD:
-                    self.logger.info("Changing Sync word: %s" % payload)
-                    self.args.sync_word = payload
-                    self.serial_worker.write(snifferSxCmd.set_sw(self.args.sync_word))
-                    self.serial_worker.write(snifferSxCmd.start())
-                    self.writeControlMessage(
-                        CTRL_CMD_SET, CTRL_NUM_SYNC_WORD, str(self.args.sync_word)
+                        CTRL_CMD_SET, CTRL_NUM_TXPOWER, str(self.args.tx_power)
                     )
 
         except EOFError:
-            # Wireshark closed the control FIFO, indicating it is done capturing
             pass
         except:
             self.logger.exception("INTERNAL ERROR")
@@ -568,9 +605,7 @@ class MinimalExtcap:
     def readControlMessage(self):
         try:
             header = self.controlReadStream.read(6)
-        except (
-            IOError
-        ):  # Windows will raise this when the other end of the FIFO is closed
+        except IOError:
             raise EOFError()
         if len(header) < 6:
             raise EOFError()
