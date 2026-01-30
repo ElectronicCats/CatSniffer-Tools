@@ -3,40 +3,119 @@ import time
 from .common import *
 
 
+class LoRaShellCommands:
+    """Shell commands for LoRa configuration via Cat-Shell port."""
+
+    @staticmethod
+    def set_freq(frequency_hz: int) -> str:
+        """Set frequency in Hz (e.g., 915000000)."""
+        return f"lora_freq {frequency_hz}"
+
+    @staticmethod
+    def set_sf(spreading_factor: int) -> str:
+        """Set spreading factor (7-12)."""
+        return f"lora_sf {spreading_factor}"
+
+    @staticmethod
+    def set_bw(bandwidth_khz: int) -> str:
+        """Set bandwidth in kHz (125, 250, 500)."""
+        return f"lora_bw {bandwidth_khz}"
+
+    @staticmethod
+    def set_cr(coding_rate: int) -> str:
+        """Set coding rate (5-8)."""
+        return f"lora_cr {coding_rate}"
+
+    @staticmethod
+    def set_power(tx_power_dbm: int) -> str:
+        """Set TX power in dBm."""
+        return f"lora_power {tx_power_dbm}"
+
+    @staticmethod
+    def set_mode(mode: str) -> str:
+        """Set mode: 'stream' or 'command'."""
+        return f"lora_mode {mode}"
+
+    @staticmethod
+    def get_config() -> str:
+        """Get current LoRa configuration."""
+        return "lora_config"
+
+    @staticmethod
+    def apply_config() -> str:
+        """Apply pending configuration changes."""
+        return "lora_apply"
+
+    @staticmethod
+    def get_status() -> str:
+        """Get device status."""
+        return "status"
+
+    @staticmethod
+    def get_help() -> str:
+        """Get available commands."""
+        return "help"
+
+
 class SnifferSx:
+    """SX1262 LoRa sniffer protocol handler."""
+
     class Commands:
+        """Shell commands for LoRa configuration."""
+
         def __init__(self):
             pass
 
-        def set_freq(self, frequency: float) -> bytes:
-            return bytes(f"set_freq {frequency}\r\n", "utf-8")
+        def set_freq(self, frequency_hz: int) -> str:
+            """Set frequency in Hz."""
+            return LoRaShellCommands.set_freq(frequency_hz)
 
-        def set_bw(self, bandwidth: float) -> bytes:
-            return bytes(f"set_bw {bandwidth}\r\n", "utf-8")
+        def set_bw(self, bandwidth_khz: int) -> str:
+            """Set bandwidth in kHz."""
+            return LoRaShellCommands.set_bw(bandwidth_khz)
 
-        def set_sf(self, spreading_factor: float) -> bytes:
-            return bytes(f"set_sf {spreading_factor}\r\n", "utf-8")
+        def set_sf(self, spreading_factor: int) -> str:
+            """Set spreading factor."""
+            return LoRaShellCommands.set_sf(spreading_factor)
 
-        def set_cr(self, coding_rate: float) -> bytes:
-            return bytes(f"set_cr {coding_rate}\r\n", "utf-8")
+        def set_cr(self, coding_rate: int) -> str:
+            """Set coding rate."""
+            return LoRaShellCommands.set_cr(coding_rate)
 
-        def set_pl(self, preamble_length: float) -> bytes:
-            return bytes(f"set_pl {preamble_length}\r\n", "utf-8")
+        def set_power(self, tx_power_dbm: int) -> str:
+            """Set TX power."""
+            return LoRaShellCommands.set_power(tx_power_dbm)
 
-        def set_sw(self, sync_word: float) -> bytes:
-            return bytes(f"set_sw {sync_word}\r\n", "utf-8")
+        def set_mode(self, mode: str) -> str:
+            """Set stream or command mode."""
+            return LoRaShellCommands.set_mode(mode)
 
-        def start(self) -> bytes:
-            return bytes(f"set_rx\r\n", "utf-8")
+        def get_config(self) -> str:
+            """Get current configuration."""
+            return LoRaShellCommands.get_config()
+
+        def apply(self) -> str:
+            """Apply pending configuration."""
+            return LoRaShellCommands.apply_config()
+
+        def start_streaming(self) -> str:
+            """Start streaming mode."""
+            return LoRaShellCommands.set_mode("stream")
+
+        def start_command(self) -> str:
+            """Start command mode."""
+            return LoRaShellCommands.set_mode("command")
 
     class Packet:
+        """LoRa packet parser."""
+
         def __init__(
             self,
             packet_bytes: bytes,
             context={
-                "frequency": 916,
-                "bandwidth": 8,
-                "spread_factor": 11,
+                "frequency": 915000000,
+                "bandwidth": 125,
+                "spread_factor": 7,
                 "coding_rate": 5,
             },
         ):
@@ -58,13 +137,17 @@ class SnifferSx:
             protocol = b"\x05"
             phy = bytes.fromhex("06")
             interfaceId = bytes.fromhex("0300")
+
+            # Convert frequency from Hz to MHz for PCAP
+            freq_mhz = self.context["frequency"] // 1000000
+
             packet = (
                 version
                 + int(self.length).to_bytes(2, "little")
                 + interfaceId
                 + protocol
                 + phy
-                + int(self.context["frequency"]).to_bytes(4, "little")
+                + int(freq_mhz).to_bytes(4, "little")
                 + int(self.context["bandwidth"]).to_bytes(1, "little")
                 + int(self.context["spread_factor"]).to_bytes(1, "little")
                 + int(self.context["coding_rate"]).to_bytes(1, "little")

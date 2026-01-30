@@ -7,7 +7,12 @@ import logging
 from datetime import datetime
 
 # Internal
-from .catsniffer import catsniffer_get_port, cmd_bootloader_enter, cmd_bootloader_exit
+from .catsniffer import (
+    catsniffer_get_port,
+    catsniffer_get_device,
+    CatSnifferDevice,
+    ShellConnection,
+)
 from .cc2538 import (
     CommandInterface,
     FirmwareFile,
@@ -39,22 +44,71 @@ console = Console()
 
 
 class CCLoader:
-    def __init__(self, firmware=None, port=catsniffer_get_port()):
+    """CC1352 firmware loader using new multi-port architecture."""
+
+    def __init__(self, firmware=None, device: CatSnifferDevice = None):
+        """
+        Initialize CCLoader.
+
+        Args:
+            firmware: Path to firmware file
+            device: CatSnifferDevice with bridge_port and shell_port
+        """
         self.cmd = CommandInterface()
         self.firmware = FirmwareFile(firmware)
-        self.cat_port = port
+        self.device = device
+        self.shell = None
+
+        # For backwards compatibility, accept port string
+        if device is None:
+            self.bridge_port = catsniffer_get_port()
+            self.shell_port = None
+        else:
+            self.bridge_port = device.bridge_port
+            self.shell_port = device.shell_port
 
     def init(self):
+        """Initialize the bootloader connection."""
         cat_baud = 500000
 
-        console.print(f"[*] Opening port {self.cat_port} at baud: {cat_baud}")
-        self.cmd.open(self.cat_port, cat_baud)
+        console.print(f"[*] Opening bridge port {self.bridge_port} at baud: {cat_baud}")
+        self.cmd.open(self.bridge_port, cat_baud)
 
     def enter_bootloader(self):
-        self.cmd._write(cmd_bootloader_enter())
+        """Send boot command via shell port to enter CC1352 bootloader mode."""
+        if self.shell_port:
+            console.print(f"[*] Sending boot command via shell port: {self.shell_port}")
+            self.shell = ShellConnection(port=self.shell_port)
+            if self.shell.connect():
+                result = self.shell.enter_bootloader()
+                time.sleep(0.5)  # Give time for bootloader to start
+                if result:
+                    console.print("[*] Boot command sent successfully")
+                else:
+                    console.print("[yellow][!] Boot command may have failed[/yellow]")
+            else:
+                console.print(f"[yellow][!] Could not connect to shell port[/yellow]")
+        else:
+            console.print("[yellow][!] No shell port available, skipping boot command[/yellow]")
 
     def exit_bootloader(self):
-        self.cmd._write(cmd_bootloader_exit())
+        """Send exit command via shell port to exit CC1352 bootloader mode."""
+        if self.shell_port:
+            console.print(f"[*] Sending exit command via shell port")
+            if self.shell is None:
+                self.shell = ShellConnection(port=self.shell_port)
+                self.shell.connect()
+
+            if self.shell:
+                result = self.shell.exit_bootloader()
+                time.sleep(0.3)
+                self.shell.disconnect()
+                if result:
+                    console.print("[*] Exit command sent successfully")
+                else:
+                    console.print("[yellow][!] Exit command may have failed[/yellow]")
+        else:
+            console.print("[yellow][!] No shell port available, skipping exit command[/yellow]")
 
     def sync_device(self) -> None:
         logger.info("[*] Connecting to target...")
@@ -66,9 +120,13 @@ class CCLoader:
 
     def close(self) -> None:
         self.cmd.close()
+        if self.shell:
+            self.shell.disconnect()
 
     def close_exit(self) -> None:
         self.cmd.close()
+        if self.shell:
+            self.shell.disconnect()
         exit(1)
 
     def close_reset(self) -> None:
@@ -110,7 +168,7 @@ class CCLoader:
         if self.cmd.writeMemory(address, self.firmware.bytes):
             console.print(f"[*] Write done", style="green")
         else:
-            logger.error(f"[X] Error: Erase failed")
+            logger.error(f"[X] Error: Write failed")
             self.close_exit()
 
     def verify_crc(self, device) -> None:
@@ -390,29 +448,53 @@ class Catnip:
                 return True
         return False
 
-    def find_flash_firmware(self, firmware_str, port):
+    def find_flash_firmware(self, firmware_str, device: CatSnifferDevice = None):
+        """
+        Find and flash firmware.
+
+        Args:
+            firmware_str: Firmware name or path
+            device: CatSnifferDevice (optional, will auto-detect if not provided)
+        """
         firmwares = self.get_local_firmware()
+
+        # Get device if not provided
+        if device is None:
+            device = catsniffer_get_device()
+
         if os.path.exists(firmware_str):
-            return self.flash_firmware(firmware_str, port)
+            return self.flash_firmware(firmware_str, device)
 
         for firm in firmwares:
             if firm.startswith(firmware_str):
                 path = os.path.join(self.get_releases_path(), firm)
-                return self.flash_firmware(path, port)
+                return self.flash_firmware(path, device)
         return False
 
-    def flash_firmware(self, firmware, port) -> bool:
+    def flash_firmware(self, firmware, device: CatSnifferDevice = None) -> bool:
+        """
+        Flash firmware to CC1352.
+
+        Workflow:
+        1. Send 'boot' command via Shell port → CC1352 enters bootloader
+        2. Flash firmware via Bridge port using cc2538 bootloader protocol
+        3. Send 'exit' command via Shell port → CC1352 exits bootloader
+
+        Args:
+            firmware: Path to firmware file
+            device: CatSnifferDevice with bridge_port and shell_port
+        """
         try:
-            ccloader = CCLoader(firmware=firmware, port=port)
+            ccloader = CCLoader(firmware=firmware, device=device)
             ccloader.init()
             ccloader.enter_bootloader()
             ccloader.sync_device()
-            device = ccloader.get_chip_info()
-            ccloader.show_chip_details(device)
-            ccloader.erase_firmware(device)
+            chip_device = ccloader.get_chip_info()
+            ccloader.show_chip_details(chip_device)
+            ccloader.erase_firmware(chip_device)
             with console.status("[bold magenta][*] Writing bytes..."):
-                ccloader.write_firmware(device)
-            ccloader.verify_crc(device)
+                ccloader.write_firmware(chip_device)
+            ccloader.verify_crc(chip_device)
             ccloader.exit_bootloader()
             ccloader.close()
             return True
