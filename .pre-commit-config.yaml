@@ -1,17 +1,17 @@
 repos:
 -   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v3.2.0
+    rev: v6.0.0
     hooks:
     -   id: check-yaml
     -   id: end-of-file-fixer
     -   id: trailing-whitespace
     -   id: no-commit-to-branch # This hook prevents direct commits to main branch
 -   repo: https://github.com/psf/black
-    rev: 22.10.0
+    rev: 25.9.0
     hooks:
     -   id: black
 -   repo: https://github.com/compilerla/conventional-pre-commit
-    rev: v3.2.0
+    rev: v4.3.0
     hooks:
     -   id: conventional-pre-commit
         stages: [commit-msg]

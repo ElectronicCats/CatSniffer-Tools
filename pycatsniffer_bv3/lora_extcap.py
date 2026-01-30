@@ -1,23 +1,13 @@
-#! /Library/Frameworks/Python.framework/Versions/3.11/bin/python3
-#
-#   Copyright 2024, Kevin Leon
-#
-#
-#  @file
-#       A Wireshark extcap plug-in for real time packet capture using CatSniffer.
-#
-
-import sys
+#!/opt/homebrew/bin/python3
 import os
-import os.path
-import argparse
-import re
-import threading
-import struct
-import logging
+import sys
 import time
+import struct
 import signal
+import logging
+import argparse
 import traceback
+import threading
 import Modules.SnifferCollector as SCollector
 from Modules import Fifo
 from serial.tools.list_ports import comports
@@ -25,11 +15,13 @@ from serial.tools.list_ports import comports
 scriptName = os.path.basename(sys.argv[0])
 
 CTRL_NUM_LOGGER = 0
-CTRL_NUM_REGION = 1
+CTRL_NUM_FREQUENCY = 1
 CTRL_NUM_CHANNEL = 2
 CTRL_NUM_SPREADFACTOR = 3
 CTRL_NUM_BANDWIDTH = 4
 CTRL_NUM_CODINGRATE = 5
+CTRL_NUM_PREAMBLE = 6
+CTRL_NUM_SYNC_WORD = 7
 # Loggers
 CTRL_CMD_INITIALIZED = 0
 CTRL_CMD_SET = 1
@@ -52,8 +44,29 @@ class UsageError(Exception):
     pass
 
 
-class SnifferExtcapPlugin:
-    def __init__(self) -> None:
+class ArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        raise UsageError(message)
+
+
+class SniffleExtcapLogHandler(logging.Handler):
+    def __init__(self, plugin):
+        logging.Handler.__init__(self)
+        self.plugin = plugin
+
+    def emit(self, record):
+        try:
+            logMsg = self.format(record) + "\n"
+        except:
+            logMsg = traceback.format_exc() + "\n"
+        try:
+            self.plugin.writeControlMessage(CTRL_CMD_ADD, CTRL_NUM_LOGGER, logMsg)
+        except:
+            pass
+
+
+class MinimalExtcap:
+    def __init__(self):
         self.args = None
         self.logger = None
         self.hw = SCollector.SnifferCollector(logger=logging.getLogger("sniffer_hw"))
@@ -65,16 +78,6 @@ class SnifferExtcapPlugin:
         self.controlsInitialized = False
 
     def main(self, args=None):
-        # initialize logging
-        #
-        # add a log handler to pass internal log messages back to Wireshark
-        # via the control-out FIFO
-        #
-        # if CATSNIFER_LOG_FILE env variable is set, also write log messages to
-        # the named file
-        #
-        # if CATSNIFER_LOG_LEVEL is set, set the default log level accordingly
-        #
         log_handlers = [SniffleExtcapLogHandler(self)]
         log_files = os.environ.get("CATSNIFER_LOG_FILE", None)
         if log_files:
@@ -82,7 +85,6 @@ class SnifferExtcapPlugin:
         log_levels = os.environ.get(
             "CATSNIFER_LOG_LEVEL", "DEBUG" if log_files else "INFO"
         ).upper()
-
         logging.basicConfig(
             handlers=log_handlers,
             level=log_levels,
@@ -91,150 +93,110 @@ class SnifferExtcapPlugin:
         )
 
         self.logger = logging.getLogger(scriptName)
-
-        ret = 0
-
         try:
-            # Load the given arguments
             self.loadArgs(args)
-
             # FIFO and control pipes must be opened, else Wireshark will freeze
             self.open_pipes()
 
-            # Parse and validate the arguments
             self.parseArgs()
 
-            # Perform the requested operation
             if self.args.op == "extcap-interfaces":
                 print(self.extcap_interfaces())
             elif self.args.op == "extcap-dlts":
                 print(self.extcap_dlts())
             elif self.args.op == "extcap-config":
                 print(self.extcap_config())
-            elif self.args.op == "extcap-reload-option":
-                # No reloadable options, so simply return.
-                pass
             elif self.args.op == "capture":
                 self.capture()
             else:
-                # Should not get here
-                raise RuntimeError("Operation not specified")
+                raise UsageError("Operation not specified")
 
         except UsageError as ex:
-            print(f"{ex}", file=os.sys.stderr)
-            ret = 1
-
-        except KeyboardInterrupt:
-            ret = 1
-
-        except SystemExit as ex:
-            ret = ex.code
-
-        except:
-            self.logger.exception("INTERNAL ERROR")
-            ret = 1
+            print(f"{ex}", file=sys.stderr)
+            return 1
 
         self.close_pipes()
-        return ret
+        return 0
 
     def loadArgs(self, args=None):
-        argParser = ArgumentParser(prog=scriptName)
-        argParser.add_argument(
+        parser = ArgumentParser(prog=scriptName)
+        parser.add_argument(
             "--extcap-interfaces",
             dest="op",
             action="append_const",
             const="extcap-interfaces",
-            help="List available capture interfaces",
         )
-        argParser.add_argument(
-            "--extcap-dlts",
-            dest="op",
-            action="append_const",
-            const="extcap-dlts",
-            help="List DTLs for interface",
+        parser.add_argument(
+            "--extcap-dlts", dest="op", action="append_const", const="extcap-dlts"
         )
-        argParser.add_argument(
-            "--extcap-config",
-            dest="op",
-            action="append_const",
-            const="extcap-config",
-            help="List configurations for interface",
+        parser.add_argument(
+            "--extcap-config", dest="op", action="append_const", const="extcap-config"
         )
-        argParser.add_argument(
-            "--capture",
-            dest="op",
-            action="append_const",
-            const="capture",
-            help="Start capture",
+        parser.add_argument(
+            "--capture", dest="op", action="append_const", const="capture"
         )
-        argParser.add_argument("--extcap-interface", help="Target capture interface")
-        argParser.add_argument("--extcap-version", help="Wireshark version")
-        argParser.add_argument(
-            "--extcap-reload-option", help="Reload elements for option"
-        )
-        argParser.add_argument("--fifo", help="Output fifo")
-        argParser.add_argument("--extcap-capture-filter", help="Capture filter")
-        argParser.add_argument(
+        parser.add_argument("--extcap-interface")
+        parser.add_argument("--extcap-version", help="Wireshark version")
+        parser.add_argument("--fifo", help="Output fifo")
+        parser.add_argument(
             "--extcap-control-in", help="Used to get control messages from toolbar"
         )
-        argParser.add_argument(
+        parser.add_argument(
             "--extcap-control-out", help="Used to send control messages to toolbar"
         )
-        argParser.add_argument("--serport", help="Sniffer serial port name")
-        argParser.add_argument(
-            "--region",
+        parser.add_argument("--serport", help="Sniffer serial port name")
+        parser.add_argument(
+            "--frequency",
             type=float,
             default=915,
             help="Regiion to listen on",
         )
-        argParser.add_argument(
-            "--channel",
-            type=int,
-            default=0,
-            help="Advertising channel to listen on",
-        )
-        argParser.add_argument(
+        parser.add_argument(
             "--spread-factor",
             type=int,
             default=7,
             choices=[i for i in range(7, 13)],
             help="Spreading factor to listen on",
         )
-        argParser.add_argument(
+        parser.add_argument(
             "--bandwidth",
             type=int,
             default=7,
             choices=[i for i in range(9)],
             help="Bandwidth to listen on",
         )
-        argParser.add_argument(
+        parser.add_argument(
             "--coding-rate",
             type=int,
             default=5,
             choices=[i for i in range(5, 8)],
             help="Coding rate to listen on",
         )
-        argParser.add_argument(
+        parser.add_argument(
+            "--preamble",
+            type=int,
+            default=8,
+            help="Preamble Length",
+        )
+        parser.add_argument(
+            "--sync-word",
+            type=str,
+            default=0x12,
+            help="Sync Word",
+        )
+        parser.add_argument(
             "--log-level",
             default="INFO",
             choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
             help="Log level",
         )
-
-        self.args = argParser.parse_args(args=args)
+        self.args = parser.parse_args(args)
 
     def parseArgs(self):
-        # Determine the operation being performed
         if not self.args.op or len(self.args.op) != 1:
-
-            raise UsageError(
-                "Please specify exactly one of --capture, --extcap-version, --extcap-interfaces, --extcap-dlts or --extcap-config"
-            )
+            raise UsageError("Please specify exactly one operation")
         self.args.op = self.args.op[0]
-
-        self.args.region = float(self.args.region)
-        # Parse --channel argument
-        self.args.channel = int(self.args.channel)
+        self.args.frequency = float(self.args.frequency)
         self.args.spread_factor = int(self.args.spread_factor)
         self.args.bandwidth = int(self.args.bandwidth)
         self.args.coding_rate = int(self.args.coding_rate)
@@ -250,20 +212,24 @@ class SnifferExtcapPlugin:
         if self.args.op == "capture" and not self.args.serport:
             raise UsageError("Please specify the --serport option when capturing")
 
+    # ---------- Extcap mandatory methods ----------
     def extcap_version(self):
-        return "extcap {version=1.0}{display=CatSniffer Lora}{help=https://github.com/ElectronicCats/CatSniffer}"
+        return "extcap {version=1.0}{display=CatSniffer Extcap Lora}{help=https://github.com/ElectronicCats/CatSniffer}"
 
     def extcap_interfaces(self):
         lines = []
+        self.logger.info(f"Frequency: {self.args.frequency}")
         lines.append(self.extcap_version())
-        lines.append("interface {value=catsniffer_lora}{display=CatSniffer Lora}")
+        lines.append(
+            "interface {value=catsniffer_lora}{display=CatSniffer Extcap Lora}"
+        )
         lines.append(
             "control {number=%d}{type=button}{role=logger}{display=Log}{tooltip=Show capture log}"
             % CTRL_NUM_LOGGER
         )
         lines.append(
-            "control {number=%d}{type=string}{display=Channel}{tooltip=Channel to listen on}"
-            % CTRL_NUM_CHANNEL
+            "control {number=%d}{type=string}{display=Frequency in MHz}{tooltip=Frequency in MHz}"
+            % CTRL_NUM_FREQUENCY
         )
         lines.append(
             "control {number=%d}{type=selector}{display=Bandwidth}{tooltip=Bandwidth to listen on}"
@@ -277,8 +243,18 @@ class SnifferExtcapPlugin:
             "control {number=%d}{type=selector}{display=Coding Rate}{tooltip=Coding Rate to listen on}"
             % CTRL_NUM_CODINGRATE
         )
-        # Channel
-        lines.append("value {control=%d}{value=0}{display=0}" % CTRL_NUM_CHANNEL)
+        lines.append(
+            "control {number=%d}{type=string}{display=Preamble}{tooltip=Preamble Length}"
+            % CTRL_NUM_PREAMBLE
+        )
+        lines.append(
+            "control {number=%d}{type=string}{display=Sync Word}{tooltip=Sync Word}"
+            % CTRL_NUM_SYNC_WORD
+        )
+        lines.append(
+            "value {control=%d}{value=%f}{display=%f MHz}"
+            % (CTRL_NUM_FREQUENCY, 915, self.args.frequency)
+        )
         # Bandwidth
         lines.append("value {control=%d}{value=0}{display=7.8}" % CTRL_NUM_BANDWIDTH)
         lines.append("value {control=%d}{value=1}{display=10.4}" % CTRL_NUM_BANDWIDTH)
@@ -308,9 +284,8 @@ class SnifferExtcapPlugin:
         return "\n".join(lines)
 
     def extcap_dlts(self):
-        return (
-            "dlt {number=%d}{name=catsniffer_rpi_lora}{display=CatSniffer Lora link-layer}"
-            % (CATSNIFFER_DLT)
+        return "dlt {number=%d}{name=catsniffer_lora_dlt}{display=Catsniffer DLT}" % (
+            CATSNIFFER_DLT
         )
 
     def extcap_config(self):
@@ -321,14 +296,9 @@ class SnifferExtcapPlugin:
             "{tooltip=Sniffer device serial port}"
         )
         lines.append(
-            "arg {number=1}{call=--region}{type=double}{default=915}"
-            "{display=Region}"
-            "{tooltip=Region to listen on}"
-        )
-        lines.append(
-            "arg {number=2}{call=--channel}{type=integer}{default=0}{range=0,72}"
-            "{display=Channel}"
-            "{tooltip=Channel to listen on}"
+            "arg {number=1}{call=--frequency}{type=double}{default=915}"
+            "{display=Frequency}"
+            "{tooltip=Frequency to listen on}"
         )
         lines.append(
             "arg {number=3}{call=--spread-factor}{type=selector}{default=7}"
@@ -346,6 +316,16 @@ class SnifferExtcapPlugin:
             "{tooltip=Coding Rate to listen on}"
         )
         lines.append(
+            "arg {number=6}{call=--preamble}{type=double}{default=8}"
+            "{display=Preamble}"
+            "{tooltip=Preamble Length}"
+        )
+        lines.append(
+            "arg {number=7}{call=--sync-word}{type=string}{default=0x12}"
+            "{display=Sync Word}"
+            "{tooltip=Sync Word}"
+        )
+        lines.append(
             "arg {number=6}{call=--log-level}{type=selector}{display=Log Level}{tooltip=Set the log level}{default=INFO}{group=Logger}"
         )
         other_ports = []
@@ -355,11 +335,10 @@ class SnifferExtcapPlugin:
             else:
                 device = port.device
             if port.vid is not None and port.pid is not None:
-                if port.vid == CATSNIFFER_VID and port.pid == CATSNIFFER_PID:
-                    displayName = "%s - CatSniffer" % (port.device)
-                    lines.append(
-                        "value {arg=0}{value=%s}{display=%s}" % (device, displayName)
-                    )
+                displayName = "%s" % (port.device)
+                lines.append(
+                    "value {arg=0}{value=%s}{display=%s}" % (device, displayName)
+                )
             else:
                 if port.manufacturer is not None:
                     displayName = "%s - %s" % (port.device, port.manufacturer)
@@ -368,14 +347,6 @@ class SnifferExtcapPlugin:
                 other_ports.append((device, displayName))
         for device, displayName in other_ports:
             lines.append("value {arg=0}{value=%s}{display=%s}" % (device, displayName))
-
-        # Region
-        # lines.append("value {arg=1}{value=433}{display=433}")
-        # lines.append("value {arg=1}{value=868}{display=868}")
-        # lines.append("value {arg=1}{value=915}{display=915}{default=true}")
-        # Channel
-        # for i in range(0, 73):
-        #     lines.append("value {arg=2}{value=%d}{display=%d}" % (i, i))
         # Spreading Factor
         for i in range(7, 13):
             lines.append("value {arg=3}{value=%d}{display=%d}" % (i, i))
@@ -400,10 +371,6 @@ class SnifferExtcapPlugin:
         return "\n".join(lines)
 
     def capture(self):
-        # Wait for the INITIALIZED message from Wireshark
-        #    NOTE that Wireshark on Windows will delay sending the INITIALIZED message
-        #    until after it receives the PCAP header.  Thus this loop must happen
-        #    *after* the PcapBleWriter has been initialized to avoid a deadlock.
         if self.controlReadStream:
             self.logger.info("Waiting for INITIALIZED message from Wireshark")
             while not self.controlsInitialized:
@@ -411,25 +378,24 @@ class SnifferExtcapPlugin:
 
         self.logger.info("Initializing CatSniffer hardware interface")
 
-        # initialize the CatSniffer hardware interface
         self.hw.set_board_uart(self.args.serport)
         self.hw.set_is_catsniffer(CATSNIFFER_BOARD)
         self.hw.set_lora_bandwidth(self.args.bandwidth)
-        self.hw.set_lora_channel(self.args.channel)
-        self.hw.set_lora_frequency(self.args.region)
+        self.hw.set_lora_frequency(self.args.frequency)
         self.hw.set_lora_spread_factor(self.args.spread_factor)
         self.hw.set_lora_coding_rate(self.args.coding_rate)
+        self.hw.set_lora_preamble(self.args.preamble)
 
-        self.logger.info("Starting capture")
-
-        # Arrange to exit gracefully on a signal from Wireshark. NOTE that this
-        # has no effect under Windows.
         signal.signal(signal.SIGINT, lambda sig, frame: self.stopCapture())
         signal.signal(signal.SIGTERM, lambda sig, frame: self.stopCapture())
-        if self.args.fifo is not None:
-            self.logger.info("Opening capture output FIFO")
-            self.hw.set_output_workers([Fifo.FifoLinux(self.args.fifo)])
+
+        if not self.args.fifo:
+            self.args.fifo = Fifo.DEFAULT_FILENAME
+        self.logger.info("Opening capture output FIFO")
+        self.hw.set_output_workers([Fifo.FifoLinux(self.args.fifo)])
+
         # start the capture
+        self.logger.info("Starting capture")
         self.hw.run_workers()
         self.writeControlMessage(
             CTRL_CMD_SET, CTRL_NUM_BANDWIDTH, str(self.args.bandwidth)
@@ -443,10 +409,18 @@ class SnifferExtcapPlugin:
 
         self.logger.info("Capture stopped")
 
+    def stopCapture(self):
+        # interrupt the main thread if it is in the middle of receiving data
+        # from the capture hardware.
+        if self.hw:
+            self.hw.send_command_stop()
+
+        # signal the main thread that capturing has been stopped
+        self.captureStopped = True
+
     def open_pipes(self):
         # if a control-out FIFO has been given, open it for writing
         if self.args.extcap_control_out is not None:
-            self.logger.info("Opening control-out FIFO")
             self.controlWriteStream = open(self.args.extcap_control_out, "wb", 0)
 
             # Clear the logger control in preparation for writing new messages
@@ -454,12 +428,10 @@ class SnifferExtcapPlugin:
 
         # if a control-in FIFO has been given, open it for reading
         if self.args.extcap_control_in is not None:
-            self.logger.info("Opening control-in FIFO")
             self.controlReadStream = open(self.args.extcap_control_in, "rb", 0)
 
         if self.controlReadStream:
             # start a thread to read control messages
-            self.logger.info("Starting control thread")
             self.controlThread = threading.Thread(
                 target=self.controlThreadMain, daemon=True
             )
@@ -473,20 +445,21 @@ class SnifferExtcapPlugin:
             self.controlWriteStream.close()
 
     def controlThreadMain(self):
-        self.logger.info("Control thread started")
         try:
             while True:
                 (cmd, controlNum, payload) = self.readControlMessage()
                 self.logger.info("Control message received: %d %d" % (cmd, controlNum))
                 if cmd == CTRL_CMD_INITIALIZED:
                     self.controlsInitialized = True
-                elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_CHANNEL:
-                    self.logger.info("Changing channel: %s" % payload)
-                    self.args.channel = int(payload)
-                    self.hw.set_lora_channel(self.args.channel)
+                elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_FREQUENCY:
+                    self.logger.info("Changing Frequency: %s" % payload)
+                    self.args.frequency = float(payload)
+                    self.hw.set_lora_frequency(self.args.frequency)
                     self.hw.set_and_send_lora_config()
                     self.writeControlMessage(
-                        CTRL_CMD_SET, CTRL_NUM_CHANNEL, str(self.args.channel)
+                        CTRL_CMD_SET,
+                        CTRL_NUM_FREQUENCY,
+                        str(self.args.frequency),
                     )
                 elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_SPREADFACTOR:
                     self.logger.info("Changing Spread factor: %s" % payload)
@@ -513,6 +486,22 @@ class SnifferExtcapPlugin:
                     self.hw.set_and_send_lora_config()
                     self.writeControlMessage(
                         CTRL_CMD_SET, CTRL_NUM_CODINGRATE, str(self.args.coding_rate)
+                    )
+                elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_PREAMBLE:
+                    self.logger.info("Changing Preamble: %s" % payload)
+                    self.args.preamble = int(payload)
+                    self.hw.set_lora_preamble(self.args.preamble)
+                    self.hw.set_and_send_lora_config()
+                    self.writeControlMessage(
+                        CTRL_CMD_SET, CTRL_NUM_PREAMBLE, str(self.args.preamble)
+                    )
+                elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_SYNC_WORD:
+                    self.logger.info("Changing Sync word: %s" % payload)
+                    self.args.sync_word = payload
+                    self.hw.set_lora_sync_word(self.args.sync_word)
+                    self.hw.set_and_send_lora_config()
+                    self.writeControlMessage(
+                        CTRL_CMD_SET, CTRL_NUM_SYNC_WORD, str(self.args.sync_word)
                     )
 
         except EOFError:
@@ -567,39 +556,8 @@ class SnifferExtcapPlugin:
             "!bBHBB", ord("T"), msgLen >> 16, msgLen & 0xFFFF, controlNum, cmd
         )
         msg += payload
-        print(msg)
         self.controlWriteStream.write(msg)
-
-    def stopCapture(self):
-        # interrupt the main thread if it is in the middle of receiving data
-        # from the capture hardware.
-        if self.hw:
-            self.hw.send_command_stop()
-
-        # signal the main thread that capturing has been stopped
-        self.captureStopped = True
-
-
-class SniffleExtcapLogHandler(logging.Handler):
-    def __init__(self, plugin):
-        logging.Handler.__init__(self)
-        self.plugin = plugin
-
-    def emit(self, record):
-        try:
-            logMsg = self.format(record) + "\n"
-        except:
-            logMsg = traceback.format_exc() + "\n"
-        try:
-            self.plugin.writeControlMessage(CTRL_CMD_ADD, CTRL_NUM_LOGGER, logMsg)
-        except:
-            pass
-
-
-class ArgumentParser(argparse.ArgumentParser):
-    def error(self, message):
-        raise UsageError(message)
 
 
 if __name__ == "__main__":
-    sys.exit(SnifferExtcapPlugin().main())
+    sys.exit(MinimalExtcap().main())
