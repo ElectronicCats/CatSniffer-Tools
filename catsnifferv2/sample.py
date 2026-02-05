@@ -32,8 +32,10 @@ except ImportError:
 CATSNIFFER_VID = 0x1209
 CATSNIFFER_PID = 0xBABB
 
+
 class CatSnifferDevice:
     """Represents a single CatSniffer device with its 3 endpoints."""
+
     def __init__(self, device_id, ports):
         self.device_id = device_id
         self.bridge_port = ports.get("Cat-Bridge")
@@ -55,7 +57,7 @@ class CatSnifferDevice:
                 ser.reset_output_buffer()
 
                 # Send command
-                cmd_bytes = (command + "\r\n").encode('ascii')
+                cmd_bytes = (command + "\r\n").encode("ascii")
                 ser.write(cmd_bytes)
                 ser.flush()
 
@@ -75,16 +77,20 @@ class CatSnifferDevice:
                             break
                         time.sleep(0.05)
 
-                return response.decode('ascii', errors='ignore').strip()
+                return response.decode("ascii", errors="ignore").strip()
         except Exception as e:
             return f"ERROR: {str(e)}"
+
 
 def get_all_usb_devices():
     """Find all Catsniffer USB devices."""
     devices = []
-    for dev in usb.core.find(find_all=True, idVendor=CATSNIFFER_VID, idProduct=CATSNIFFER_PID):
+    for dev in usb.core.find(
+        find_all=True, idVendor=CATSNIFFER_VID, idProduct=CATSNIFFER_PID
+    ):
         devices.append(dev)
     return devices
+
 
 def get_usb_interfaces(dev):
     """Read interface strings from a specific USB device."""
@@ -101,19 +107,24 @@ def get_usb_interfaces(dev):
             except:
                 name = None
 
-            interfaces.append({
-                "number": intf_num,
-                "name": name,
-                "class": intf.bInterfaceClass,
-                "bus": dev.bus,
-                "address": dev.address
-            })
+            interfaces.append(
+                {
+                    "number": intf_num,
+                    "name": name,
+                    "class": intf.bInterfaceClass,
+                    "bus": dev.bus,
+                    "address": dev.address,
+                }
+            )
 
     return interfaces
 
+
 def find_all_catsniffers():
     """Find all connected CatSniffer devices and their ports."""
-    print(f"Searching for CatSniffers (VID:{CATSNIFFER_VID:04X} PID:{CATSNIFFER_PID:04X})...")
+    print(
+        f"Searching for CatSniffers (VID:{CATSNIFFER_VID:04X} PID:{CATSNIFFER_PID:04X})..."
+    )
 
     usb_devices = get_all_usb_devices()
 
@@ -127,7 +138,7 @@ def find_all_catsniffers():
     all_ports = list(serial.tools.list_ports.comports())
     cat_ports = sorted(
         [p for p in all_ports if p.vid == CATSNIFFER_VID and p.pid == CATSNIFFER_PID],
-        key=lambda x: x.device
+        key=lambda x: x.device,
     )
 
     # Group ports by device (each CatSniffer has 3 consecutive ports)
@@ -137,8 +148,9 @@ def find_all_catsniffers():
     all_interfaces = []
     for dev in usb_devices:
         interfaces = get_usb_interfaces(dev)
-        cdc_ctrl_intfs = sorted([i for i in interfaces if i["class"] == 0x02],
-                               key=lambda x: x["number"])
+        cdc_ctrl_intfs = sorted(
+            [i for i in interfaces if i["class"] == 0x02], key=lambda x: x["number"]
+        )
         all_interfaces.extend(cdc_ctrl_intfs)
 
     # Match ports to interfaces (3 ports per device)
@@ -158,6 +170,7 @@ def find_all_catsniffers():
 
     return catsniffers
 
+
 def print_device_info(devices):
     """Print information about all detected devices."""
     print("=" * 70)
@@ -169,6 +182,7 @@ def print_device_info(devices):
         print(f"  Cat-Bridge (CC1352): {dev.bridge_port or 'Not found'}")
         print(f"  Cat-LoRa (SX1262):   {dev.lora_port or 'Not found'}")
         print(f"  Cat-Shell (Config):  {dev.shell_port or 'Not found'}")
+
 
 def test_basic_commands(device):
     """Test basic shell commands on a CatSniffer."""
@@ -225,7 +239,9 @@ def test_basic_commands(device):
         print(f"  Response: {response}")
 
         # Switch back to command mode for testing
-        response2 = device.send_command(device.shell_port, "lora_mode command", timeout=1.0)
+        response2 = device.send_command(
+            device.shell_port, "lora_mode command", timeout=1.0
+        )
         if response2 and "COMMAND" in response2:
             print("  ✓ PASS: LoRa mode switch to command works")
             print(f"  Response: {response2}")
@@ -235,6 +251,7 @@ def test_basic_commands(device):
 
     print(f"\n  Summary: {tests_passed}/{tests_total} tests passed")
     return tests_passed == tests_total
+
 
 def test_lora_config_commands(device):
     """Test LoRa configuration commands."""
@@ -252,7 +269,9 @@ def test_lora_config_commands(device):
     # Test frequency
     print("\n[1/6] Testing 'lora_freq' command...")
     tests_total += 1
-    response = device.send_command(device.shell_port, "lora_freq 868000000", timeout=1.0)
+    response = device.send_command(
+        device.shell_port, "lora_freq 868000000", timeout=1.0
+    )
     if response and "Frequency set to" in response and "pending" in response:
         print("  ✓ PASS: Frequency setting works")
         print(f"  Response: {response}")
@@ -327,6 +346,7 @@ def test_lora_config_commands(device):
     print(f"\n  Summary: {tests_passed}/{tests_total} tests passed")
     return tests_passed == tests_total
 
+
 def test_lora_communication(device):
     """Test LoRa command mode communication."""
     print(f"\n{'='*70}")
@@ -372,12 +392,19 @@ def test_lora_communication(device):
     print(f"\n  Summary: {tests_passed}/{tests_total} tests passed")
     return tests_passed == tests_total
 
+
 def main():
-    parser = argparse.ArgumentParser(description='CatSniffer Multi-Device Verification Tool')
-    parser.add_argument('--test-all', action='store_true',
-                       help='Run all tests including LoRa configuration and communication')
-    parser.add_argument('--device', type=int, metavar='N',
-                       help='Test only device number N (1-indexed)')
+    parser = argparse.ArgumentParser(
+        description="CatSniffer Multi-Device Verification Tool"
+    )
+    parser.add_argument(
+        "--test-all",
+        action="store_true",
+        help="Run all tests including LoRa configuration and communication",
+    )
+    parser.add_argument(
+        "--device", type=int, metavar="N", help="Test only device number N (1-indexed)"
+    )
     args = parser.parse_args()
 
     print("=" * 70)
@@ -408,13 +435,11 @@ def main():
 
     results = {}
     for device in devices:
-        results[device.device_id] = {
-            'basic': test_basic_commands(device)
-        }
+        results[device.device_id] = {"basic": test_basic_commands(device)}
 
         if args.test_all:
-            results[device.device_id]['config'] = test_lora_config_commands(device)
-            results[device.device_id]['lora'] = test_lora_communication(device)
+            results[device.device_id]["config"] = test_lora_config_commands(device)
+            results[device.device_id]["lora"] = test_lora_communication(device)
 
     # Print summary
     print("\n" + "=" * 70)
@@ -424,17 +449,22 @@ def main():
     all_passed = True
     for device_id, tests in results.items():
         print(f"\nCatSniffer #{device_id}:")
-        basic_status = "✓ PASS" if tests['basic'] else "✗ FAIL"
+        basic_status = "✓ PASS" if tests["basic"] else "✗ FAIL"
         print(f"  Basic Commands:        {basic_status}")
 
         if args.test_all:
-            config_status = "✓ PASS" if tests.get('config') else "✗ FAIL"
-            lora_status = "✓ PASS" if tests.get('lora') else "✗ FAIL"
+            config_status = "✓ PASS" if tests.get("config") else "✗ FAIL"
+            lora_status = "✓ PASS" if tests.get("lora") else "✗ FAIL"
             print(f"  LoRa Configuration:    {config_status}")
             print(f"  LoRa Communication:    {lora_status}")
-            all_passed = all_passed and tests['basic'] and tests.get('config') and tests.get('lora')
+            all_passed = (
+                all_passed
+                and tests["basic"]
+                and tests.get("config")
+                and tests.get("lora")
+            )
         else:
-            all_passed = all_passed and tests['basic']
+            all_passed = all_passed and tests["basic"]
 
     print("\n" + "=" * 70)
     if all_passed:
@@ -444,6 +474,7 @@ def main():
     print("=" * 70)
 
     return 0 if all_passed else 1
+
 
 if __name__ == "__main__":
     sys.exit(main())

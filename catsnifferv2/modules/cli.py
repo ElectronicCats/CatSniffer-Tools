@@ -72,7 +72,9 @@ def get_device_or_exit(device_id=None):
         console.print("    Make sure your CatSniffer is connected.")
         exit(1)
     if not device.is_valid():
-        console.print(f"[yellow][!] Warning: Not all ports detected for {device}[/yellow]")
+        console.print(
+            f"[yellow][!] Warning: Not all ports detected for {device}[/yellow]"
+        )
         console.print(f"    Bridge: {device.bridge_port}")
         console.print(f"    LoRa:   {device.lora_port}")
         console.print(f"    Shell:  {device.shell_port}")
@@ -98,7 +100,13 @@ def sniff(verbose):
 
 
 @sniff.command(SniffingFirmware.BLE.name.lower())
-@click.option("--device", "-d", default=None, type=int, help="Device ID (for multiple CatSniffers)")
+@click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
 def sniff_ble(device):
     """Sniffing BLE with Sniffle firmware"""
     dev = get_device_or_exit(device)
@@ -118,7 +126,13 @@ def sniff_ble(device):
 @click.option(
     "--channel", "-c", required=True, type=click.IntRange(11, 26), help="Zigbee channel"
 )
-@click.option("--device", "-d", default=None, type=int, help="Device ID (for multiple CatSniffers)")
+@click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
 def sniff_zigbee(ws, channel, device):
     """Sniffing Zigbee with Sniffer TI firmware"""
     dev = get_device_or_exit(device)
@@ -139,7 +153,13 @@ def sniff_zigbee(ws, channel, device):
 @click.option(
     "--channel", "-c", required=True, type=click.IntRange(11, 26), help="Thread channel"
 )
-@click.option("--device", "-d", default=None, type=int, help="Device ID (for multiple CatSniffers)")
+@click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
 def sniff_thread(ws, channel, device):
     """Sniffing Thread with Sniffer TI firmware"""
     dev = get_device_or_exit(device)
@@ -192,7 +212,13 @@ def sniff_thread(ws, channel, device):
     type=int,
     help="TX Power in dBm",
 )
-@click.option("--device", "-d", default=None, type=int, help="Device ID (for multiple CatSniffers)")
+@click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
 def sniff_lora(
     ws,
     frequency,
@@ -234,7 +260,13 @@ def cativity() -> None:
 
 @cli.command()
 @click.argument("firmware")
-@click.option("--device", "-d", default=None, type=int, help="Device ID (for multiple CatSniffers)")
+@click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
 def flash(firmware, device) -> None:
     """Flash CC1352 Firmware"""
     dev = get_device_or_exit(device)
@@ -260,9 +292,15 @@ def devices() -> None:
     console.print(f"\n[bold]Found {len(devs)} CatSniffer device(s):[/bold]\n")
     for dev in devs:
         console.print(f"[cyan]{dev}[/cyan]")
-        console.print(f"  Cat-Bridge (CC1352): {dev.bridge_port or '[red]Not found[/red]'}")
-        console.print(f"  Cat-LoRa (SX1262):   {dev.lora_port or '[red]Not found[/red]'}")
-        console.print(f"  Cat-Shell (Config):  {dev.shell_port or '[red]Not found[/red]'}")
+        console.print(
+            f"  Cat-Bridge (CC1352): {dev.bridge_port or '[red]Not found[/red]'}"
+        )
+        console.print(
+            f"  Cat-LoRa (SX1262):   {dev.lora_port or '[red]Not found[/red]'}"
+        )
+        console.print(
+            f"  Cat-Shell (Config):  {dev.shell_port or '[red]Not found[/red]'}"
+        )
         console.print()
 
 

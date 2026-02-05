@@ -293,8 +293,9 @@ class MinimalExtcap:
         return "\n".join(lines)
 
     def extcap_dlts(self):
-        return "dlt {number=%d}{name=catsniffer_lora_dlt}{display=CatSniffer LoRa DLT}" % (
-            CATSNIFFER_DLT
+        return (
+            "dlt {number=%d}{name=catsniffer_lora_dlt}{display=CatSniffer LoRa DLT}"
+            % (CATSNIFFER_DLT)
         )
 
     def extcap_config(self):
@@ -364,9 +365,19 @@ class MinimalExtcap:
 
         for dev in devices:
             if dev.shell_port:
-                shell_ports.append((dev.shell_port, f"CatSniffer #{dev.device_id} Shell - {dev.shell_port}"))
+                shell_ports.append(
+                    (
+                        dev.shell_port,
+                        f"CatSniffer #{dev.device_id} Shell - {dev.shell_port}",
+                    )
+                )
             if dev.lora_port:
-                lora_ports.append((dev.lora_port, f"CatSniffer #{dev.device_id} LoRa - {dev.lora_port}"))
+                lora_ports.append(
+                    (
+                        dev.lora_port,
+                        f"CatSniffer #{dev.device_id} LoRa - {dev.lora_port}",
+                    )
+                )
 
         # Also add all serial ports as fallback
         for port in comports():
@@ -438,7 +449,9 @@ class MinimalExtcap:
         # Connect to shell port for configuration
         self.shell_connection = ShellConnection(port=self.args.shell_port)
         if not self.shell_connection.connect():
-            self.logger.error(f"Failed to connect to shell port: {self.args.shell_port}")
+            self.logger.error(
+                f"Failed to connect to shell port: {self.args.shell_port}"
+            )
             return
 
         # Connect to lora port for data
@@ -543,9 +556,13 @@ class MinimalExtcap:
                     self.logger.info("Changing Frequency: %s" % payload)
                     self.args.frequency = int(payload)
                     if self.shell_connection:
-                        self.shell_connection.send_command(snifferSxCmd.set_freq(self.args.frequency))
+                        self.shell_connection.send_command(
+                            snifferSxCmd.set_freq(self.args.frequency)
+                        )
                         self.shell_connection.send_command(snifferSxCmd.apply())
-                        self.shell_connection.send_command(snifferSxCmd.start_streaming())
+                        self.shell_connection.send_command(
+                            snifferSxCmd.start_streaming()
+                        )
                     self.writeControlMessage(
                         CTRL_CMD_SET, CTRL_NUM_FREQUENCY, str(self.args.frequency)
                     )
@@ -554,20 +571,30 @@ class MinimalExtcap:
                     self.logger.info("Changing Spread factor: %s" % payload)
                     self.args.spread_factor = int(payload)
                     if self.shell_connection:
-                        self.shell_connection.send_command(snifferSxCmd.set_sf(self.args.spread_factor))
+                        self.shell_connection.send_command(
+                            snifferSxCmd.set_sf(self.args.spread_factor)
+                        )
                         self.shell_connection.send_command(snifferSxCmd.apply())
-                        self.shell_connection.send_command(snifferSxCmd.start_streaming())
+                        self.shell_connection.send_command(
+                            snifferSxCmd.start_streaming()
+                        )
                     self.writeControlMessage(
-                        CTRL_CMD_SET, CTRL_NUM_SPREADFACTOR, str(self.args.spread_factor)
+                        CTRL_CMD_SET,
+                        CTRL_NUM_SPREADFACTOR,
+                        str(self.args.spread_factor),
                     )
 
                 elif cmd == CTRL_CMD_SET and controlNum == CTRL_NUM_BANDWIDTH:
                     self.logger.info("Changing bandwidth: %s" % payload)
                     self.args.bandwidth = int(payload)
                     if self.shell_connection:
-                        self.shell_connection.send_command(snifferSxCmd.set_bw(self.args.bandwidth))
+                        self.shell_connection.send_command(
+                            snifferSxCmd.set_bw(self.args.bandwidth)
+                        )
                         self.shell_connection.send_command(snifferSxCmd.apply())
-                        self.shell_connection.send_command(snifferSxCmd.start_streaming())
+                        self.shell_connection.send_command(
+                            snifferSxCmd.start_streaming()
+                        )
                     self.writeControlMessage(
                         CTRL_CMD_SET, CTRL_NUM_BANDWIDTH, str(self.args.bandwidth)
                     )
@@ -576,9 +603,13 @@ class MinimalExtcap:
                     self.logger.info("Changing coding rate: %s" % payload)
                     self.args.coding_rate = int(payload)
                     if self.shell_connection:
-                        self.shell_connection.send_command(snifferSxCmd.set_cr(self.args.coding_rate))
+                        self.shell_connection.send_command(
+                            snifferSxCmd.set_cr(self.args.coding_rate)
+                        )
                         self.shell_connection.send_command(snifferSxCmd.apply())
-                        self.shell_connection.send_command(snifferSxCmd.start_streaming())
+                        self.shell_connection.send_command(
+                            snifferSxCmd.start_streaming()
+                        )
                     self.writeControlMessage(
                         CTRL_CMD_SET, CTRL_NUM_CODINGRATE, str(self.args.coding_rate)
                     )
@@ -587,9 +618,13 @@ class MinimalExtcap:
                     self.logger.info("Changing TX Power: %s" % payload)
                     self.args.tx_power = int(payload)
                     if self.shell_connection:
-                        self.shell_connection.send_command(snifferSxCmd.set_power(self.args.tx_power))
+                        self.shell_connection.send_command(
+                            snifferSxCmd.set_power(self.args.tx_power)
+                        )
                         self.shell_connection.send_command(snifferSxCmd.apply())
-                        self.shell_connection.send_command(snifferSxCmd.start_streaming())
+                        self.shell_connection.send_command(
+                            snifferSxCmd.start_streaming()
+                        )
                     self.writeControlMessage(
                         CTRL_CMD_SET, CTRL_NUM_TXPOWER, str(self.args.tx_power)
                     )

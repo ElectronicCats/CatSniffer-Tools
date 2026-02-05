@@ -59,13 +59,17 @@ def run_sx_bridge(
     # Setup shell connection for configuration
     shell = ShellConnection(port=device.shell_port)
     if not shell.connect():
-        console.print(f"[red][X] Failed to connect to shell port: {device.shell_port}[/red]")
+        console.print(
+            f"[red][X] Failed to connect to shell port: {device.shell_port}[/red]"
+        )
         return
 
     # Setup LoRa connection for data stream
     lora = LoRaConnection(port=device.lora_port)
     if not lora.connect():
-        console.print(f"[red][X] Failed to connect to LoRa port: {device.lora_port}[/red]")
+        console.print(
+            f"[red][X] Failed to connect to LoRa port: {device.lora_port}[/red]"
+        )
         shell.disconnect()
         return
 
