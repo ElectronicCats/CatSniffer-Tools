@@ -66,6 +66,7 @@ logging.basicConfig(
     level="WARNING", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
 )
 
+
 def print_header():
     """Print the ASCII art header"""
     ascii_art = f"""      :-:              :--       |
@@ -78,10 +79,10 @@ def print_header():
 .:...:=++++++++++++++++++=:...:. |
  :---.  -++++++++++++++-  .---:  |
  ..        .:------:.        ..  |"""
-    
+
     # Apply color to the ASCII art
     colored_ascii = f"[cyan bold]{ascii_art}[/cyan bold]"
-    
+
     # Create a panel for the header
     header_panel = Panel(
         colored_ascii,
@@ -91,6 +92,7 @@ def print_header():
         padding=(1, 2),
     )
     console.print(header_panel)
+
 
 def print_success(message):
     """Print a success message"""
@@ -110,6 +112,7 @@ def print_error(message):
 def print_info(message):
     """Print an info message"""
     console.print(f"[blue]ℹ[/blue] {message}", style=STYLES["info"])
+
 
 def get_device_or_exit(device_id=None):
     """Get CatSniffer device or exit with error."""
@@ -312,7 +315,7 @@ def cativity() -> None:
     type=int,
     help="Device ID (for multiple CatSniffers). If not specified, first device will be selected.",
 )
-def flash(firmware, device, list) -> None:
+def flash(firmware, device) -> None:
     """Flash CC1352 Firmware or list available firmware images"""
     # If no device is specified, we get all connected devices.
     if device is None:
@@ -321,7 +324,7 @@ def flash(firmware, device, list) -> None:
             print_error("No CatSniffer devices found!")
             console.print("    Make sure your CatSniffer is connected.")
             exit(1)
-        
+
         # Select the first default device
         dev = devs[0]
         print_warning(f"No device specified. Using first device: {dev}")
@@ -332,17 +335,18 @@ def flash(firmware, device, list) -> None:
             print_error(f"CatSniffer device with ID {device} not found!")
             console.print("    Use 'devices' command to list available devices.")
             exit(1)
-    
+
     # Verify that the device is valid
     if not dev.is_valid():
         print_warning(f"Not all ports detected for {dev}")
         console.print(f"    Bridge: {dev.bridge_port}")
         console.print(f"    LoRa:   {dev.lora_port}")
         console.print(f"    Shell:  {dev.shell_port}")
-    
+
     print_info(f"Flashing firmware: {firmware} to device: {dev}")
     if not catnip.find_flash_firmware(firmware, dev):
         print_error(f"Error flashing: {firmware}")
+
 
 @cli.command()
 def devices() -> None:
@@ -363,7 +367,7 @@ def devices() -> None:
         bridge_status = dev.bridge_port or "[red]Not found[/red]"
         lora_status = dev.lora_port or "[red]Not found[/red]"
         shell_status = dev.shell_port or "[red]Not found[/red]"
-        
+
         table.add_row(str(dev), bridge_status, lora_status, shell_status)
 
     console.print()
