@@ -26,30 +26,33 @@ from .catsniffer import (
 import click
 from rich.logging import RichHandler
 from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich import box
+from rich.style import Style
 
 # APP Information
 CLI_NAME = "Catsniffer"
 VERSION_NUMBER = "3.0.0"
 AUTHOR = "JahazielLem"
 COMPANY = "Electronic Cats - PWNLab"
+
+# Defining styles for reuse
+STYLES = {
+    "header": Style(color="cyan", bold=True),
+    "success": Style(color="green", bold=True),
+    "warning": Style(color="yellow", bold=True),
+    "error": Style(color="red", bold=True),
+    "info": Style(color="blue", bold=True),
+    "device": Style(color="cyan"),
+    "prompt": Style(color="magenta", bold=True),
+}
+
 # Prompt
 PROMPT_ICON = "󰄛"
 PROMPT_DESCRIPTION = (
     "PyCat-Sniffer CLI - For sniffing the TI CC1352 device communication interfaces."
 )
-PROMPT_HEADER = f"""
-\x1b[36;1m      :-:              :--       |
-      ++++=.        .=++++       |
-      =+++++===++===++++++       |
-      -++++++++++++++++++-       |  Module:  {CLI_NAME}
- .:   =++---++++++++---++=   :.  |  Author:  {AUTHOR}
- ::---+++.   -++++-   .+++---::  |  Version: {VERSION_NUMBER}
-::1..:-++++:   ++++   :++++-::.::|  Company: {COMPANY}
-.:...:=++++++++++++++++++=:...:. |
- :---.  -++++++++++++++-  .---:  |
- ..        .:------:.        ..  |\x1b[0m
-
-"""
 
 __version__ = "3.0"
 
@@ -63,25 +66,67 @@ logging.basicConfig(
     level="WARNING", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
 )
 
+def print_header():
+    """Print the ASCII art header"""
+    ascii_art = f"""      :-:              :--       |
+      ++++=.        .=++++       |
+      =+++++===++===++++++       |
+      -++++++++++++++++++-       |  Module:  {CLI_NAME}
+ .:   =++---++++++++---++=   :.  |  Author:  {AUTHOR}
+ ::---+++.   -++++-   .+++---::  |  Version: {VERSION_NUMBER}
+::1..:-++++:   ++++   :++++-::.::|  Company: {COMPANY}
+.:...:=++++++++++++++++++=:...:. |
+ :---.  -++++++++++++++-  .---:  |
+ ..        .:------:.        ..  |"""
+    
+    # Apply color to the ASCII art
+    colored_ascii = f"[cyan bold]{ascii_art}[/cyan bold]"
+    
+    # Create a panel for the header
+    header_panel = Panel(
+        colored_ascii,
+        title=PROMPT_DESCRIPTION,
+        border_style=STYLES["header"],
+        title_align="left",
+        padding=(1, 2),
+    )
+    console.print(header_panel)
+
+def print_success(message):
+    """Print a success message"""
+    console.print(f"[green]✓[/green] {message}", style=STYLES["success"])
+
+
+def print_warning(message):
+    """Print a warning message"""
+    console.print(f"[yellow]⚠[/yellow] {message}", style=STYLES["warning"])
+
+
+def print_error(message):
+    """Print an error message"""
+    console.print(f"[red]✗[/red] {message}", style=STYLES["error"])
+
+
+def print_info(message):
+    """Print an info message"""
+    console.print(f"[blue]ℹ[/blue] {message}", style=STYLES["info"])
 
 def get_device_or_exit(device_id=None):
     """Get CatSniffer device or exit with error."""
     device = catsniffer_get_device(device_id)
     if device is None:
-        console.print("[red][X] No CatSniffer device found![/red]")
+        print_error("No CatSniffer device found!")
         console.print("    Make sure your CatSniffer is connected.")
         exit(1)
     if not device.is_valid():
-        console.print(
-            f"[yellow][!] Warning: Not all ports detected for {device}[/yellow]"
-        )
+        print_warning(f"Not all ports detected for {device}")
         console.print(f"    Bridge: {device.bridge_port}")
         console.print(f"    LoRa:   {device.lora_port}")
         console.print(f"    Shell:  {device.shell_port}")
     return device
 
 
-@click.group()
+@click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("--verbose", is_flag=True, help="Show Verbose mode")
 def cli(verbose):
     """CatSniffer: All in one catsniffer tools environment."""
@@ -90,7 +135,7 @@ def cli(verbose):
     pass
 
 
-@click.group()
+@click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("--verbose", is_flag=True, help="Show Verbose mode")
 def sniff(verbose):
     """Sniffer protocol control"""
@@ -112,13 +157,13 @@ def sniff_ble(device):
     dev = get_device_or_exit(device)
     cat = Catsniffer(dev.bridge_port)
     if cat.check_sniffle_firmware():
-        logger.info(f"[*] Firmware found!")
+        print_info("Firmware found!")
     else:
-        logger.info(f"[-] Firmware not found! - Flashing Sniffle")
+        print_warning("Firmware not found! - Flashing Sniffle")
         if not catnip.find_flash_firmware(SniffingBaseFirmware.BLE.value, dev):
             return
 
-    print("[*] Now you can open Sniffle extcap from Wireshark")
+    print_info("Now you can open Sniffle extcap from Wireshark")
 
 
 @sniff.command(SniffingFirmware.ZIGBEE.name.lower())
@@ -138,13 +183,13 @@ def sniff_zigbee(ws, channel, device):
     dev = get_device_or_exit(device)
     cat = Catsniffer(dev.bridge_port)
     if cat.check_ti_firmware():
-        logger.info(f"[*] Firmware found!")
+        print_info("Firmware found!")
     else:
-        logger.info(f"[-] Firmware not found! - Flashing Sniffer TI")
+        print_warning("Firmware not found! - Flashing Sniffer TI")
         if not catnip.find_flash_firmware(SniffingBaseFirmware.ZIGBEE.value, dev):
             return
 
-    print(f"[* {dev}] Sniffing Zigbee at channel: {channel}")
+    print_info(f"[{dev}] Sniffing Zigbee at channel: {channel}")
     run_bridge(dev, channel, ws)
 
 
@@ -165,13 +210,13 @@ def sniff_thread(ws, channel, device):
     dev = get_device_or_exit(device)
     cat = Catsniffer(dev.bridge_port)
     if cat.check_ti_firmware():
-        logger.info(f"[*] Firmware found!")
+        print_info("Firmware found!")
     else:
-        logger.info(f"[-] Firmware not found! - Flashing Sniffer TI")
+        print_warning("Firmware not found! - Flashing Sniffer TI")
         if not catnip.find_flash_firmware(SniffingBaseFirmware.THREAD.value, dev):
             return
 
-    print(f"[* {dev}] Sniffing Thread at channel: {channel}")
+    print_info(f"[{dev}] Sniffing Thread at channel: {channel}")
     run_bridge(dev, channel, ws)
 
 
@@ -234,12 +279,12 @@ def sniff_lora(
     # Convert bandwidth from string to int
     bw_int = int(bandwidth)
 
-    print(f"[* {dev}] Sniffing LoRa with configuration:")
-    print(f"  Frequency:       {frequency} Hz ({frequency / 1000000:.3f} MHz)")
-    print(f"  Bandwidth:       {bw_int} kHz")
-    print(f"  Spreading Factor: SF{spread_factor}")
-    print(f"  Coding Rate:     4/{coding_rate}")
-    print(f"  TX Power:        {tx_power} dBm")
+    print_info(f"[{dev}] Sniffing LoRa with configuration:")
+    console.print(f"  Frequency:       {frequency} Hz ({frequency / 1000000:.3f} MHz)")
+    console.print(f"  Bandwidth:       {bw_int} kHz")
+    console.print(f"  Spreading Factor: SF{spread_factor}")
+    console.print(f"  Coding Rate:     4/{coding_rate}")
+    console.print(f"  TX Power:        {tx_power} dBm")
 
     run_sx_bridge(
         dev,
@@ -255,56 +300,77 @@ def sniff_lora(
 @cli.command()
 def cativity() -> None:
     """IQ Activity Monitor (Not implemented yet)"""
-    logger.info("[*] Monitoring IQ activity")
+    print_info("Monitoring IQ activity")
 
 
 @cli.command()
-@click.argument("firmware")
+@click.argument("firmware", required=False)
 @click.option(
     "--device",
     "-d",
     default=None,
     type=int,
-    help="Device ID (for multiple CatSniffers)",
+    help="Device ID (for multiple CatSniffers). If not specified, first device will be selected.",
 )
-def flash(firmware, device) -> None:
-    """Flash CC1352 Firmware"""
-    dev = get_device_or_exit(device)
-    logger.info(f"[*] Flashing firmware: {firmware}")
+def flash(firmware, device, list) -> None:
+    """Flash CC1352 Firmware or list available firmware images"""
+    # If no device is specified, we get all connected devices.
+    if device is None:
+        devs = catsniffer_get_devices()
+        if not devs:
+            print_error("No CatSniffer devices found!")
+            console.print("    Make sure your CatSniffer is connected.")
+            exit(1)
+        
+        # Select the first default device
+        dev = devs[0]
+        print_warning(f"No device specified. Using first device: {dev}")
+    else:
+        # If an ID is specified, retrieve that specific device.
+        dev = catsniffer_get_device(device)
+        if dev is None:
+            print_error(f"CatSniffer device with ID {device} not found!")
+            console.print("    Use 'devices' command to list available devices.")
+            exit(1)
+    
+    # Verify that the device is valid
+    if not dev.is_valid():
+        print_warning(f"Not all ports detected for {dev}")
+        console.print(f"    Bridge: {dev.bridge_port}")
+        console.print(f"    LoRa:   {dev.lora_port}")
+        console.print(f"    Shell:  {dev.shell_port}")
+    
+    print_info(f"Flashing firmware: {firmware} to device: {dev}")
     if not catnip.find_flash_firmware(firmware, dev):
-        logger.info(f"[X] Error flashing: {firmware}")
-
-
-@cli.command()
-def releases() -> None:
-    """Show Firmware releases"""
-    catnip.show_releases()
-
+        print_error(f"Error flashing: {firmware}")
 
 @cli.command()
 def devices() -> None:
     """List connected CatSniffer devices"""
     devs = catsniffer_get_devices()
     if not devs:
-        console.print("[yellow]No CatSniffer devices found.[/yellow]")
+        print_warning("No CatSniffer devices found.")
         return
 
-    console.print(f"\n[bold]Found {len(devs)} CatSniffer device(s):[/bold]\n")
+    # Add a table to display devicesclear
+    table = Table(title=f"Found {len(devs)} CatSniffer device(s)", box=box.ROUNDED)
+    table.add_column("Device", style=STYLES["device"], justify="left")
+    table.add_column("Cat-Bridge (CC1352)", style="cyan", justify="left")
+    table.add_column("Cat-LoRa (SX1262)", style="cyan", justify="left")
+    table.add_column("Cat-Shell (Config)", style="cyan", justify="left")
+
     for dev in devs:
-        console.print(f"[cyan]{dev}[/cyan]")
-        console.print(
-            f"  Cat-Bridge (CC1352): {dev.bridge_port or '[red]Not found[/red]'}"
-        )
-        console.print(
-            f"  Cat-LoRa (SX1262):   {dev.lora_port or '[red]Not found[/red]'}"
-        )
-        console.print(
-            f"  Cat-Shell (Config):  {dev.shell_port or '[red]Not found[/red]'}"
-        )
-        console.print()
+        bridge_status = dev.bridge_port or "[red]Not found[/red]"
+        lora_status = dev.lora_port or "[red]Not found[/red]"
+        shell_status = dev.shell_port or "[red]Not found[/red]"
+        
+        table.add_row(str(dev), bridge_status, lora_status, shell_status)
+
+    console.print()
+    console.print(table)
 
 
 def main_cli() -> None:
-    print(PROMPT_HEADER)
+    print_header()
     cli.add_command(sniff)
     cli()
