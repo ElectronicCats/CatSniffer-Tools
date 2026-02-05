@@ -89,7 +89,9 @@ class CCLoader:
             else:
                 console.print(f"[yellow][!] Could not connect to shell port[/yellow]")
         else:
-            console.print("[yellow][!] No shell port available, skipping boot command[/yellow]")
+            console.print(
+                "[yellow][!] No shell port available, skipping boot command[/yellow]"
+            )
 
     def exit_bootloader(self):
         """Send exit command via shell port to exit CC1352 bootloader mode."""
@@ -108,7 +110,9 @@ class CCLoader:
                 else:
                     console.print("[yellow][!] Exit command may have failed[/yellow]")
         else:
-            console.print("[yellow][!] No shell port available, skipping exit command[/yellow]")
+            console.print(
+                "[yellow][!] No shell port available, skipping exit command[/yellow]"
+            )
 
     def sync_device(self) -> None:
         logger.info("[*] Connecting to target...")

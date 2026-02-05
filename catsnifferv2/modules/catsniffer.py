@@ -1,5 +1,6 @@
 import enum
 import time
+import re
 from base64 import b64encode, b64decode
 from binascii import Error as BAError
 
@@ -93,82 +94,169 @@ def _get_usb_interfaces(dev):
     return interfaces
 
 
+def _identify_ports_by_serial(cat_ports):
+    """
+    Group ports by device using serial number.
+    Returns a dict mapping serial_num -> list of ports for that device.
+    """
+    devices = {}
+
+    for port in cat_ports:
+        serial_num = "unknown"
+
+        # Try to extract serial number from hwid
+        if port.hwid:
+            match = re.search(r"SER=([A-Fa-f0-9]+)", port.hwid)
+            if match:
+                serial_num = match.group(1)
+            elif port.serial_number:
+                serial_num = port.serial_number
+            elif port.location:
+                serial_num = f"loc-{port.location}"
+
+        if serial_num not in devices:
+            devices[serial_num] = []
+        devices[serial_num].append(port)
+
+    return devices
+
+
+def _map_ports_intelligent(ports):
+    """
+    Intelligently map ports to their functions (Bridge, LoRa, Shell).
+    Uses description strings and falls back to positional ordering.
+    Returns dict with keys: "Cat-Bridge", "Cat-LoRa", "Cat-Shell"
+    """
+    ports_dict = {}
+
+    # Strategy 1: Map by description (most reliable)
+    for port in ports:
+        desc = (port.description or "").lower()
+
+        if "shell" in desc:
+            ports_dict["Cat-Shell"] = port.device
+        elif "lora" in desc:
+            ports_dict["Cat-LoRa"] = port.device
+        elif "bridge" in desc:
+            ports_dict["Cat-Bridge"] = port.device
+
+    # Strategy 2: Map by interface name if available (requires pyusb)
+    if len(ports_dict) < 3 and usb is not None:
+        try:
+            # Try to get interface names from USB
+            for port in ports:
+                if hasattr(port, "interface") and port.interface:
+                    intf_name = port.interface
+                    if "Shell" in intf_name and "Cat-Shell" not in ports_dict:
+                        ports_dict["Cat-Shell"] = port.device
+                    elif "LoRa" in intf_name and "Cat-LoRa" not in ports_dict:
+                        ports_dict["Cat-LoRa"] = port.device
+                    elif "Bridge" in intf_name and "Cat-Bridge" not in ports_dict:
+                        ports_dict["Cat-Bridge"] = port.device
+        except Exception:
+            pass
+
+    # Strategy 3: Fallback to positional ordering
+    # Standard order: Bridge (0), LoRa (1), Shell (2)
+    if len(ports_dict) < 3:
+        fallback_map = {0: "Cat-Bridge", 1: "Cat-LoRa", 2: "Cat-Shell"}
+
+        for i, port in enumerate(ports[:3]):
+            name = fallback_map.get(i)
+            if name and name not in ports_dict:
+                ports_dict[name] = port.device
+
+    return ports_dict
+
+
 def catsniffer_get_devices():
-    """Find all connected CatSniffer devices with their 3 ports."""
-    if usb is None:
-        # Fallback if pyusb not available
-        return _get_devices_fallback()
+    """
+    Find all connected CatSniffer devices with their 3 ports.
 
-    usb_devices = list(
-        usb.core.find(find_all=True, idVendor=CATSNIFFER_VID, idProduct=CATSNIFFER_PID)
-    )
+    Uses intelligent detection based on:
+    1. Serial number grouping (to handle multiple devices)
+    2. Port description matching
+    3. Positional fallback
 
-    if not usb_devices:
-        return []
-
+    Returns:
+        list: List of CatSnifferDevice objects
+    """
     # Get all serial ports matching our VID/PID
     all_ports = list(list_ports.comports())
-    cat_ports = sorted(
-        [p for p in all_ports if p.vid == CATSNIFFER_VID and p.pid == CATSNIFFER_PID],
-        key=lambda x: x.device,
-    )
+    cat_ports = [
+        p for p in all_ports if p.vid == CATSNIFFER_VID and p.pid == CATSNIFFER_PID
+    ]
 
-    # Collect all CDC control interfaces from all devices
-    all_interfaces = []
-    for dev in usb_devices:
-        interfaces = _get_usb_interfaces(dev)
-        # CDC control interfaces have class 0x02
-        cdc_ctrl_intfs = sorted(
-            [i for i in interfaces if i["class"] == 0x02], key=lambda x: x["number"]
-        )
-        all_interfaces.extend(cdc_ctrl_intfs)
+    if not cat_ports:
+        return []
 
-    # Match ports to interfaces (3 ports per device)
+    # Sort consistently across systems
+    cat_ports.sort(key=lambda x: x.device)
+
+    # Group ports by device using serial number
+    devices_by_serial = _identify_ports_by_serial(cat_ports)
+
     catsniffers = []
-    for device_idx in range(len(usb_devices)):
-        port_offset = device_idx * 3
-        if port_offset + 2 < len(cat_ports):
-            ports = {}
-            for i in range(3):
-                intf_idx = port_offset + i
-                port_idx = port_offset + i
+    device_id = 1
 
-                if intf_idx < len(all_interfaces) and port_idx < len(cat_ports):
-                    intf_name = all_interfaces[intf_idx]["name"] or f"Interface-{i}"
-                    ports[intf_name] = cat_ports[port_idx].device
+    for serial_num, ports in sorted(devices_by_serial.items()):
+        # Each CatSniffer should have exactly 3 ports
+        if len(ports) < 3:
+            # Incomplete device, skip it
+            continue
 
-            catsniffers.append(
-                CatSnifferDevice(
-                    device_id=device_idx + 1,
-                    bridge_port=ports.get("Cat-Bridge"),
-                    lora_port=ports.get("Cat-LoRa"),
-                    shell_port=ports.get("Cat-Shell"),
-                )
+        # Sort ports for this specific device
+        ports.sort(key=lambda x: x.device)
+
+        # Intelligently map the ports
+        ports_dict = _map_ports_intelligent(ports)
+
+        # Only create device if we successfully mapped all 3 ports
+        if len(ports_dict) == 3:
+            device = CatSnifferDevice(
+                device_id=device_id,
+                bridge_port=ports_dict.get("Cat-Bridge"),
+                lora_port=ports_dict.get("Cat-LoRa"),
+                shell_port=ports_dict.get("Cat-Shell"),
             )
+            catsniffers.append(device)
+            device_id += 1
 
     return catsniffers
 
 
 def _get_devices_fallback():
-    """Fallback device detection using only pyserial (no interface names)."""
+    """
+    Fallback device detection using only pyserial (no pyusb).
+    Groups ports in sets of 3 based on order.
+    """
     ports = list(list_ports.comports())
     cat_ports = sorted(
         [p for p in ports if p.vid == CATSNIFFER_VID and p.pid == CATSNIFFER_PID],
         key=lambda x: x.device,
     )
 
+    # Group by serial number if possible
+    devices_by_serial = _identify_ports_by_serial(cat_ports)
+
     catsniffers = []
-    # Group ports in sets of 3
-    for i in range(0, len(cat_ports), 3):
-        if i + 2 < len(cat_ports):
-            catsniffers.append(
-                CatSnifferDevice(
-                    device_id=(i // 3) + 1,
-                    bridge_port=cat_ports[i].device,
-                    lora_port=cat_ports[i + 1].device,
-                    shell_port=cat_ports[i + 2].device,
+    device_id = 1
+
+    for serial_num, ports in sorted(devices_by_serial.items()):
+        if len(ports) >= 3:
+            ports.sort(key=lambda x: x.device)
+            ports_dict = _map_ports_intelligent(ports[:3])
+
+            if len(ports_dict) == 3:
+                catsniffers.append(
+                    CatSnifferDevice(
+                        device_id=device_id,
+                        bridge_port=ports_dict.get("Cat-Bridge"),
+                        lora_port=ports_dict.get("Cat-LoRa"),
+                        shell_port=ports_dict.get("Cat-Shell"),
+                    )
                 )
-            )
+                device_id += 1
 
     return catsniffers
 
