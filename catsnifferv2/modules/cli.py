@@ -675,33 +675,24 @@ def devices() -> None:
     console.print()
     console.print(table)
 
+
 @cli.command()
 @click.option(
-    "--test-all", 
+    "--test-all",
     is_flag=True,
-    help="Run all tests including LoRa configuration and communication"
+    help="Run all tests including LoRa configuration and communication",
 )
-@click.option(
-    "--device", 
-    "-d",
-    type=int,
-    help="Test only a specific device (by ID)"
-)
-@click.option(
-    "--quiet",
-    "-q",
-    is_flag=True,
-    help="Show only summary results"
-)
+@click.option("--device", "-d", type=int, help="Test only a specific device (by ID)")
+@click.option("--quiet", "-q", is_flag=True, help="Show only summary results")
 def verify(test_all, device, quiet):
     """
     Verify CatSniffer device functionality
-    
+
     Tests all connected CatSniffers and verifies:
     - Basic shell commands (help, status, lora_config, lora_mode)
     - LoRa configuration (frequency, SF, BW, etc.)
     - LoRa communication (TEST, TXTEST, TX commands)
-    
+
     Use --test-all for comprehensive testing.
     """
     # Check dependencies
@@ -714,26 +705,30 @@ def verify(test_all, device, quiet):
         console.print("\n[yellow]Install missing dependencies:[/yellow]")
         console.print("  pip install pyusb pyserial")
         return 1
-    
+
     # Run verification
     success, results = run_verification(
-        test_all=test_all,
-        device_id=device,
-        quiet=quiet
+        test_all=test_all, device_id=device, quiet=quiet
     )
-    
+
     # Print final message
     if success:
         print_success("Verification completed successfully!")
         if test_all:
-            console.print("\n[green]✓ All devices are fully functional and ready for use![/green]")
+            console.print(
+                "\n[green]✓ All devices are fully functional and ready for use![/green]"
+            )
         else:
-            console.print("\n[green]✓ Basic functionality verified. Use --test-all for comprehensive testing.[/green]")
+            console.print(
+                "\n[green]✓ Basic functionality verified. Use --test-all for comprehensive testing.[/green]"
+            )
         return 0
     else:
         print_error("Verification failed!")
         console.print("\n[yellow]Troubleshooting tips:[/yellow]")
-        console.print("1. Make sure all 3 USB endpoints are connected (Bridge, LoRa, Shell)")
+        console.print(
+            "1. Make sure all 3 USB endpoints are connected (Bridge, LoRa, Shell)"
+        )
         console.print("2. Try reconnecting the USB cable")
         console.print("3. Check if the correct firmware is flashed")
         console.print("4. Verify serial port permissions (Linux/Mac)")
@@ -746,4 +741,3 @@ def main_cli() -> None:
     cli.add_command(help_firmware)
     cli.add_command(verify)
     cli()
-
