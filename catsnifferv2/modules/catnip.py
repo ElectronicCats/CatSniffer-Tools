@@ -140,29 +140,29 @@ class CCLoader:
     def get_chip_info(self):
         chip_id = self.cmd.cmdGetChipId()
         chip_id_str = CHIP_ID_STRS.get(chip_id, None)
-        
+
         # Special known IDs for CatSniffer
         CATSNIFFER_SPECIAL_IDS = {
             0xF000: "CatSniffer CC1352 (Bootloader Mode)",
             0x0000: "Unknown/Uninitialized Chip",
-            0xFFFF: "Invalid/Error Reading Chip ID"
+            0xFFFF: "Invalid/Error Reading Chip ID",
         }
-        
+
         special_id_str = CATSNIFFER_SPECIAL_IDS.get(chip_id)
-        
+
         if special_id_str:
             console.print(f"[*] Chip ID: 0x{chip_id:04X} ({special_id_str})")
-            # Asumir que es CC1352 para CatSniffer
+            # Assume CC1352 for CatSniffer
             return CC26xx(self.cmd)
         elif chip_id_str == None:
-            # Verificar si está en rango de CC13xx/CC26xx
-            # Rango típico: 0x1000-0x10FF
+            # Check if it's in CC13xx/CC26xx range
+            # Typical range: 0x1000-0x10FF
             if 0x1000 <= chip_id <= 0x10FF:
                 console.print(f"[*] Chip ID: 0x{chip_id:04X} (CC13xx/CC26xx series)")
                 return CC26xx(self.cmd)
             else:
                 logger.warning(f"[-] Unrecognized chip ID: 0x{chip_id:04X}")
-                # Intentar CC26xx de todos modos (para CatSniffer)
+                # Try CC26xx anyway (for CatSniffer)
                 return CC26xx(self.cmd)
         else:
             console.print(f"[*] Chip ID: 0x{chip_id:04X} ({chip_id_str})")

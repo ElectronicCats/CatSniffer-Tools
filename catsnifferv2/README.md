@@ -253,7 +253,7 @@ Alias 'sniffle' matched to: sniffle_cc1352p7_1M.hex
 [*] Opening bridge port /dev/ttyACM3 at baud: 500000
 [*] Sending boot command via shell port: /dev/ttyACM5
 [*] Boot command sent successfully
-[11:43:42] WARNING  [-] Unrecognized chip ID. Trying CC13xx/CC26xx
+[*] Chip ID: 0xF000 (CatSniffer CC1352 (Bootloader Mode))
 [*] Chip details:
         Package: CC1350 PG2.0 - 704 KB Flash - 20KB SRAM - CCFG.BL_CONFIG at 0x000AFFD8
         Primary IEEE Address: 00:12:4B:00:2A:79:BF:F1
@@ -263,7 +263,7 @@ Alias 'sniffle' matched to: sniffle_cc1352p7_1M.hex
 [*] Verifying by comparing CRC32 calculations.
 [*] Verified match: 0x6d6c64a5
 [*] Sending exit command via shell port
-[*] Exit command sent successfully
+[*] Exit command sent successfullysssss
 ```
 
 #### Flashing Workflow:
@@ -296,6 +296,246 @@ Error: Timeout waiting for ACK/NACK after 'Synch'
 - **No device found**: Ensure CatSniffer is connected and drivers are installed
 - **Partial port detection**: Some ports may not appear if the device firmware is corrupted
 - **Permission denied**: On Linux/macOS, you may need to add your user to the dialout group
+
+---
+
+## Testing Device Functionality
+The `verify` command provides comprehensive testing of CatSniffer hardware functionality, ensuring all components are working correctly before use.
+
+### Basic Verification
+To run tests on all connectes devices:
+
+```bash
+python3 catsniffer.py verify
+```
+
+This performs:
+- Device detection and port mapping
+- Basic shell command validation (help, status, lora_config, lora_mode)
+- Device status reporting
+
+Example output:
+
+```bash
+Starting device verification...
+✓ Found 1 CatSniffer device(s)
+                             Detected Devices
+╭───────────────┬──────────────┬──────────────┬──────────────┬────────────╮
+│ Device        │ Bridge Port  │ LoRa Port    │ Shell Port   │ Status     │
+├───────────────┼──────────────┼──────────────┼──────────────┼────────────┤
+│ CatSniffer #1 │ /dev/ttyACM0 │ /dev/ttyACM1 │ /dev/ttyACM2 │ ✓ Complete │
+╰───────────────┴──────────────┴──────────────┴──────────────┴────────────╯
+
+============================================================
+Testing CatSniffer #1
+============================================================
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│ Testing CatSniffer #1 - Basic Commands                                               │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+[HELP] Help command...
+  ✓ PASS
+  Response: helpCommands:
+  help     - Show available commands
+  boot     - CC1352 bootloader mode
+  exit   ...
+
+[STATUS] Status command...
+  ✓ PASS
+  Response: statusMode: 0, Band: 0, LoRa: initialized, LoRa Mode: Command
+
+[LORA_CONFIG] LoRa config command...
+  ✓ PASS
+  Response: lora_configLoRa Configuration:
+  Frequency: 915000000 Hz
+  Spreading Factor: SF7
+  Bandwidth: 12...
+
+[LORA_MODE] LoRa mode switch...
+  ✓ PASS
+  Response: lora_mode streamLoRa mode set to STREAM (slow blink)
+
+Summary: 4/4 tests passed
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│  Verification Summary                                                                │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+  Device      Basic
+ ───────────────────
+  Device #1    ✅
+
+✓ Verification completed successfully!
+
+✓ Basic functionality verified. Use --test-all for comprehensive testing.
+```
+
+### Comprehensive Testing
+For complete hardware validation including LoRa configuration and communication:
+
+```bash
+python3 catsniffer.py verify --test-all
+```
+
+This adds:
+- **LoRa Configuration Tests**: Frecuency, spreading factor, bandwidth, coding rate, TX power
+- **LoRa Communication Tests**: Inter-port communication between LoRa and Shell ports
+- **Data Transmission Verification**: TEST, TXTEST, and TX command validation
+
+Example output with `--test-all`
+
+```bash
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│ Testing CatSniffer #1 - LoRa Configuration                                           │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+[FREQ] Set frequency to 915MHz...
+  ✓ PASS
+
+[SF] Set spreading factor to 7...
+  ✓ PASS
+
+[BW] Set bandwidth to 125kHz...
+  ✓ PASS
+
+[CR] Set coding rate to 4/5...
+  ✓ PASS
+
+[POWER] Set TX power to 14dBm...
+  ✓ PASS
+
+[APPLY] Apply configuration...
+  ✓ PASS
+
+Summary: 6/6 configuration tests passed
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│ Testing CatSniffer #1 - LoRa Communication                                           │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+[SETUP] Switching to command mode...
+  ✓ Command mode enabled
+
+[TEST] Sending 'TEST' to LoRa port...
+  Sent 6 bytes to LoRa port
+  Shell response: TEST: LoRa ready!
+  ✓ Response received and validated
+
+[TEST2] Sending 'TEST' to LoRa port...
+  Sent 6 bytes to LoRa port
+  Shell response: TEST: LoRa ready!
+  ✓ Response received and validated
+
+[TXTEST] Sending 'TXTEST' to LoRa port...
+  Sent 8 bytes to LoRa port
+  Shell response: DEBUG: Sending PING packet
+TX Result: 0 (Success)
+  ✓ Response received and validated
+
+[TX] Sending 'TX 50494E47' to LoRa port...
+  Sent 13 bytes to LoRa port
+  Shell response: DEBUG: Hex input '50494E47', length 8
+DEBUG: Converting to 4 bytes
+DEBUG: Sending bytes 50 49 4E 4...
+  ✓ Response received and validated
+
+[CHECK] Checking for data on LoRa port...
+  No data on LoRa port (normal)
+
+[CLEANUP] Switching back to stream mode...
+  ✓ Stream mode restored
+
+Summary: 5/5 communication tests passed
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│  Verification Summary                                                                │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+  Device      Basic   Config   Comm   Overall
+ ─────────────────────────────────────────────
+  Device #1    ✅       ✅      ✅      ✅
+
+✓ Verification completed successfully!
+
+✓ All devices are fully functional and ready for use!
+```
+
+### Testing Specific Devices
+When multiple CatSniffers are connected, test a specific device by ID:
+
+```bash
+# Test only device #2
+python3 catsniffer.py verify --test-all --device 2
+
+# Test only device #3 with quiet output and basic mode
+python3 catsniffer.py verify --device 3 -q
+```
+
+### Quiet Mode
+For automated testing or minimal output, use quiet mode:
+
+```bash
+python3 catsniffer.py verify --test-all --device 1 --quiet
+```
+
+Quiet mode provides concise output:
+```bash
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│ Testing CatSniffer #1 - Basic Commands                                               │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+Summary: 4/4 tests passed
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│ Testing CatSniffer #1 - LoRa Configuration                                           │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+Summary: 6/6 configuration tests passed
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│ Testing CatSniffer #1 - LoRa Communication                                           │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+Summary: 5/5 communication tests passed
+Device #1: PASS
+✓ Verification completed successfully!
+
+✓ All devices are fully functional and ready for use!
+```
+
+### Verification Command Options
+
+```bash
+python3 catsniffer.py verify --help
+
+Usage: catsniffer.py verify [OPTIONS]
+
+  Verify CatSniffer device functionality
+
+  Tests all connected CatSniffers and verifies:
+  - Basic shell commands (help, status, lora_config, lora_mode)
+  - LoRa configuration (frequency, SF, BW, etc.)
+  - LoRa communication (TEST, TXTEST, TX commands)
+
+  Use --test-all for comprehensive testing.
+
+Options:
+  --test-all     Run all tests including LoRa configuration and communication
+  -d, --device INTEGER  Test only a specific device (by ID)
+  -q, --quiet    Show only summary results
+  -h, --help     Show this message and exit.
+```
+
+### Troubleshooting Failed Verification
+If verification fails, check:
+1. **USB Connections**: Ensure all 3 USB endpoints are properly connected
+2. **Port Permissions**: On Linux/macOS, verify serial port permissions
+3. **Firmware Status**: Ensure appropriate firmware is flashed for testing
+4. **Cable Quality**: Try a different USB cable if communication is unstable
+
+Common failure messages and solutions:
+- **"Shell port not available"**: Check USB connection or reflash base firmware
+- **"No response"**: Verify device is powered and in correct mode
+- **"Unexpected response"**: May indicate firmware mismatch or corruption
 
 ---
 
