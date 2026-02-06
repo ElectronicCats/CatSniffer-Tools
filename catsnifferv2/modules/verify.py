@@ -30,6 +30,7 @@ console = Console()
 CATSNIFFER_VID = 0x1209
 CATSNIFFER_PID = 0xBABB
 
+QUIET_MODE = False
 
 class VerificationDevice:
     """Device wrapper for verification testing."""
@@ -195,16 +196,20 @@ def test_basic_commands(device: VerificationDevice) -> bool:
     results = []
     
     for test_name, cmd, expected, description in tests:
-        console.print(f"\n[blue][{test_name.upper()}][/blue] {description}...")
+        if not QUIET_MODE:
+            console.print(f"\n[blue][{test_name.upper()}][/blue] {description}...")
         
         response = device.send_command(device.shell_port, cmd, timeout=2.0)
         
         if response and expected in response:
-            console.print("[green]  ✓ PASS[/green]")
+            if not QUIET_MODE:
+                console.print("[green]  ✓ PASS[/green]")
             if len(response) > 100:
-                console.print(f"[dim]  Response: {response[:100]}...[/dim]")
+                if not QUIET_MODE:
+                    console.print(f"[dim]  Response: {response[:100]}...[/dim]")
             else:
-                console.print(f"[dim]  Response: {response}[/dim]")
+                if not QUIET_MODE:
+                    console.print(f"[dim]  Response: {response}[/dim]")
             results.append(True)
         else:
             console.print(f"[red]  ✗ FAIL[/red]")
@@ -248,7 +253,8 @@ def test_lora_configuration(device: VerificationDevice) -> bool:
     results = []
     
     for test_name, cmd, expected_list, description in tests:
-        console.print(f"\n[blue][{test_name.upper()}][/blue] {description}...")
+        if not QUIET_MODE:
+            console.print(f"\n[blue][{test_name.upper()}][/blue] {description}...")
         
         response = device.send_command(device.shell_port, cmd, timeout=3.0)
         
@@ -256,11 +262,13 @@ def test_lora_configuration(device: VerificationDevice) -> bool:
             found = any(expected.lower() in response.lower() for expected in expected_list)
             
             if found:
-                console.print("[green]  ✓ PASS[/green]")
+                if not QUIET_MODE:
+                    console.print("[green]  ✓ PASS[/green]")
                 results.append(True)
             else:
-                console.print(f"[red]  ✗ FAIL - Unexpected response[/red]")
-                console.print(f"[dim]  Response: {response[:100]}...[/dim]")
+                if not QUIET_MODE:
+                    console.print(f"[red]  ✗ FAIL - Unexpected response[/red]")
+                    console.print(f"[dim]  Response: {response[:100]}...[/dim]")
                 results.append(False)
         else:
             console.print("[red]  ✗ FAIL - No response[/red]")
@@ -289,11 +297,13 @@ def test_lora_communication(device: VerificationDevice) -> bool:
     results = []
     
     # Switch to command mode
-    console.print("\n[blue][SETUP][/blue] Switching to command mode...")
+    if not QUIET_MODE:
+        console.print("\n[blue][SETUP][/blue] Switching to command mode...")
     response = device.send_command(device.shell_port, "lora_mode command", timeout=2.0)
     
     if response and "COMMAND" in response:
-        console.print("[green]  ✓ Command mode enabled[/green]")
+        if not QUIET_MODE:
+            console.print("[green]  ✓ Command mode enabled[/green]")
         time.sleep(0.5)
     else:
         console.print("[red]  ✗ Failed to switch to command mode[/red]")
@@ -302,7 +312,8 @@ def test_lora_communication(device: VerificationDevice) -> bool:
     def send_lora_listen_shell(lora_cmd: str, expected_keywords: List[str], 
                                test_name: str, timeout: float = 3.0) -> bool:
         """Send command to LoRa port and listen for response on Shell port."""
-        console.print(f"\n[blue][{test_name}][/blue] Sending '{lora_cmd}' to LoRa port...")
+        if not QUIET_MODE:
+            console.print(f"\n[blue][{test_name}][/blue] Sending '{lora_cmd}' to LoRa port...")
         
         try:
             shell_ser = serial.Serial(device.shell_port, 115200, timeout=0.5)
@@ -318,7 +329,9 @@ def test_lora_communication(device: VerificationDevice) -> bool:
             cmd_bytes = (lora_cmd + "\r\n").encode('ascii')
             lora_ser.write(cmd_bytes)
             lora_ser.flush()
-            console.print(f"[dim]  Sent {len(cmd_bytes)} bytes to LoRa port[/dim]")
+            
+            if not QUIET_MODE:
+                console.print(f"[dim]  Sent {len(cmd_bytes)} bytes to LoRa port[/dim]")
             
             response = b""
             start_time = time.time()
@@ -336,20 +349,25 @@ def test_lora_communication(device: VerificationDevice) -> bool:
             
             if response_str:
                 if len(response_str) > 100:
-                    console.print(f"[dim]  Shell response: {response_str[:100]}...[/dim]")
+                    if not QUIET_MODE:
+                        console.print(f"[dim]  Shell response: {response_str[:100]}...[/dim]")
                 else:
-                    console.print(f"[dim]  Shell response: {response_str}[/dim]")
+                    if not QUIET_MODE:
+                        console.print(f"[dim]  Shell response: {response_str}[/dim]")
                 
                 found = any(keyword in response_str for keyword in expected_keywords)
                 
                 if found:
-                    console.print("[green]  ✓ Response received and validated[/green]")
+                    if not QUIET_MODE:
+                        console.print("[green]  ✓ Response received and validated[/green]")
                     return True
                 else:
-                    console.print("[yellow]  ⚠ Response received but didn't match expected pattern[/yellow]")
+                    if not QUIET_MODE:
+                        console.print("[yellow]  ⚠ Response received but didn't match expected pattern[/yellow]")
                     return False
             else:
-                console.print("[red]  ✗ No response from Shell[/red]")
+                if not QUIET_MODE:
+                    console.print("[red]  ✗ No response from Shell[/red]")
                 return False
                 
         except Exception as e:
@@ -370,7 +388,8 @@ def test_lora_communication(device: VerificationDevice) -> bool:
         time.sleep(1)
     
     # Check LoRa port for data
-    console.print("\n[blue][CHECK][/blue] Checking for data on LoRa port...")
+    if not QUIET_MODE:
+        console.print("\n[blue][CHECK][/blue] Checking for data on LoRa port...")
     
     try:
         with serial.Serial(device.lora_port, 115200, timeout=1) as lora_ser:
@@ -379,21 +398,25 @@ def test_lora_communication(device: VerificationDevice) -> bool:
             
             if lora_ser.in_waiting > 0:
                 data = lora_ser.read(lora_ser.in_waiting)
-                console.print(f"[green]  ✓ Data available on LoRa port: {data.hex()[:50]}...[/green]")
+                if not QUIET_MODE:
+                    console.print(f"[green]  ✓ Data available on LoRa port: {data.hex()[:50]}...[/green]")
                 results.append(True)
             else:
-                console.print("[dim]  No data on LoRa port (normal)[/dim]")
+                if not QUIET_MODE:
+                    console.print("[dim]  No data on LoRa port (normal)[/dim]")
                 results.append(True)
     except Exception as e:
         console.print(f"[red]  ✗ Error checking LoRa port: {e}[/red]")
         results.append(False)
     
     # Return to stream mode
-    console.print("\n[blue][CLEANUP][/blue] Switching back to stream mode...")
+    if not QUIET_MODE:
+        console.print("\n[blue][CLEANUP][/blue] Switching back to stream mode...")
     response = device.send_command(device.shell_port, "lora_mode stream", timeout=2.0)
     
     if response and "STREAM" in response:
-        console.print("[green]  ✓ Stream mode restored[/green]")
+        if not QUIET_MODE:
+            console.print("[green]  ✓ Stream mode restored[/green]")
     else:
         console.print("[yellow]  ⚠ Could not restore stream mode[/yellow]")
     
@@ -417,44 +440,56 @@ def run_verification(test_all: bool = False, device_id: Optional[int] = None,
     Returns:
         Tuple of (success, results_dict)
     """
-    if quiet:
-        # Could implement quiet mode here
-        pass
-    
-    console.print("[cyan]Starting device verification...[/cyan]")
+
+    # Global variables
+    global QUIET_MODE
+    QUIET_MODE = quiet
+
+    if not quiet:
+        console.print("[cyan]Starting device verification...[/cyan]")
     
     # Find devices
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        transient=True,
-    ) as progress:
-        task = progress.add_task("Searching for CatSniffers...", total=None)
+    devices = []
+    if not quiet:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            transient=True,
+        ) as progress:
+            task = progress.add_task("Searching for CatSniffers...", total=None)
+            devices = find_verification_devices()
+    else:
         devices = find_verification_devices()
     
     if not devices:
-        console.print("[red]✗ No CatSniffer devices found![/red]")
+        if not quiet:
+            console.print("[red]✗ No CatSniffer device(s) found![/red]")
         return False, {}
     
-    console.print(f"[green]✓ Found {len(devices)} CatSniffer device(s)[/green]")
+    if not quiet:
+        console.print(f"[green]✓ Found {len(devices)} CatSniffer device(s)[/green]")
     
-    # Print device table
-    print_device_table(devices)
+    # Print device table only if not quiet
+    if not quiet:
+        print_device_table(devices)
     
     # Filter by device ID if specified
     if device_id:
         devices = [d for d in devices if d.device_id == device_id]
         if not devices:
-            console.print(f"[red]✗ Device #{device_id} not found![/red]")
+            if not quiet:
+                console.print(f"[red]✗ Device #{device_id} not found![/red]")
             return False, {}
-        console.print(f"[yellow]Testing only device #{device_id}[/yellow]")
+        if not quiet:
+            console.print(f"[yellow]Testing only device #{device_id}[/yellow]")
     
     # Run tests
     results = {}
     for dev in devices:
-        console.print("\n" + "="*60)
-        console.print(f"[bold]Testing {dev}[/bold]")
-        console.print("="*60)
+        if not quiet:
+            console.print("\n" + "="*60)
+            console.print(f"[bold]Testing {dev}[/bold]")
+            console.print("="*60)
         
         # Basic tests
         results[dev.device_id] = {
@@ -466,23 +501,28 @@ def run_verification(test_all: bool = False, device_id: Optional[int] = None,
             if dev.shell_port:
                 results[dev.device_id]['config'] = test_lora_configuration(dev)
             else:
-                console.print("[yellow]Skipping LoRa config tests - no shell port[/yellow]")
+                if not quiet:
+                    console.print("[yellow]Skipping LoRa config tests - no shell port[/yellow]")
                 results[dev.device_id]['config'] = False
             
             if dev.lora_port and dev.shell_port:
                 results[dev.device_id]['lora'] = test_lora_communication(dev)
             else:
-                console.print("[yellow]Skipping LoRa communication tests - missing ports[/yellow]")
+                if not quiet:
+                    console.print("[yellow]Skipping LoRa communication tests - missing ports[/yellow]")
                 results[dev.device_id]['lora'] = False
     
     # Print summary
-    console.print(Panel(
-        "[bold cyan]Verification Summary[/bold cyan]",
-        border_style="cyan",
-        padding=(1, 2)
-    ))
+    if not quiet:
+        console.print(Panel(
+            "[bold cyan]Verification Summary[/bold cyan]",
+            border_style="cyan",
+            padding=(1, 2)
+        ))
     
     from rich import box
+
+    # Always create summary table, but only print it if not in quiet mode
     summary_table = Table(box=box.SIMPLE)
     summary_table.add_column("Device", style="cyan")
     summary_table.add_column("Basic", justify="center")
@@ -523,7 +563,20 @@ def run_verification(test_all: bool = False, device_id: Optional[int] = None,
             )
             all_passed = all_passed and test_results['basic']
     
-    console.print(summary_table)
+    if not quiet:
+        console.print(summary_table)
+    else:
+
+        # In quiet mode, only display short summary
+        if test_all:
+            for dev_id, test_results in results.items():
+                all_tests_passed = test_results['basic'] and test_results.get('config', False) and test_results.get('lora', False)
+                status = "PASS" if all_tests_passed else "FAIL"
+                print(f"Device #{dev_id}: {status}")
+        else:
+            for dev_id, test_results in results.items():
+                status = "PASS" if test_results['basic'] else "FAIL"
+                print(f"Device #{dev_id}: {status}")
     
     return all_passed, results
 
