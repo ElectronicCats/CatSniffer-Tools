@@ -51,16 +51,21 @@ python3 catsniffer.py
 You will see the CatSniffer ASCII art header followed by initialization messages:
 
 ```bash
-      :-:              :--       |
-      ++++=.        .=++++       |
-      =+++++===++===++++++       |
-      -++++++++++++++++++-       |  Module:  Catsniffer
- .:   =++---++++++++---++=   :.  |  Author:  JahazielLem
- ::---+++.   -++++-   .+++---::  |  Version: 3.0.0
-::1..:-++++:   ++++   :++++-::.::|  Company: Electronic Cats - PWNLab
-.:...:=++++++++++++++++++=:...:. |
- :---.  -++++++++++++++-  .---:  |
- ..        .:------:.        ..  |
+╭─ PyCat-Sniffer CLI - For sniffing the TI CC1352 device communication interfa─╮
+│                                                                              │
+│        :-:              :--       |                                          │
+│        ++++=.        .=++++       |                                          │
+│        =+++++===++===++++++       |                                          │
+│        -++++++++++++++++++-       |                                          │
+│   .:   =++---++++++++---++=   :.  |  Module:  Catsniffer                     │
+│   ::---+++.   -++++-   .+++---::  |  Version: 3.0.0                          │
+│  ::1..:-++++:   ++++   :++++-::.::|  Company: Electronic Cats - PWNLAB       │
+│  .:...:=++++++++++++++++++=:...:. |                                          │
+│   :---.  -++++++++++++++-  .---:  |                                          │
+│   ..        .:------:.        ..  |                                          │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
 
 [10:20:29] [*] Looking for local releases
            [*] No Local release folder found!
@@ -89,6 +94,7 @@ Commands:
   flash          Flash CC1352 Firmware or list available firmware images
   help-firmware  Show detailed information about available firmware images
   sniff          Sniffer protocol control
+  verify         Verify CatSniffer device functionality
 ```
 
 ---
