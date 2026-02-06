@@ -457,7 +457,7 @@ class Catnip:
         Find and flash firmware.
 
         Args:
-            firmware_str: Firmware name or path
+            firmware_str: Firmware name, path, or alias
             device: CatSnifferDevice (optional, will auto-detect if not provided)
         """
         firmwares = self.get_local_firmware()
@@ -466,13 +466,74 @@ class Catnip:
         if device is None:
             device = catsniffer_get_device()
 
+        # Check if it's a direct file path
         if os.path.exists(firmware_str):
             return self.flash_firmware(firmware_str, device)
 
+        # Alias inversos - mapear nombres comunes a nombres de archivo
+        REVERSE_ALIASES = {
+            "airtag_scanner": "airtag_scanner",
+            "airtag_spoofer": "airtag_spoofer",
+            "justworks": "justworks_scanner",
+            "sniffle": "sniffle_cc1352p7_1M",
+            "lora_sniffer": "LoraSniffer",
+            "lora_cli": "LoRa-CLI",
+            "lora_cad": "LoRa-CAD",
+            "lora_freq": "LoRa-Freq",
+        }
+
+        # Verificar si es un alias conocido
+        firmware_lower = firmware_str.lower()
+        for alias, pattern in REVERSE_ALIASES.items():
+            if alias.lower() in firmware_lower:
+                # Buscar el archivo que coincida con el patrón
+                for firm in firmwares:
+                    if pattern.lower() in firm.lower():
+                        path = os.path.join(self.get_releases_path(), firm)
+                        console.print(
+                            f"[dim]Alias '{firmware_str}' matched to: {firm}[/dim]"
+                        )
+                        return self.flash_firmware(path, device)
+
+        # First, try exact match
         for firm in firmwares:
-            if firm.startswith(firmware_str):
+            if firm == firmware_str:
                 path = os.path.join(self.get_releases_path(), firm)
                 return self.flash_firmware(path, device)
+
+        # Try match without extension
+        firmware_no_ext = os.path.splitext(firmware_str)[0]
+        for firm in firmwares:
+            firm_no_ext = os.path.splitext(firm)[0]
+            if firm_no_ext == firmware_no_ext:
+                path = os.path.join(self.get_releases_path(), firm)
+                return self.flash_firmware(path, device)
+
+        # Try partial match (case insensitive)
+        firmware_lower = firmware_str.lower()
+        matches = []
+        for firm in firmwares:
+            firm_lower = firm.lower()
+            if firmware_lower in firm_lower:
+                matches.append(firm)
+
+        if len(matches) == 1:
+            # Single match found
+            path = os.path.join(self.get_releases_path(), matches[0])
+            return self.flash_firmware(path, device)
+        elif len(matches) > 1:
+            # Multiple matches - show options
+            console.print(
+                f"[yellow]Multiple firmwares match '{firmware_str}':[/yellow]"
+            )
+            for i, match in enumerate(matches, 1):
+                console.print(f"  {i}. {match}")
+            console.print("[yellow]Please be more specific.[/yellow]")
+            return False
+
+        # No match found
+        console.print(f"[red]No firmware found matching '{firmware_str}'[/red]")
+        console.print(f"Available firmwares: {', '.join(firmwares[:5])}...")
         return False
 
     def flash_firmware(self, firmware, device: CatSnifferDevice = None) -> bool:
