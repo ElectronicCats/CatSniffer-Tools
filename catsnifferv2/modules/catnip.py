@@ -470,7 +470,7 @@ class Catnip:
         if os.path.exists(firmware_str):
             return self.flash_firmware(firmware_str, device)
 
-        # Alias inversos - mapear nombres comunes a nombres de archivo
+        # Reverse aliases - map common names to file names
         REVERSE_ALIASES = {
             "airtag_scanner": "airtag_scanner",
             "airtag_spoofer": "airtag_spoofer",
@@ -482,11 +482,11 @@ class Catnip:
             "lora_freq": "LoRa-Freq",
         }
 
-        # Verificar si es un alias conocido
+        # Check if it's a known alias
         firmware_lower = firmware_str.lower()
         for alias, pattern in REVERSE_ALIASES.items():
             if alias.lower() in firmware_lower:
-                # Buscar el archivo que coincida con el patrón
+                # Find the file that matches the pattern
                 for firm in firmwares:
                     if pattern.lower() in firm.lower():
                         path = os.path.join(self.get_releases_path(), firm)
