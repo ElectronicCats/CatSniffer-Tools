@@ -12,6 +12,7 @@ import os
 
 # Internal
 from .catnip import Catnip
+from .verify import run_verification
 from .pipes import Wireshark
 from .bridge import run_bridge, run_sx_bridge
 from .catsniffer import (
@@ -36,7 +37,7 @@ from rich.style import Style
 CLI_NAME = "Catsniffer"
 VERSION_NUMBER = "3.0.0"
 AUTHOR = "JahazielLem"
-COMPANY = "Electronic Cats - PWNLab"
+COMPANY = "Electronic Cats - PWNLAB"
 
 # Defining styles for reuse
 STYLES = {
@@ -325,9 +326,9 @@ def cativity() -> None:
 def flash(firmware, device, list) -> None:
     """Flash CC1352 Firmware or list available firmware images"""
 
-    # Diccionario de alias para firmwares comunes
+    # Alias dictionary for common firmwares
     PREDEFINED_ALIASES = {
-        # Alias cortos para los firmwares más usados
+        # Short aliases for the most used firmwares
         "ble": "sniffle",
         "zigbee": "cc1352_sniffer_zigbee",
         "thread": "cc1352_sniffer_thread",
@@ -344,12 +345,12 @@ def flash(firmware, device, list) -> None:
     # Initialize Catnip to manage firmware operations
     catnip = Catnip()
 
-    # Si se solicita listar los firmwares disponibles
+    # If listing available firmwares is requested
     if list:
         console.print("\n[cyan bold]Available Firmware Images:[/cyan bold]\n")
 
         try:
-            # Obtener la lista de firmwares locales
+            # Get the list of local firmwares
             firmwares = catnip.get_local_firmware()
 
             if not firmwares:
@@ -359,41 +360,41 @@ def flash(firmware, device, list) -> None:
                 )
                 return
 
-            # Crear tabla para mostrar los firmwares
+            # Create table to display firmwares
             table = Table(box=box.ROUNDED, show_header=True)
             table.add_column("Alias", style="green bold")
             table.add_column("Firmware Name", style="cyan")
             table.add_column("Type", style="yellow")
             table.add_column("Description", style="white")
 
-            # Obtener descripciones
+            # Get descriptions
             descriptions = catnip.parse_descriptions()
 
-            # Mapear alias a firmware completo
+            # Map aliases to complete firmware
             firmware_to_alias = {}
             alias_usage_count = {}
 
-            # Generar alias automáticos basados en nombres comunes
+            # Generate automatic aliases based on common names
             for fw in sorted(firmwares):
                 fw_lower = fw.lower()
                 fw_name_without_ext = os.path.splitext(fw)[0]
 
-                # Verificar si coincide con algún alias predefinido
+                # Check if it matches any predefined alias
                 for alias, target in PREDEFINED_ALIASES.items():
                     if target.lower() in fw_lower:
                         firmware_to_alias[fw] = alias
                         alias_usage_count[alias] = alias_usage_count.get(alias, 0) + 1
                         break
 
-            # Mostrar cada firmware con su alias
+            # Display each firmware with its alias
             for fw in sorted(firmwares):
                 if fw in firmware_to_alias:
-                    continue  # Ya tiene alias predefinido
+                    continue  # Already has predefined alias
 
                 fw_lower = fw.lower()
                 fw_name_without_ext = os.path.splitext(fw)[0]
 
-                # Manejo especial para archivos de airtag
+                # Special handling for airtag files
                 if "airtag" in fw_lower:
                     if "scanner" in fw_lower:
                         alias_candidate = "airtag_scanner"
@@ -402,12 +403,12 @@ def flash(firmware, device, list) -> None:
                     else:
                         alias_candidate = "airtag"
                 else:
-                    # Extraer palabras clave del nombre del firmware
+                    # Extract keywords from firmware name
                     words = (
                         fw_name_without_ext.replace("_", " ").replace("-", " ").split()
                     )
 
-                    # Filtrar palabras comunes/ruido
+                    # Filter common words/noise
                     common_words = {
                         "cc1352",
                         "cc1352p",
@@ -434,21 +435,21 @@ def flash(firmware, device, list) -> None:
                         w for w in words if w.lower() not in common_words and len(w) > 2
                     ]
 
-                    # Construir alias a partir de keywords
+                    # Build alias from keywords
                     if keywords:
-                        # Usar la primera keyword significativa
+                        # Use the first meaningful keyword
                         alias_candidate = keywords[0].lower()
 
-                        # Si es muy largo, truncarlo
+                        # If it's too long, truncate it
                         if len(alias_candidate) > 15:
                             alias_candidate = alias_candidate[:12] + "..."
                     else:
-                        # Si no hay keywords, usar el nombre sin extensión (truncado)
+                        # If no keywords, use name without extension (truncated)
                         alias_candidate = fw_name_without_ext[:15]
                         if len(fw_name_without_ext) > 15:
                             alias_candidate = alias_candidate[:12] + "..."
 
-                # Asegurarse de que el alias sea único
+                # Make sure the alias is unique
                 base_alias = alias_candidate
                 counter = 1
                 while alias_candidate in alias_usage_count:
@@ -458,14 +459,14 @@ def flash(firmware, device, list) -> None:
                 firmware_to_alias[fw] = alias_candidate
                 alias_usage_count[alias_candidate] = 1
 
-            # Mostrar cada firmware con su alias
+            # Display each firmware with its alias
             for fw in sorted(firmwares):
                 fw_lower = fw.lower()
 
-                # Obtener alias
+                # Get alias
                 alias = firmware_to_alias.get(fw, "firmware")
 
-                # Determinar tipo basado en el nombre
+                # Determine type based on the name
                 if "sniffle" in fw_lower or "ble" in fw_lower:
                     fw_type = "BLE"
                 elif "zigbee" in fw_lower:
@@ -505,10 +506,10 @@ def flash(firmware, device, list) -> None:
                 else:
                     fw_type = "Other"
 
-                # Obtener descripción
+                # Get description
                 desc = descriptions.get(fw_lower, "No description available")
 
-                # Truncar descripción si es muy larga
+                # Truncate description if it's too long
                 if len(desc) > 50:
                     desc = desc[:47] + "..."
 
@@ -516,10 +517,10 @@ def flash(firmware, device, list) -> None:
 
             console.print(table)
 
-            # Mostrar alias más útiles
+            # Show most useful aliases
             console.print("\n[cyan bold]Recommended Aliases:[/cyan bold]")
 
-            # Agrupar alias por tipo
+            # Group aliases by type
             aliases_by_type = {}
             for fw, alias in firmware_to_alias.items():
                 fw_lower = fw.lower()
@@ -543,16 +544,16 @@ def flash(firmware, device, list) -> None:
                     aliases_by_type[cat] = []
                 aliases_by_type[cat].append(f"{alias} → {os.path.splitext(fw)[0]}")
 
-            # Mostrar aliases organizados
+            # Display organized aliases
             for cat in sorted(aliases_by_type.keys()):
                 if aliases_by_type[cat]:
                     console.print(f"\n  [yellow]{cat}:[/yellow]")
                     for item in sorted(aliases_by_type[cat])[
                         :5
-                    ]:  # Mostrar máximo 5 por categoría
+                    ]:  # Show max 5 per category
                         console.print(f"    {item}")
 
-            # Información de uso
+            # Usage information
             console.print("\n[cyan bold]Usage Examples:[/cyan bold]")
             console.print(
                 "  [green]catsniffer flash ble[/green]         (uses 'sniffle' alias)"
@@ -571,7 +572,7 @@ def flash(firmware, device, list) -> None:
             print_error(f"Error listing firmwares: {str(e)}")
             return
 
-    # Si se solicita flashear pero no se especifica firmware
+    # If flash is requested but no firmware is specified
     if firmware is None:
         print_error("No firmware specified!")
         console.print(
@@ -582,13 +583,13 @@ def flash(firmware, device, list) -> None:
         )
         exit(1)
 
-    # Primero, verificar si es un alias conocido
+    # First, check if it's a known alias
     original_firmware = firmware
     if firmware in PREDEFINED_ALIASES:
         firmware = PREDEFINED_ALIASES[firmware]
         print_info(f"Alias '{original_firmware}' resolved to: {firmware}")
 
-    # Si no se especifica dispositivo, obtener todos los conectados
+    # If no device is specified, get all connected devices
     if device is None:
         devs = catsniffer_get_devices()
         if not devs:
@@ -596,18 +597,18 @@ def flash(firmware, device, list) -> None:
             console.print("    Make sure your CatSniffer is connected.")
             exit(1)
 
-        # Seleccionar el primer dispositivo por defecto
+        # Select the first device by default
         dev = devs[0]
         print_warning(f"No device specified. Using first device: {dev}")
     else:
-        # Si se especifica un ID, obtener ese dispositivo específico
+        # If an ID is specified, get that specific device
         dev = catsniffer_get_device(device)
         if dev is None:
             print_error(f"CatSniffer device with ID {device} not found!")
             console.print("    Use 'devices' command to list available devices.")
             exit(1)
 
-    # Verificar que el dispositivo sea válido
+    # Verify that the device is valid
     if not dev.is_valid():
         print_warning(f"Not all ports detected for {dev}")
         console.print(f"    Bridge: {dev.bridge_port}")
@@ -657,7 +658,7 @@ def devices() -> None:
         print_warning("No CatSniffer devices found.")
         return
 
-    # Add a table to display devicesclear
+    # Add a table to display devices
     table = Table(title=f"Found {len(devs)} CatSniffer device(s)", box=box.ROUNDED)
     table.add_column("Device", style=STYLES["device"], justify="left")
     table.add_column("Cat-Bridge (CC1352)", style="cyan", justify="left")
@@ -674,9 +675,75 @@ def devices() -> None:
     console.print()
     console.print(table)
 
+@cli.command()
+@click.option(
+    "--test-all", 
+    is_flag=True,
+    help="Run all tests including LoRa configuration and communication"
+)
+@click.option(
+    "--device", 
+    "-d",
+    type=int,
+    help="Test only a specific device (by ID)"
+)
+@click.option(
+    "--quiet",
+    "-q",
+    is_flag=True,
+    help="Show only summary results"
+)
+def verify(test_all, device, quiet):
+    """
+    Verify CatSniffer device functionality
+    
+    Tests all connected CatSniffers and verifies:
+    - Basic shell commands (help, status, lora_config, lora_mode)
+    - LoRa configuration (frequency, SF, BW, etc.)
+    - LoRa communication (TEST, TXTEST, TX commands)
+    
+    Use --test-all for comprehensive testing.
+    """
+    # Check dependencies
+    try:
+        import usb.core
+        import usb.util
+        import serial
+    except ImportError as e:
+        print_error(f"Dependency missing: {e}")
+        console.print("\n[yellow]Install missing dependencies:[/yellow]")
+        console.print("  pip install pyusb pyserial")
+        return 1
+    
+    # Run verification
+    success, results = run_verification(
+        test_all=test_all,
+        device_id=device,
+        quiet=quiet
+    )
+    
+    # Print final message
+    if success:
+        print_success("Verification completed successfully!")
+        if test_all:
+            console.print("\n[green]✓ All devices are fully functional and ready for use![/green]")
+        else:
+            console.print("\n[green]✓ Basic functionality verified. Use --test-all for comprehensive testing.[/green]")
+        return 0
+    else:
+        print_error("Verification failed!")
+        console.print("\n[yellow]Troubleshooting tips:[/yellow]")
+        console.print("1. Make sure all 3 USB endpoints are connected (Bridge, LoRa, Shell)")
+        console.print("2. Try reconnecting the USB cable")
+        console.print("3. Check if the correct firmware is flashed")
+        console.print("4. Verify serial port permissions (Linux/Mac)")
+        return 1
+
 
 def main_cli() -> None:
     print_header()
     cli.add_command(sniff)
     cli.add_command(help_firmware)
+    cli.add_command(verify)
     cli()
+
