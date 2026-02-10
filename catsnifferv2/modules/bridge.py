@@ -139,9 +139,12 @@ def run_bridge(
         pipe = UnixPipe()
 
     opening_worker = threading.Thread(target=pipe.open, daemon=True)
-    ws = Wireshark()
+
+    ws = None
     if wireshark:
+        ws = Wireshark()
         ws.run()
+
     opening_worker.start()
 
     # Use bridge port for TI protocol
