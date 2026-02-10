@@ -32,7 +32,7 @@ class Wireshark(threading.Thread):
             self.wireshark_process = subprocess.Popen(
                 [
                     # "sudo",
-                    "/usr/bin/wireshark",
+                    "/usr/local/bin/wireshark",
                     "-k",
                     "-i",
                     f"/tmp/{self.fifo_name}",

@@ -132,7 +132,7 @@ def get_device_or_exit(device_id=None):
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
-@click.option("--verbose", is_flag=True, help="Show Verbose mode")
+@click.option("-v", "--verbose", is_flag=True, help="Show Verbose mode")
 def cli(verbose):
     """CatSniffer: All in one catsniffer tools environment."""
     if verbose:
@@ -141,7 +141,7 @@ def cli(verbose):
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
-@click.option("--verbose", is_flag=True, help="Show Verbose mode")
+@click.option("-v", "--verbose", is_flag=True, help="Show Verbose mode")
 def sniff(verbose):
     """Sniffer protocol control"""
     if verbose:
@@ -161,6 +161,7 @@ def sniff_ble(device):
     """Sniffing BLE with Sniffle firmware"""
     dev = get_device_or_exit(device)
     cat = Catsniffer(dev.bridge_port)
+
     if cat.check_sniffle_firmware():
         print_info("Firmware found!")
     else:
@@ -195,11 +196,11 @@ def sniff_zigbee(ws, channel, device):
             return
 
     print_info(f"[{dev}] Sniffing Zigbee at channel: {channel}")
+
     run_bridge(dev, channel, ws)
 
 
 @sniff.command(SniffingFirmware.THREAD.name.lower())
-@click.option("-ws", is_flag=True, help="Open Wireshark")
 @click.option(
     "--channel", "-c", required=True, type=click.IntRange(11, 26), help="Thread channel"
 )
@@ -222,11 +223,11 @@ def sniff_thread(ws, channel, device):
             return
 
     print_info(f"[{dev}] Sniffing Thread at channel: {channel}")
+    q
     run_bridge(dev, channel, ws)
 
 
 @sniff.command(SniffingFirmware.LORA.name.lower())
-@click.option("-ws", is_flag=True, help="Open Wireshark")
 @click.option(
     "--frequency",
     "-freq",
@@ -331,9 +332,12 @@ def flash(firmware, device, list) -> None:
         # Short aliases for the most used firmwares
         "ble": "sniffle",
         "zigbee": "cc1352_sniffer_zigbee",
-        "thread": "cc1352_sniffer_thread",
+        # Multi-protocol Firmware(includes Zigbee, Thread, 15.4)
+        "zigbee": "sniffer_fw_CC1352P_7_v1.10.hex",
+        "thread": "sniffer_fw_CC1352P_7_v1.10.hex",
+        "15.4": "sniffer_fw_CC1352P_7_v1.10.hex",
+        "multiprotocol": "sniffer_fw_CC1352P_7_v1.10.hex",
         "lora": "cc1352_sniffer_lora",
-        "15.4": "cc1352_sniffer_154",
         "base": "cc1352_base",
         "sniffle": "sniffle_cc1352p7_1M",
         "sniffle-full": "sniffle_cc1352p7_1M.hex",
@@ -362,10 +366,11 @@ def flash(firmware, device, list) -> None:
 
             # Create table to display firmwares
             table = Table(box=box.ROUNDED, show_header=True)
-            table.add_column("Alias", style="green bold")
-            table.add_column("Firmware Name", style="cyan")
-            table.add_column("Type", style="yellow")
-            table.add_column("Description", style="white")
+            table.add_column("Alias", style="green bold", min_width=15)
+            table.add_column("Firmware Name", style="cyan", min_width=30)
+            table.add_column("Type", style="yellow", min_width=12)
+            table.add_column("Protocols", style="magenta", min_width=15)
+            table.add_column("Description", style="white", min_width=40)
 
             # Get descriptions
             descriptions = catnip.parse_descriptions()
@@ -469,42 +474,60 @@ def flash(firmware, device, list) -> None:
                 # Determine type based on the name
                 if "sniffle" in fw_lower or "ble" in fw_lower:
                     fw_type = "BLE"
+                    protocols = "BLE"
+                elif "sniffer_fw" in fw_lower or "sniffer_fw_cc1352" in fw_lower:
+                    fw_type = "TI Sniffer"
+                    protocols = "Zigbee/Thread/15.4"
                 elif "zigbee" in fw_lower:
                     fw_type = "Zigbee"
+                    protocols = "Zigbee"
                 elif "thread" in fw_lower:
                     fw_type = "Thread"
+                    protocols = "Thread"
                 elif "lora" in fw_lower:
                     if "cad" in fw_lower:
                         fw_type = "LoRa CAD"
+                        protocols = "LoRa"
                     elif "cli" in fw_lower:
                         fw_type = "LoRa CLI"
+                        protocols = "LoRa"
                     elif "freq" in fw_lower:
                         fw_type = "LoRa Freq"
+                        protocols = "LoRa"
                     elif "sniffer" in fw_lower:
                         fw_type = "LoRa Sniffer"
+                        protocols = "LoRa"
                     else:
                         fw_type = "LoRa"
+                        protocols = "LoRa"
                 elif "airtag" in fw_lower:
                     if "scanner" in fw_lower:
                         fw_type = "Airtag Scanner"
+                        protocols = "BLE"
                     elif "spoofer" in fw_lower:
                         fw_type = "Airtag Spoofer"
+                        protocols = "BLE"
                     else:
                         fw_type = "Airtag"
+                        protocols = "BLE"
                 elif "15.4" in fw_lower or "154" in fw_lower:
                     fw_type = "15.4"
-                elif "base" in fw_lower or "cc1352" in fw_lower:
-                    fw_type = "Base"
+                    protocols = "15.4"
                 elif "justworks" in fw_lower:
                     fw_type = "JustWorks"
+                    protocols = "BLE"
                 elif "free_dap" in fw_lower:
                     fw_type = "Debugger"
+                    protocols = "Debug"
                 elif "serial" in fw_lower:
                     fw_type = "Serial"
+                    protocols = "Serial"
                 elif "meshtastic" in fw_lower:
                     fw_type = "Meshtastic"
+                    protocols = "LoRa"
                 else:
                     fw_type = "Other"
+                    protocols = "Various"
 
                 # Get description
                 desc = descriptions.get(fw_lower, "No description available")
@@ -513,63 +536,76 @@ def flash(firmware, device, list) -> None:
                 if len(desc) > 50:
                     desc = desc[:47] + "..."
 
-                table.add_row(f"[green]{alias}[/green]", fw, fw_type, desc)
+                table.add_row(f"[green]{alias}[/green]", fw, fw_type, protocols, desc)
 
             console.print(table)
 
             # Show most useful aliases
-            console.print("\n[cyan bold]Recommended Aliases:[/cyan bold]")
+            console.print("\n[cyan bold]Recommended Aliases by Protocol:[/cyan bold]")
 
-            # Group aliases by type
-            aliases_by_type = {}
-            for fw, alias in firmware_to_alias.items():
-                fw_lower = fw.lower()
+            console.print("\n  [yellow]BLE:[/yellow]")
+            console.print(
+                "    [green]ble[/green] / [green]sniffle[/green]     → Sniffle BLE sniffer"
+            )
+            console.print("    [green]airtag-scanner[/green] → Apple Airtag Scanner")
+            console.print("    [green]airtag-spoofer[/green] → Apple Airtag Spoofer")
+            console.print("    [green]justworks[/green]     → JustWorks scanner")
 
-                if "sniffle" in fw_lower or "ble" in fw_lower:
-                    cat = "BLE"
-                elif "airtag" in fw_lower:
-                    cat = "Airtag"
-                elif "lora" in fw_lower:
-                    cat = "LoRa"
-                elif "zigbee" in fw_lower:
-                    cat = "Zigbee"
-                elif "thread" in fw_lower:
-                    cat = "Thread"
-                elif "justworks" in fw_lower:
-                    cat = "JustWorks"
-                else:
-                    cat = "Other"
+            console.print("\n  [yellow]Zigbee/Thread/15.4 (TI Sniffer):[/yellow]")
+            console.print(
+                "    [green]zigbee[/green]  → Texas Instruments multiprotocol sniffer"
+            )
+            console.print(
+                "    [green]thread[/green]  → (same as zigbee - supports both)"
+            )
+            console.print(
+                "    [green]15.4[/green]    → (same as zigbee - supports 802.15.4)"
+            )
+            console.print("    [green]ti[/green]      → Texas Instruments sniffer")
+            console.print(
+                "    [green]multiprotocol[/green] → TI multiprotocol firmware"
+            )
 
-                if cat not in aliases_by_type:
-                    aliases_by_type[cat] = []
-                aliases_by_type[cat].append(f"{alias} → {os.path.splitext(fw)[0]}")
+            console.print("\n  [yellow]LoRa (RP2040):[/yellow]")
+            console.print(
+                "    [green]lora-sniffer[/green] → LoRa Sniffer for Wireshark"
+            )
+            console.print(
+                "    [green]lora-cli[/green]    → LoRa Command Line Interface"
+            )
+            console.print(
+                "    [green]lora-cad[/green]    → LoRa Channel Activity Detector"
+            )
+            console.print(
+                "    [green]lora-freq[/green]   → LoRa Frequency Spectrum analyzer"
+            )
 
-            # Display organized aliases
-            for cat in sorted(aliases_by_type.keys()):
-                if aliases_by_type[cat]:
-                    console.print(f"\n  [yellow]{cat}:[/yellow]")
-                    for item in sorted(aliases_by_type[cat])[
-                        :5
-                    ]:  # Show max 5 per category
-                        console.print(f"    {item}")
-
-            # Usage information
+            # Use Information
             console.print("\n[cyan bold]Usage Examples:[/cyan bold]")
             console.print(
-                "  [green]catsniffer flash ble[/green]         (uses 'sniffle' alias)"
+                "  [green]catsniffer flash zigbee[/green]          (TI multiprotocol sniffer)"
             )
             console.print(
-                "  [green]catsniffer flash zigbee[/green]      (uses 'zigbee' alias)"
+                "  [green]catsniffer flash thread[/green]         (same TI firmware)"
             )
             console.print(
-                "  [green]catsniffer flash sniffle-full[/green]  (full sniffle filename)"
+                "  [green]catsniffer flash ble[/green]            (Sniffle BLE)"
             )
-            console.print("  [green]catsniffer flash --device 1 thread[/green]")
+            console.print(
+                "  [green]catsniffer flash lora-sniffer[/green]   (LoRa Sniffer)"
+            )
+            console.print(
+                "  [green]catsniffer flash airtag-scanner[/green] (Apple Airtag)"
+            )
+            console.print("  [green]catsniffer flash --device 1 zigbee[/green]")
 
             return
 
         except Exception as e:
             print_error(f"Error listing firmwares: {str(e)}")
+            import traceback
+
+            traceback.print_exc()
             return
 
     # If flash is requested but no firmware is specified
@@ -623,8 +659,11 @@ def flash(firmware, device, list) -> None:
         console.print(
             f"1. Use [green]catsniffer flash --list[/green] to see all available firmwares"
         )
-        console.print(f"2. Available aliases: ble, zigbee, thread, lora, 15.4, base")
-        console.print(f"3. Try the exact filename from the list")
+        console.print(
+            f"2. Available aliases: ble, zigbee, thread, lora-sniffer, airtag-scanner"
+        )
+        console.print(f"3. Use the exact filename from the list")
+        console.print(f"4. Note: 'zigbee' alias maps to TI multiprotocol firmware")
 
 
 @cli.command()
