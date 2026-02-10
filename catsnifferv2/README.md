@@ -1,6 +1,46 @@
 # CatSniffer V3 Tools – User Guide
 > Current version: v3.0.0
 
+## Content Table
+
+- [CatSniffer V3 Tools – User Guide](#catsniffer-v3-tools--user-guide)
+  - [Content Table](#content-table)
+  - [Overview](#overview)
+  - [Features](#features)
+  - [Installation](#installation)
+    - [Global install](#global-install)
+    - [Environment install](#environment-install)
+  - [Getting Started](#getting-started)
+  - [Verifying Devices](#verifying-devices)
+  - [Flashing Firmware (CC1352)](#flashing-firmware-cc1352)
+    - [Flash Command Help](#flash-command-help)
+    - [Listing Available Firmware](#listing-available-firmware)
+      - [Firmware Selection Methods:](#firmware-selection-methods)
+    - [Flashing a Firmware Image](#flashing-a-firmware-image)
+      - [Method 1: Using Aliases (Recommended)](#method-1-using-aliases-recommended)
+      - [Method 2: Using Partial Names](#method-2-using-partial-names)
+      - [Method 3: Using Full Filenames](#method-3-using-full-filenames)
+      - [Example Flashing Process](#example-flashing-process)
+      - [Flashing Workflow:](#flashing-workflow)
+    - [Flashing Errors and Recovery](#flashing-errors-and-recovery)
+      - [Troubleshooting Steps](#troubleshooting-steps)
+  - [Testing Device Functionality](#testing-device-functionality)
+    - [Basic Verification](#basic-verification)
+    - [Comprehensive Testing](#comprehensive-testing)
+    - [Testing Specific Devices](#testing-specific-devices)
+    - [Quiet Mode](#quiet-mode)
+    - [Verification Command Options](#verification-command-options)
+    - [Troubleshooting Failed Verification](#troubleshooting-failed-verification)
+  - [Sniffing Protocols](#sniffing-protocols)
+    - [Bluetooth Low Energy(BLE) Sniffing](#bluetooth-low-energyble-sniffing)
+    - [LoRa Sniffing](#lora-sniffing)
+      - [Example configuration:](#example-configuration)
+    - [Zigbee Sniffing](#zigbee-sniffing)
+    - [Thread Sniffing](#thread-sniffing)
+  - [Pipeline Warnings and Firmware Updates](#pipeline-warnings-and-firmware-updates)
+  - [Wireshark Extcap Integration](#wireshark-extcap-integration)
+  - [Future Improvements](#future-improvements)
+
 ## Overview
 
 This new version of CatSniffer Tools is designed as a unified environment that combines all existing tools into a single workflow.
@@ -85,8 +125,8 @@ Usage: catsniffer.py [OPTIONS] COMMAND [ARGS]...
   CatSniffer: All in one catsniffer tools environment.
 
 Options:
-  --verbose   Show Verbose mode
-  -h, --help  Show this message and exit.
+  -v, --verbose  Show Verbose mode
+  -h, --help     Show this message and exit.
 
 Commands:
   cativity       IQ Activity Monitor (Not implemented yet)
@@ -160,52 +200,51 @@ Example output:
 ```bash
 Available Firmware Images:
 
-╭─────────────────┬───────────────────────────────────┬────────────────┬────────────────────────────────────────────────────╮
-│ Alias           │ Firmware Name                     │ Type           │ Description                                        │
-├─────────────────┼───────────────────────────────────┼────────────────┼────────────────────────────────────────────────────┤
-│ lora            │ LoRa-CAD.uf2                      │ LoRa CAD       │ Channel activity detector v1.0.0                   │
-│ lora_1          │ LoRa-CLI.uf2                      │ LoRa CLI       │ LoRa Command Line Interface v1.0                   │
-│ lora_2          │ LoRa-Freq.uf2                     │ LoRa Freq      │ Frequency Spectrum analyzer v1.0.0                 │
-│ lorasniffer     │ LoraSniffer.uf2                   │ LoRa Sniffer   │ CLI LoRa for connection with pycatsniffer as sn... │
-│ serialpassth... │ SerialPassthroughwithboot.uf2     │ Serial         │ No description available                           │
-│ airtag_scanner  │ airtag_scanner_CC1352P_7_v1.0.hex │ Airtag Scanner │ Apple Airtag Scanner firmware (Windows/Linux/Mac)  │
-│ airtag_spoofer  │ airtag_spoofer_CC1352P_7_v1.0.hex │ Airtag Spoofer │ Apple Airtag Spoofer firmware (Windows/Linux/Mac)  │
-│ firmware        │ firmware.uf2                      │ Other          │ Meshtastic port for Catsniffer                     │
-│ free            │ free_dap_catsniffer.uf2           │ Debugger       │ Debugger firmware for CC1352                       │
-│ justworks       │ justworks_scanner_CC1352P7_1.hex  │ Base           │ Justworks scanner for scanner vulnerable devices   │
-│ v1.10           │ sniffer_fw_CC1352P_7_v1.10.hex    │ Base           │ Multiprotocol sniffer from Texas Instrument (Wi... │
-│ ble             │ sniffle_cc1352p7_1M.hex           │ BLE            │ BLE sniffer for Bluetooth 5 and 4.x (LE) from N... │
-╰─────────────────┴───────────────────────────────────┴────────────────┴────────────────────────────────────────────────────╯
+╭─────────────────┬───────────────────────────────────┬────────────────┬────────────────────┬────────────────────────────────────────────────────╮
+│ Alias           │ Firmware Name                     │ Type           │ Protocols          │ Description                                        │
+├─────────────────┼───────────────────────────────────┼────────────────┼────────────────────┼────────────────────────────────────────────────────┤
+│ lora            │ LoRa-CAD.uf2                      │ LoRa CAD       │ LoRa               │ Channel activity detector v1.0.0                   │
+│ lora_1          │ LoRa-CLI.uf2                      │ LoRa CLI       │ LoRa               │ LoRa Command Line Interface v1.0                   │
+│ lora_2          │ LoRa-Freq.uf2                     │ LoRa Freq      │ LoRa               │ Frequency Spectrum analyzer v1.0.0                 │
+│ lorasniffer     │ LoraSniffer.uf2                   │ LoRa Sniffer   │ LoRa               │ CLI LoRa for connection with pycatsniffer as sn... │
+│ serialpassth... │ SerialPassthroughwithboot.uf2     │ Serial         │ Serial             │ No description available                           │
+│ airtag_scanner  │ airtag_scanner_CC1352P_7_v1.0.hex │ Airtag Scanner │ BLE                │ Apple Airtag Scanner firmware (Windows/Linux/Mac)  │
+│ airtag_spoofer  │ airtag_spoofer_CC1352P_7_v1.0.hex │ Airtag Spoofer │ BLE                │ Apple Airtag Spoofer firmware (Windows/Linux/Mac)  │
+│ firmware        │ firmware.uf2                      │ Other          │ Various            │ Meshtastic port for Catsniffer                     │
+│ free            │ free_dap_catsniffer.uf2           │ Debugger       │ Debug              │ Debugger firmware for CC1352                       │
+│ justworks       │ justworks_scanner_CC1352P7_1.hex  │ JustWorks      │ BLE                │ Justworks scanner for scanner vulnerable devices   │
+│ zigbee          │ sniffer_fw_CC1352P_7_v1.10.hex    │ TI Sniffer     │ Zigbee/Thread/15.4 │ Multiprotocol sniffer from Texas Instrument (Wi... │
+│ ble             │ sniffle_cc1352p7_1M.hex           │ BLE            │ BLE                │ BLE sniffer for Bluetooth 5 and 4.x (LE) from N... │
+╰─────────────────┴───────────────────────────────────┴────────────────┴────────────────────┴────────────────────────────────────────────────────╯
 
-Recommended Aliases:
-
-  Airtag:
-    airtag_scanner → airtag_scanner_CC1352P_7_v1.0
-    airtag_spoofer → airtag_spoofer_CC1352P_7_v1.0
+Recommended Aliases by Protocol:
 
   BLE:
-    ble → sniffle_cc1352p7_1M
+    ble / sniffle     → Sniffle BLE sniffer
+    airtag-scanner → Apple Airtag Scanner
+    airtag-spoofer → Apple Airtag Spoofer
+    justworks     → JustWorks scanner
 
-  JustWorks:
-    justworks → justworks_scanner_CC1352P7_1
+  Zigbee/Thread/15.4 (TI Sniffer):
+    zigbee  → Texas Instruments multiprotocol sniffer
+    thread  → (same as zigbee - supports both)
+    15.4    → (same as zigbee - supports 802.15.4)
+    ti      → Texas Instruments sniffer
+    multiprotocol → TI multiprotocol firmware
 
-  LoRa:
-    lora → LoRa-CAD
-    lora_1 → LoRa-CLI
-    lora_2 → LoRa-Freq
-    lorasniffer → LoraSniffer
-
-  Other:
-    firmware → firmware
-    free → free_dap_catsniffer
-    serialpassth... → SerialPassthroughwithboot
-    v1.10 → sniffer_fw_CC1352P_7_v1.10
+  LoRa (RP2040):
+    lora-sniffer → LoRa Sniffer for Wireshark
+    lora-cli    → LoRa Command Line Interface
+    lora-cad    → LoRa Channel Activity Detector
+    lora-freq   → LoRa Frequency Spectrum analyzer
 
 Usage Examples:
-  catsniffer flash ble         (uses 'sniffle' alias)
-  catsniffer flash zigbee      (uses 'zigbee' alias)
-  catsniffer flash sniffle-full  (full sniffle filename)
-  catsniffer flash --device 1 thread
+  catsniffer flash zigbee          (TI multiprotocol sniffer)
+  catsniffer flash thread         (same TI firmware)
+  catsniffer flash ble            (Sniffle BLE)
+  catsniffer flash lora-sniffer   (LoRa Sniffer)
+  catsniffer flash airtag-scanner (Apple Airtag)
+  catsniffer flash --device 1 zigbee
 ```
 
 #### Firmware Selection Methods:
@@ -554,8 +593,8 @@ Usage: catsniffer.py sniff [OPTIONS] COMMAND [ARGS]...
   Sniffer protocol control
 
 Options:
-  --verbose   Show Verbose mode
-  -h, --help  Show this message and exit.
+  -v, --verbose  Show Verbose mode
+  -h, --help     Show this message and exit.
 
 Commands:
   ble     Sniffing BLE with Sniffle firmware
@@ -563,6 +602,8 @@ Commands:
   thread  Sniffing Thread with Sniffer TI firmware
   zigbee  Sniffing Zigbee with Sniffer TI firmware
 ```
+### Bluetooth Low Energy(BLE) Sniffing
+
 
 ### LoRa Sniffing
 ```bash
