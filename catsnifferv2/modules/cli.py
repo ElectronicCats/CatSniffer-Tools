@@ -33,6 +33,11 @@ from rich.table import Table
 from rich import box
 from rich.style import Style
 
+import subprocess
+import platform
+import time
+from pathlib import Path
+
 # APP Information
 CLI_NAME = "Catsniffer"
 VERSION_NUMBER = "3.0.0"
@@ -51,7 +56,7 @@ STYLES = {
 }
 
 # Prompt
-PROMPT_ICON = "󰄛"
+PROMPT_ICON = "🐱"
 PROMPT_DESCRIPTION = (
     "PyCat-Sniffer CLI - For sniffing the TI CC1352 device communication interfaces."
 )
@@ -131,6 +136,193 @@ def get_device_or_exit(device_id=None):
     return device
 
 
+def find_wireshark_path():
+    """Find Wireshark executable path."""
+    system = platform.system()
+
+    if system == "Windows":
+        paths = [
+            Path("C:\\Program Files\\Wireshark\\Wireshark.exe"),
+            Path("C:\\Program Files (x86)\\Wireshark\\Wireshark.exe"),
+        ]
+    elif system == "Linux":
+        paths = [
+            Path("/usr/bin/wireshark"),
+            Path("/usr/local/bin/wireshark"),
+        ]
+    elif system == "Darwin":
+        paths = [
+            Path("/Applications/Wireshark.app/Contents/MacOS/Wireshark"),
+        ]
+    else:
+        return None
+
+    for path in paths:
+        if path.exists():
+            return str(path)
+    return None
+
+
+def open_wireshark_sniffle_simple(port, channel=37):
+    """Simple method to open Wireshark with Sniffle."""
+    wireshark_path = find_wireshark_path()
+
+    if not wireshark_path:
+        print_error("Wireshark not found!")
+        return False
+
+    # Simple method: open Wireshark and give instructions
+    print_info("Opening Wireshark...")
+    print_info("Please configure manually:")
+    print_info("\n1. In Wireshark, go to Capture → Options")
+    print_info("2. Select 'sniffle' from the interface list")
+    print_info("3. Click the gear/cog icon next to it")
+    print_info(f"4. Set Serial Port to: {port}")
+    print_info(f"5. Set Advertising Channel to: {channel}")
+    print_info("6. Click 'Start'")
+
+    try:
+        # Only open Wireshark
+        cmd = [wireshark_path]
+        process = subprocess.Popen(cmd)
+
+        # Give detailed instructions after opening
+        time.sleep(1)  # Give Wireshark time to open
+
+        print_info("\n" + "=" * 50)
+        print_info("MANUAL CONFIGURATION REQUIRED")
+        print_info("=" * 50)
+        print_info("After Wireshark opens:")
+        print_info("1. Press Ctrl+E to open Capture Options")
+        print_info("2. Find 'sniffle' in the list (usually near the bottom)")
+        print_info("3. Click the configuration button (gear icon)")
+        print_info(f"4. Enter serial port: {port}")
+        print_info(f"5. Select channel: {channel}")
+        print_info("6. Click 'OK' then 'Start'")
+
+        return True
+
+    except Exception as e:
+        print_error(f"Failed to open Wireshark: {str(e)}")
+        return False
+
+
+def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
+    """Run Sniffle extcap directly and connect Wireshark to FIFO."""
+    import tempfile
+    import os
+    import time
+    import subprocess
+
+    try:
+        # Create temporary FIFO
+        temp_dir = tempfile.gettempdir()
+        fifo_path = os.path.join(temp_dir, f"sniffle_fifo_{os.getpid()}")
+
+        if os.path.exists(fifo_path):
+            os.remove(fifo_path)
+
+        os.mkfifo(fifo_path)
+
+        # Command to run the plugin
+        extcap_path = find_extcap_plugin("sniffle_extcap")
+        if not extcap_path:
+            return False
+
+        cmd = [
+            "python3",
+            extcap_path,
+            "--capture",
+            "--extcap-interface",
+            "sniffle",
+            "--fifo",
+            fifo_path,
+            "--serport",
+            port,
+            "--mode",
+            mode,
+            "--advchan",
+            str(channel),
+        ]
+
+        # Run in background
+        print_info(f"Starting Sniffle extcap...")
+        extcap_proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+
+        # Wait for initialization
+        time.sleep(3)
+
+        if extcap_proc.poll() is not None:
+            # The process ended, there was an error
+            stdout, stderr = extcap_proc.communicate()
+            print_error(f"Extcap error: {stderr.decode()[:200]}")
+            os.remove(fifo_path)
+            return False
+
+        # Now open Wireshark connected to the FIFO
+        wireshark_path = find_wireshark_path()
+        if not wireshark_path:
+            os.remove(fifo_path)
+            return False
+
+        wireshark_cmd = [wireshark_path, "-k", "-i", fifo_path]
+        print_info(f"Opening Wireshark connected to FIFO...")
+        wireshark_proc = subprocess.Popen(wireshark_cmd)
+
+        # Wait for Wireshark to finish
+        wireshark_proc.wait()
+
+        # Cleanup
+        extcap_proc.terminate()
+        if os.path.exists(fifo_path):
+            os.remove(fifo_path)
+
+        return True
+
+    except Exception as e:
+        print_error(f"Direct method failed: {str(e)}")
+        # Cleanup FIFO if it exists
+        if "fifo_path" in locals() and os.path.exists(fifo_path):
+            os.remove(fifo_path)
+        return False
+
+
+def find_extcap_plugin(plugin_name):
+    """Find extcap plugin in Wireshark directories."""
+    system = platform.system()
+
+    if system == "Windows":
+        paths = [
+            Path("C:\\Program Files\\Wireshark\\extcap") / f"{plugin_name}.exe",
+            Path("C:\\Program Files (x86)\\Wireshark\\extcap") / f"{plugin_name}.exe",
+        ]
+    elif system in ["Linux", "Darwin"]:
+        paths = [
+            Path.home() / ".local/lib/wireshark/extcap" / f"{plugin_name}.py",
+            Path("/usr/lib/wireshark/extcap") / f"{plugin_name}.py",
+            Path("/usr/local/lib/wireshark/extcap") / f"{plugin_name}.py",
+        ]
+
+    for path in paths:
+        if path.exists():
+            return str(path)
+
+    # Also search in PATH
+    which_cmd = "where" if system == "Windows" else "which"
+    try:
+        result = subprocess.run(
+            [which_cmd, f"{plugin_name}.py"], capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except:
+        pass
+
+    return None
+
+
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("-v", "--verbose", is_flag=True, help="Show Verbose mode")
 def cli(verbose):
@@ -157,19 +349,81 @@ def sniff(verbose):
     type=int,
     help="Device ID (for multiple CatSniffers)",
 )
-def sniff_ble(device):
+@click.option(
+    "--wireshark",
+    "-ws",
+    is_flag=True,
+    help="Open Wireshark with Sniffle extcap plugin",
+)
+@click.option(
+    "--channel",
+    "-c",
+    default=37,
+    type=click.IntRange(37, 39),
+    help="BLE advertising channel (37, 38, 39)",
+)
+@click.option(
+    "--mode",
+    "-m",
+    default="conn_follow",
+    type=click.Choice(["conn_follow", "passive_scan", "active_scan"]),
+    help="Sniffle mode",
+)
+def sniff_ble(device, wireshark, channel, mode):
     """Sniffing BLE with Sniffle firmware"""
-    dev = get_device_or_exit(device)
-    cat = Catsniffer(dev.bridge_port)
+    import time
 
+    dev = get_device_or_exit(device)
+
+    # Verify firmware
+    cat = Catsniffer(dev.bridge_port)
+    firmware_found = False
+
+    # First verification attempt
     if cat.check_sniffle_firmware():
-        print_info("Firmware found!")
+        print_success("Sniffle firmware found!")
+        firmware_found = True
     else:
-        print_warning("Firmware not found! - Flashing Sniffle")
+        print_warning("Sniffle firmware not found! - Flashing Sniffle")
         if not catnip.find_flash_firmware(SniffingBaseFirmware.BLE.value, dev):
             return
 
-    print_info("Now you can open Sniffle extcap from Wireshark")
+        # CRITICAL: Wait for the device to restart after flashing
+        # The CC1352 takes approximately 2-3 seconds to restart
+        print_info("Waiting for device to restart after flashing...")
+        time.sleep(3)
+
+        # Verify again after restart
+        print_info("Verifying firmware after restart...")
+        cat_verify = Catsniffer(dev.bridge_port)
+        if cat_verify.check_sniffle_firmware():
+            print_success("Sniffle firmware verified successfully!")
+            firmware_found = True
+        else:
+            print_error("Firmware verification failed after flashing!")
+            print_warning(
+                "The device may need more time to restart. Try running the command again."
+            )
+            return
+
+    if wireshark:
+        # Always use the direct method when --wireshark is specified
+        success = run_extcap_directly(dev.bridge_port, channel, mode)
+
+        if not success:
+            print_error("Could not open Wireshark automatically using direct method")
+            print_info("\nYou can try manual configuration:")
+            print_info("1. Open Wireshark manually")
+            print_info("2. Press Ctrl+E for Capture Options")
+            print_info("3. Select 'sniffle' interface")
+            print_info(f"4. Configure port: {dev.bridge_port}")
+    else:
+        print_info("Sniffle firmware is ready!")
+        print_info("\nTo capture with Wireshark:")
+        print_info(f"1. Open Wireshark and select 'sniffle' interface")
+        print_info(f"2. Configure serial port: {dev.bridge_port}")
+        print_info(f"3. Set channel: {channel}")
+        print_info(f"4. Set mode: {mode}")
 
 
 @sniff.command(SniffingFirmware.ZIGBEE.name.lower())
@@ -223,7 +477,6 @@ def sniff_thread(ws, channel, device):
             return
 
     print_info(f"[{dev}] Sniffing Thread at channel: {channel}")
-    q
     run_bridge(dev, channel, ws)
 
 
@@ -653,7 +906,9 @@ def flash(firmware, device, list) -> None:
 
     print_info(f"Flashing firmware: {firmware} to device: {dev}")
 
-    if not catnip.find_flash_firmware(firmware, dev):
+    flash_result = catnip.find_flash_firmware(firmware, dev)
+
+    if not flash_result:
         print_error(f"Error flashing: {firmware}")
         console.print(f"\n[yellow]Troubleshooting tips:[/yellow]")
         console.print(
@@ -664,6 +919,14 @@ def flash(firmware, device, list) -> None:
         )
         console.print(f"3. Use the exact filename from the list")
         console.print(f"4. Note: 'zigbee' alias maps to TI multiprotocol firmware")
+        return
+
+    # Wait for the device to restart after flashing
+    import time
+
+    print_info("Waiting for device to restart...")
+    time.sleep(4)
+    print_success("Device restart complete. Firmware is ready to use!")
 
 
 @cli.command()

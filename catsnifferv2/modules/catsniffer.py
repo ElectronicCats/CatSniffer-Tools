@@ -437,22 +437,131 @@ class Catsniffer(SerialConnection):
         flag = b"TI Packet"
         return self.check_flag(flag=flag, timeout=timeout)
 
-    def check_sniffle_firmware(self) -> bool:
+    def check_sniffle_firmware(self, timeout=3, max_retries=2) -> bool:
+        """
+        Check if Sniffle firmware is loaded by sending a command marker request.
+
+        Args:
+            timeout: Timeout in seconds for each attempt
+            max_retries: Number of retry attempts if port is busy
+
+        Returns:
+            bool: True if Sniffle firmware responds correctly, False otherwise
+        """
+        import time
+        from base64 import b64encode, b64decode
+        from binascii import Error as BAError
+
+        # Sniffle command: 0x24 (CMD_MARKER)
         flag = [0x24]
         b0 = (len(flag) + 3) // 3
         cmd = bytes([b0, *flag])
         msg = b64encode(cmd) + b"\r\n"
-        if not self.connect():
-            return False
-        self.write(msg)
-        pkt = self.readline()
-        try:
-            _ = b64decode(pkt.rstrip())
-            return True
-        except BAError:
-            return False
-        finally:
-            self.disconnect()
+
+        for attempt in range(max_retries + 1):
+            try:
+                # If it's not the first attempt, wait before retrying
+                if attempt > 0:
+                    time.sleep(1)  # Wait 1 second between retries
+
+                # Try to connect
+                if not self.connect():
+                    if attempt < max_retries:
+                        continue  # Retry
+                    return False
+
+                # Configure timeout
+                self.connection.timeout = timeout
+
+                # Clear buffers with error handling
+                try:
+                    self.connection.reset_input_buffer()
+                    self.connection.reset_output_buffer()
+                except Exception:
+                    # If cleanup fails, close and retry
+                    self.disconnect()
+                    if attempt < max_retries:
+                        continue
+                    return False
+
+                # Send command
+                self.write(msg)
+                time.sleep(0.2)  # Give more time to respond
+
+                # Try to read response
+                start_time = time.time()
+                pkt = b""
+
+                while time.time() - start_time < timeout:
+                    try:
+                        line = self.readline()
+                        if line and len(line) > 0:
+                            pkt = line
+                            break
+                    except Exception:
+                        # Error reading, continue waiting
+                        pass
+                    time.sleep(0.05)
+
+                # Verify if we received a response
+                if not pkt or len(pkt) == 0:
+                    self.disconnect()
+                    if attempt < max_retries:
+                        continue  # Retry
+                    return False
+
+                # Decode response
+                try:
+                    decoded = b64decode(pkt.rstrip())
+                    # Sniffle must respond with at least 3 bytes
+                    if len(decoded) >= 3:
+                        self.disconnect()
+                        return True
+                    else:
+                        self.disconnect()
+                        if attempt < max_retries:
+                            continue
+                        return False
+                except (BAError, ValueError):
+                    self.disconnect()
+                    if attempt < max_retries:
+                        continue
+                    return False
+
+            except serial.SerialException as e:
+                # Port busy or access error
+                try:
+                    self.disconnect()
+                except:
+                    pass
+
+                if attempt < max_retries:
+                    continue  # Retry
+                return False
+
+            except Exception as e:
+                # Another error
+                try:
+                    self.disconnect()
+                except:
+                    pass
+
+                if attempt < max_retries:
+                    continue
+                return False
+            finally:
+                # Ensure disconnection
+                try:
+                    if (
+                        hasattr(self, "connection")
+                        and self.connection
+                        and self.connection.is_open
+                    ):
+                        self.disconnect()
+                except:
+                    pass
+
+        return False
 
 
 class LoRaConnection(SerialConnection):
