@@ -9,6 +9,7 @@
 
 import logging
 import os
+import tempfile
 
 # Internal
 from .catnip import Catnip
@@ -209,11 +210,6 @@ def open_wireshark_sniffle_simple(port, channel=37):
 
 def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
     """Run Sniffle extcap directly and connect Wireshark to FIFO."""
-    import tempfile
-    import os
-    import time
-    import subprocess
-
     try:
         # Create temporary FIFO
         temp_dir = tempfile.gettempdir()
@@ -371,40 +367,64 @@ def sniff(verbose):
 )
 def sniff_ble(device, wireshark, channel, mode):
     """Sniffing BLE with Sniffle firmware"""
-    import time
-
     dev = get_device_or_exit(device)
 
     # Verify firmware
     cat = Catsniffer(dev.bridge_port)
+
+    # Notify user that we are checking for firmware
+    print_info("Checking for Sniffle firmware...")
+
+    # Try verification with metadata
     firmware_found = False
 
-    # First verification attempt
-    if cat.check_sniffle_firmware():
-        print_success("Sniffle firmware found!")
+    if cat.check_firmware_by_metadata("sniffle", dev.shell_port):
+        print_success("Sniffle firmware found (via metadata)!")
         firmware_found = True
-    else:
+    elif cat.check_sniffle_firmware_smart(dev.shell_port):
+        print_success("Sniffle firmware found (via direct communication)!")
+        firmware_found = True
+
+    if not firmware_found:
         print_warning("Sniffle firmware not found! - Flashing Sniffle")
+
+        # Flash firmware
         if not catnip.find_flash_firmware(SniffingBaseFirmware.BLE.value, dev):
+            print_error("Failed to flash Sniffle firmware")
             return
 
-        # CRITICAL: Wait for the device to restart after flashing
-        # The CC1352 takes approximately 2-3 seconds to restart
-        print_info("Waiting for device to restart after flashing...")
-        time.sleep(3)
+        # LONGER WAIT AND VERIFICATION RETRIES
+        print_info("Waiting for device to initialize after flashing...")
+        time.sleep(4)  # Generous wait
 
-        # Verify again after restart
-        print_info("Verifying firmware after restart...")
-        cat_verify = Catsniffer(dev.bridge_port)
-        if cat_verify.check_sniffle_firmware():
-            print_success("Sniffle firmware verified successfully!")
-            firmware_found = True
-        else:
-            print_error("Firmware verification failed after flashing!")
-            print_warning(
-                "The device may need more time to restart. Try running the command again."
+        # Retry verification several times
+        verified = False
+        for attempt in range(3):
+            print_info(f"Verifying firmware (attempt {attempt + 1}/3)...")
+
+            # Create a new Catsniffer instance to avoid connection issues
+            cat = Catsniffer(dev.bridge_port)
+
+            if cat.check_firmware_by_metadata("sniffle", dev.shell_port):
+                print_success("Sniffle firmware verified successfully (via metadata)!")
+                verified = True
+                break
+            elif cat.check_sniffle_firmware_smart(dev.shell_port):
+                print_success(
+                    "Sniffle firmware verified successfully (via direct communication)!"
+                )
+                verified = True
+                break
+
+            time.sleep(2)  # Wait before retrying
+
+        if not verified:
+            print_error("Firmware verification failed after multiple attempts!")
+            print_info("The device may still work, but metadata is not set.")
+            print_info(
+                "You can try running: catsniffer sniff ble -d 1 again in a few seconds."
             )
-            return
+            # We don't return, allow to continue anyway
 
     if wireshark:
         # Always use the direct method when --wireshark is specified
@@ -557,12 +577,6 @@ def sniff_lora(
 
 
 @cli.command()
-def cativity() -> None:
-    """IQ Activity Monitor (Not implemented yet)"""
-    print_info("Monitoring IQ activity")
-
-
-@cli.command()
 @click.argument("firmware", required=False)
 @click.option(
     "--device",
@@ -584,7 +598,6 @@ def flash(firmware, device, list) -> None:
     PREDEFINED_ALIASES = {
         # Short aliases for the most used firmwares
         "ble": "sniffle",
-        "zigbee": "cc1352_sniffer_zigbee",
         # Multi-protocol Firmware(includes Zigbee, Thread, 15.4)
         "zigbee": "sniffer_fw_CC1352P_7_v1.10.hex",
         "thread": "sniffer_fw_CC1352P_7_v1.10.hex",
@@ -920,9 +933,6 @@ def flash(firmware, device, list) -> None:
         console.print(f"3. Use the exact filename from the list")
         console.print(f"4. Note: 'zigbee' alias maps to TI multiprotocol firmware")
         return
-
-    # Wait for the device to restart after flashing
-    import time
 
     print_info("Waiting for device to restart...")
     time.sleep(4)

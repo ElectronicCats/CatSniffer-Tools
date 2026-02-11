@@ -1,8 +1,6 @@
 import enum
 import time
 import re
-from base64 import b64encode, b64decode
-from binascii import Error as BAError
 
 # Internal
 from protocol.sniffer_ti import SnifferTI
@@ -66,32 +64,6 @@ class CatSnifferDevice:
     def is_valid(self):
         """Check if all ports are detected."""
         return all([self.bridge_port, self.lora_port, self.shell_port])
-
-
-def _get_usb_interfaces(dev):
-    """Read interface strings from a specific USB device."""
-    interfaces = []
-    for cfg in dev:
-        for intf in cfg:
-            intf_num = intf.bInterfaceNumber
-            try:
-                if intf.iInterface:
-                    name = usb.util.get_string(dev, intf.iInterface)
-                else:
-                    name = None
-            except Exception:
-                name = None
-
-            interfaces.append(
-                {
-                    "number": intf_num,
-                    "name": name,
-                    "class": intf.bInterfaceClass,
-                    "bus": dev.bus,
-                    "address": dev.address,
-                }
-            )
-    return interfaces
 
 
 def _identify_ports_by_serial(cat_ports):
@@ -225,42 +197,6 @@ def catsniffer_get_devices():
     return catsniffers
 
 
-def _get_devices_fallback():
-    """
-    Fallback device detection using only pyserial (no pyusb).
-    Groups ports in sets of 3 based on order.
-    """
-    ports = list(list_ports.comports())
-    cat_ports = sorted(
-        [p for p in ports if p.vid == CATSNIFFER_VID and p.pid == CATSNIFFER_PID],
-        key=lambda x: x.device,
-    )
-
-    # Group by serial number if possible
-    devices_by_serial = _identify_ports_by_serial(cat_ports)
-
-    catsniffers = []
-    device_id = 1
-
-    for serial_num, ports in sorted(devices_by_serial.items()):
-        if len(ports) >= 3:
-            ports.sort(key=lambda x: x.device)
-            ports_dict = _map_ports_intelligent(ports[:3])
-
-            if len(ports_dict) == 3:
-                catsniffers.append(
-                    CatSnifferDevice(
-                        device_id=device_id,
-                        bridge_port=ports_dict.get("Cat-Bridge"),
-                        lora_port=ports_dict.get("Cat-LoRa"),
-                        shell_port=ports_dict.get("Cat-Shell"),
-                    )
-                )
-                device_id += 1
-
-    return catsniffers
-
-
 def catsniffer_get_device(device_id=None):
     """Get a single CatSniffer device, optionally by ID."""
     devices = catsniffer_get_devices()
@@ -282,10 +218,6 @@ def catsniffer_get_port():
     if device and device.bridge_port:
         return device.bridge_port
     return DEFAULT_COMPORT
-
-
-class CatsnifferException(Exception):
-    pass
 
 
 class SerialConnection:
@@ -436,6 +368,100 @@ class Catsniffer(SerialConnection):
     def check_ti_firmware(self, timeout=2) -> bool:
         flag = b"TI Packet"
         return self.check_flag(flag=flag, timeout=timeout)
+
+    def check_firmware_by_metadata(
+        self, expected_fw_id: str, shell_port: str = None
+    ) -> bool:
+        """
+        Verify the firmware using the RP2040 metadata system.
+
+        This method is much more reliable than check_sniffle_firmware() because
+        it queries the ID stored in the RP2040 flash instead of trying
+        to communicate with the CC1352 firmware.
+
+        Args:
+            expected_fw_id: Expected ID ("sniffle", "ti_sniffer", etc.)
+            shell_port: Shell port (optional, inferred from bridge_port if not provided)
+
+        Returns:
+            bool: True if the firmware matches, False otherwise
+        """
+        from .fw_metadata import FirmwareMetadata
+
+        # If shell_port is not provided, try to infer it
+        if shell_port is None:
+            # Assume shell_port is 2 positions after bridge_port
+            # Example: /dev/ttyACM0 (bridge) -> /dev/ttyACM2 (shell)
+            try:
+                if self.port and "ttyACM" in self.port:
+                    base_num = int(self.port.split("ttyACM")[-1])
+                    shell_port = f"/dev/ttyACM{base_num + 2}"
+                else:
+                    return False
+            except Exception:
+                return False
+
+        try:
+            # Create shell connection
+            shell = ShellConnection(port=shell_port)
+            if not shell.connect():
+                return False
+
+            # Query metadata
+            metadata = FirmwareMetadata(shell)
+            current_id = metadata.get_firmware_id()
+
+            shell.disconnect()
+
+            if not current_id:
+                return False
+
+            return current_id == expected_fw_id
+
+        except Exception:
+            return False
+
+    def check_sniffle_firmware_smart(
+        self, shell_port: str = None, timeout=3, max_retries=2
+    ) -> bool:
+        """
+        Intelligent version that first tries metadata, then falls back to direct communication.
+
+        ATTEMPT ORDER:
+        1. Query RP2040 metadata (faster and more reliable)
+        2. If it fails, try direct communication with Sniffle (old method)
+
+        Args:
+            shell_port: Shell port for metadata
+            timeout: Timeout for direct communication
+            max_retries: Retries for direct communication
+
+        Returns:
+            bool: True if Sniffle is detected
+        """
+        # METHOD 1: Query metadata (preferred)
+        if shell_port:
+            if self.check_firmware_by_metadata("sniffle", shell_port):
+                return True
+        elif self.port:
+            # Try to infer shell port if possible
+            if self.check_firmware_by_metadata("sniffle"):
+                return True
+
+        # METHOD 2: Fallback to direct communication (old method)
+        # IMPORTANT: Ensure the connection is closed before trying direct communication
+        try:
+            if (
+                hasattr(self, "connection")
+                and self.connection
+                and self.connection.is_open
+            ):
+                self.disconnect()
+            time.sleep(0.2)
+        except:
+            pass
+
+        return self.check_sniffle_firmware(timeout, max_retries)
 
     def check_sniffle_firmware(self, timeout=3, max_retries=2) -> bool:
         """
