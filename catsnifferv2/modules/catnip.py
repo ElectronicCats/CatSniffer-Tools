@@ -219,7 +219,7 @@ class Catnip:
         self.release_dir_path = os.path.join(ROOT_DIR, RELEASE_FOLDER_NAME)
         self.last_date = datetime.now().strftime("%d/%m/%Y")
 
-        self.load_contex()
+        self.load_context()
 
     def get_remove_firmware(self) -> None:
         self.get_remote_firmware()
@@ -227,7 +227,7 @@ class Catnip:
         self.create_local_metadata()
         self.download_remote_firmware()
 
-    def load_contex(self) -> None:
+    def load_context(self) -> None:
         logger.info("[*] Looking for local releases")
         if self.find_local_release():
             logger.info("[*] Local release folder found!")
@@ -345,14 +345,6 @@ class Catnip:
         metadata.write(json.dumps(meta_dict))
         metadata.close()
         logger.info("[*] Local metadata created")
-
-    def check_release_dir_content(self) -> bool:
-        folder_path = self.__create_release_path()
-        if os.path.exists(folder_path):
-            dir_list = os.listdir(folder_path)
-            if len(dir_list) > 0:
-                return True
-        return False
 
     def create_release_dir(self) -> None:
         try:
@@ -582,6 +574,96 @@ class Catnip:
             ccloader.verify_crc(chip_device)
             ccloader.exit_bootloader()
             ccloader.close()
+
+            # NEW: Update firmware metadata in RP2040 with ROBUST RETRIES
+            if device and device.shell_port:
+                try:
+                    from .fw_metadata import update_firmware_metadata_after_flash
+                    import os
+                    import time
+
+                    # Extract firmware name from path
+                    firmware_name = os.path.basename(firmware)
+
+                    # INITIAL WAITING - Give RP2040 time to reboot and mount NVS
+                    console.print("[*] Waiting for device to initialize after reset...")
+                    time.sleep(2.5)
+
+                    # CONNECTION AND COMMAND RETRIES
+                    success = False
+                    last_error = None
+
+                    for attempt in range(5):  # 5 attempts
+                        shell = None
+                        try:
+                            console.print(
+                                f"[*] Metadata update attempt {attempt + 1}/5..."
+                            )
+
+                            # Create shell connection with longer timeout
+                            shell = ShellConnection(port=device.shell_port, timeout=3.0)
+                            if not shell.connect():
+                                console.print(f"  └─ Failed to connect to shell port")
+                                time.sleep(1.5)
+                                continue
+
+                            # STEP 1: Verify shell responds with a simple command
+                            console.print(f"  ├─ Testing shell responsiveness...")
+                            test_resp = shell.send_command("help", timeout=2.0)
+                            if not test_resp or "Commands" not in test_resp:
+                                console.print(f"  └─ Shell not responding properly")
+                                shell.disconnect()
+                                time.sleep(1.5)
+                                continue
+
+                            console.print(
+                                f"  ├─ Shell responsive, updating metadata..."
+                            )
+
+                            # STEP 2: Try to update metadata
+                            success = update_firmware_metadata_after_flash(
+                                shell, firmware_name
+                            )
+                            shell.disconnect()
+
+                            if success:
+                                console.print(
+                                    f"  └─ [green]✓ Metadata updated successfully[/green]"
+                                )
+                                break
+                            else:
+                                console.print(f"  └─ Metadata update command failed")
+                                time.sleep(1.5)
+
+                        except Exception as e:
+                            last_error = str(e)
+                            console.print(f"  └─ Exception: {e}")
+                            if shell:
+                                try:
+                                    shell.disconnect()
+                                except:
+                                    pass
+                            time.sleep(1.5)
+
+                    if success:
+                        console.print(
+                            "[green][*] Firmware metadata updated successfully[/green]"
+                        )
+                    else:
+                        console.print(
+                            f"[yellow][!] Warning: Could not update firmware metadata after 5 attempts[/yellow]"
+                        )
+                        if last_error:
+                            console.print(f"[dim]  └─ Last error: {last_error}[/dim]")
+
+                except Exception as e:
+                    console.print(
+                        f"[yellow][!] Warning: Metadata update failed: {e}[/yellow]"
+                    )
+                    import traceback
+
+                    console.print(f"[dim]{traceback.format_exc()}[/dim]")
+
             return True
         except CmdException as e:
             logger.warning(
