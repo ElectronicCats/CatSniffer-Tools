@@ -27,39 +27,9 @@ import logging
 
 logger = logging.getLogger("rich")
 
-# Mapping of firmware names to official IDs - IMPROVED VERSION
-FIRMWARE_ID_MAP = {
-    # BLE Firmwares
-    "sniffle": "sniffle",
-    "sniffle_cc1352p7_1m": "sniffle",
-    "sniffle_cc1352p7_1m.hex": "sniffle",
-    "sniffle_cc1352p7_1M": "sniffle",
-    "sniffle_cc1352p7_1M.hex": "sniffle",
-    # TI Sniffer (Zigbee/Thread/15.4)
-    "ti_sniffer": "ti_sniffer",
-    "sniffer": "ti_sniffer",
-    "sniffer_fw_cc1352p_7_v1.10.hex": "ti_sniffer",
-    "sniffer_fw_CC1352P_7_v1.10.hex": "ti_sniffer",
-    "cc1352_sniffer_zigbee": "ti_sniffer",
-    "cc1352_sniffer_zigbee.hex": "ti_sniffer",
-    "cc1352_sniffer_thread": "ti_sniffer",
-    "cc1352_sniffer_thread.hex": "ti_sniffer",
-    # CatSniffer V3
-    "catsniffer_v3": "catsniffer_v3",
-    # Airtag
-    "airtag_spoofer": "airtag_spoofer_cc1352p7",
-    "airtag_spoofer_cc1352p7": "airtag_spoofer_cc1352p7",
-    "airtag_spoofer_cc1352p7.hex": "airtag_spoofer_cc1352p7",
-    "airtag_scanner": "airtag_scanner_cc1352p7",
-    "airtag_scanner_cc1352p7": "airtag_scanner_cc1352p7",
-    "airtag_scanner_cc1352p7.hex": "airtag_scanner_cc1352p7",
-}
+from .fw_aliases import get_official_id
 
-# Lowercase version for case-insensitive search
-FIRMWARE_ID_MAP_LOWERCASE = {k.lower(): v for k, v in FIRMWARE_ID_MAP.items()}
-
-# Sort keys by descending length to prioritize most specific matches
-SORTED_KEYS = sorted(FIRMWARE_ID_MAP_LOWERCASE.keys(), key=len, reverse=True)
+# Redundant map removed. Using fw_aliases.get_official_id instead.
 
 
 class FirmwareMetadata:
@@ -175,65 +145,12 @@ class FirmwareMetadata:
 
         Returns:
             str: Official firmware ID or None if not found
-
-        Example:
-            >>> fw_id = FirmwareMetadata.normalize_firmware_name("sniffle_cc1352p7_1M.hex")
-            >>> print(fw_id)  # "sniffle"
         """
         if not firmware_name:
             return None
 
-        # Convert to lowercase for searching
-        fw_lower = firmware_name.lower()
-
-        # Remove extension if exists
-        if "." in fw_lower:
-            fw_lower = fw_lower.rsplit(".", 1)[0]
-
-        # DEBUG: Log what we are normalizing
-        logger.debug(f"Normalizing firmware name: '{firmware_name}' -> '{fw_lower}'")
-
-        # 1. Exact match (insensitive)
-        if fw_lower in FIRMWARE_ID_MAP_LOWERCASE:
-            result = FIRMWARE_ID_MAP_LOWERCASE[fw_lower]
-            logger.debug(f"Exact match: {fw_lower} -> {result}")
-            return result
-
-        # 2. Partial match ordered by descending length
-        for key in SORTED_KEYS:
-            if key in fw_lower or fw_lower in key:
-                result = FIRMWARE_ID_MAP_LOWERCASE[key]
-                logger.debug(
-                    f"Partial match: {fw_lower} matched key '{key}' -> {result}"
-                )
-                return result
-
-        # 3. Specific heuristics
-        if "sniffle" in fw_lower and "airtag" not in fw_lower:
-            logger.debug(f"Heuristic: sniffle detected in {fw_lower}")
-            return "sniffle"
-
-        if any(x in fw_lower for x in ["sniffer", "zigbee", "thread", "15.4", "ti_"]):
-            logger.debug(f"Heuristic: TI sniffer detected in {fw_lower}")
-            return "ti_sniffer"
-
-        if "airtag" in fw_lower:
-            if "spoof" in fw_lower:
-                logger.debug(f"Heuristic: airtag spoofer detected")
-                return "airtag_spoofer_cc1352p7"
-            elif "scan" in fw_lower:
-                logger.debug(f"Heuristic: airtag scanner detected")
-                return "airtag_scanner_cc1352p7"
-
-        # 4. Fallback: cleaned and validated base name
-        # Remove non-allowed characters and truncate
-        clean_name = re.sub(r"[^a-zA-Z0-9_\-.]", "_", fw_lower)[:31]
-        if clean_name:
-            logger.debug(f"Fallback: using clean name '{clean_name}'")
-            return clean_name
-
-        logger.debug("No normalization possible")
-        return None
+        # Use centralized alias resolver
+        return get_official_id(firmware_name)
 
 
 def check_firmware_by_metadata(shell_connection, expected_fw_id: str) -> bool:
