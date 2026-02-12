@@ -39,7 +39,7 @@ class Pcap:
 
     def pack(self):
         int_timestamp = int(self.timestamp_seconds)
-        timestamp_offset = int((self.timestamp_seconds - int_timestamp) / 1_000_000)
+        timestamp_offset = int((self.timestamp_seconds - int_timestamp) * 1_000_000)
         return (
             struct.pack(
                 PCAP_PACKET_HEADER_FORMAT,  # Block Type
