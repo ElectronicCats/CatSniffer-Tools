@@ -33,6 +33,7 @@ class SniffingFirmware(enum.Enum):
     THREAD = enum.auto()  # TI Sniffer Firmware
     JWORKS = enum.auto()  # Just works
     LORA = enum.auto()
+    AIRTAG_SCANNER = enum.auto()
 
 
 class SniffingBaseFirmware(enum.Enum):
@@ -41,6 +42,7 @@ class SniffingBaseFirmware(enum.Enum):
     THREAD = "sniffer"
     JWORKS = "justworks"
     LORA = "lora"
+    AIRTAG_SCANNER = "airtag_scanner"
 
 
 class CatSnifferDevice:

@@ -164,6 +164,40 @@ def find_wireshark_path():
     return None
 
 
+def find_putty_path():
+    """Find PuTTY executable path."""
+    system = platform.system()
+
+    if system == "Windows":
+        paths = [
+            Path("C:\\Program Files\\PuTTY\\putty.exe"),
+            Path("C:\\Program Files (x86)\\PuTTY\\putty.exe"),
+        ]
+    elif system in ["Linux", "Darwin"]:
+        paths = [
+            Path("/usr/bin/putty"),
+            Path("/usr/local/bin/putty"),
+            Path("/opt/homebrew/bin/putty"),  # macOS Homebrew
+        ]
+    else:
+        return None
+
+    for path in paths:
+        if path.exists():
+            return str(path)
+
+    # Also search in PATH
+    which_cmd = "where" if system == "Windows" else "which"
+    try:
+        result = subprocess.run([which_cmd, "putty"], capture_output=True, text=True)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except:
+        pass
+
+    return None
+
+
 def open_wireshark_sniffle_simple(port, channel=37):
     """Simple method to open Wireshark with Sniffle."""
     wireshark_path = find_wireshark_path()
@@ -482,6 +516,7 @@ def sniff_zigbee(ws, channel, device):
 
 
 @sniff.command(SniffingFirmware.THREAD.name.lower())
+@click.option("-ws", is_flag=True, help="Open Wireshark")
 @click.option(
     "--channel", "-c", required=True, type=click.IntRange(11, 26), help="Thread channel"
 )
@@ -588,6 +623,77 @@ def sniff_lora(
         tx_power,
         ws,
     )
+
+
+@sniff.command(SniffingFirmware.AIRTAG_SCANNER.name.lower())
+@click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
+@click.option("--putty", is_flag=True, help="Open PuTTY with serial configuration")
+def sniff_airtag_scanner(device, putty):
+    """Sniffing Airtag Scanner firmware"""
+    dev = get_device_or_exit(device)
+
+    # Verify firmware
+    cat = Catsniffer(dev.bridge_port)
+
+    # Notify user that we are checking for firmware
+    print_info("Checking for Airtag Scanner firmware...")
+
+    # Define the official ID for Airtag Scanner
+    # This must match ALIAS_TO_OFFICIAL_ID in fw_aliases.py
+    official_id = "airtag_scanner_cc1352p7"
+
+    # Try verification with metadata
+    firmware_found = False
+
+    if cat.check_firmware_by_metadata(official_id, dev.shell_port):
+        print_success("Airtag Scanner firmware found (via metadata)!")
+        firmware_found = True
+
+    if not firmware_found:
+        print_warning("Airtag Scanner firmware not found! - Flashing Airtag Scanner")
+
+        # Flash firmware
+        if not catnip.find_flash_firmware(official_id, dev):
+            print_error("Failed to flash Airtag Scanner firmware")
+            return
+
+        # Wait for device to initialize
+        print_info("Waiting for device to initialize after flashing...")
+        time.sleep(4)
+
+        # Verify
+        if cat.check_firmware_by_metadata(official_id, dev.shell_port):
+            print_success("Airtag Scanner firmware verified successfully!")
+        else:
+            print_warning("Firmware verification failed, but continuing...")
+
+    if putty:
+        putty_path = find_putty_path()
+        if not putty_path:
+            print_error("PuTTY not found! Make sure it is installed and in your PATH.")
+            if platform.system() == "Linux":
+                print_info("On Linux, you can install it with: sudo apt install putty")
+            elif platform.system() == "Darwin":
+                print_info("On macOS, you can install it with: brew install putty")
+            return
+
+        print_info(f"Opening PuTTY on {dev.bridge_port} at 9600 baud...")
+        try:
+            # putty -serial [port] -sercfg 9600,8,n,1,n
+            cmd = [putty_path, "-serial", dev.bridge_port, "-sercfg", "9600,8,n,1,n"]
+            subprocess.Popen(cmd)
+            print_success("PuTTY launched successfully!")
+        except Exception as e:
+            print_error(f"Failed to launch PuTTY: {str(e)}")
+    else:
+        print_info("Airtag Scanner firmware is ready!")
+        print_info(f"\nConnect to {dev.bridge_port} at 9600 baud to see the output.")
 
 
 @cli.command()
