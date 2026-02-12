@@ -45,8 +45,8 @@ ALIAS_TO_OFFICIAL_ID = {
 OFFICIAL_ID_TO_FILENAME = {
     "sniffle": "sniffle_cc1352p7_1M",
     "ti_sniffer": "sniffer_fw_CC1352P_7_v1.10",
-    "airtag_spoofer_cc1352p7": "airtag_spoofer_cc1352p7",
-    "airtag_scanner_cc1352p7": "airtag_scanner_cc1352p7",
+    "airtag_spoofer_cc1352p7": "airtag_spoofer_CC1352P_7",
+    "airtag_scanner_cc1352p7": "airtag_scanner_CC1352P_7",
 }
 
 
