@@ -462,12 +462,19 @@ def sniff_zigbee(ws, channel, device):
     """Sniffing Zigbee with Sniffer TI firmware"""
     dev = get_device_or_exit(device)
     cat = Catsniffer(dev.bridge_port)
-    if cat.check_ti_firmware():
-        print_info("Firmware found!")
+    # Verify firmware with metadata (preferred)
+    print_info("Checking for Sniffer TI firmware...")
+    if cat.check_firmware_by_metadata("ti_sniffer", dev.shell_port):
+        print_success("Sniffer TI firmware found (via metadata)!")
+    elif cat.check_ti_firmware():
+        print_success("Sniffer TI firmware found (via direct communication)!")
     else:
-        print_warning("Firmware not found! - Flashing Sniffer TI")
-        if not catnip.find_flash_firmware(SniffingBaseFirmware.ZIGBEE.value, dev):
+        print_warning("Sniffer TI firmware not found! - Flashing Sniffer TI")
+        if not catnip.find_flash_firmware("ti_sniffer", dev):
             return
+
+        print_info("Waiting for device to initialize...")
+        time.sleep(3)
 
     print_info(f"[{dev}] Sniffing Zigbee at channel: {channel}")
 
@@ -489,12 +496,19 @@ def sniff_thread(ws, channel, device):
     """Sniffing Thread with Sniffer TI firmware"""
     dev = get_device_or_exit(device)
     cat = Catsniffer(dev.bridge_port)
-    if cat.check_ti_firmware():
-        print_info("Firmware found!")
+    # Verify firmware with metadata (preferred)
+    print_info("Checking for Sniffer TI firmware...")
+    if cat.check_firmware_by_metadata("ti_sniffer", dev.shell_port):
+        print_success("Sniffer TI firmware found (via metadata)!")
+    elif cat.check_ti_firmware():
+        print_success("Sniffer TI firmware found (via direct communication)!")
     else:
-        print_warning("Firmware not found! - Flashing Sniffer TI")
-        if not catnip.find_flash_firmware(SniffingBaseFirmware.THREAD.value, dev):
+        print_warning("Sniffer TI firmware not found! - Flashing Sniffer TI")
+        if not catnip.find_flash_firmware("ti_sniffer", dev):
             return
+
+        print_info("Waiting for device to initialize...")
+        time.sleep(3)
 
     print_info(f"[{dev}] Sniffing Thread at channel: {channel}")
     run_bridge(dev, channel, ws)
@@ -594,23 +608,7 @@ def sniff_lora(
 def flash(firmware, device, list) -> None:
     """Flash CC1352 Firmware or list available firmware images"""
 
-    # Alias dictionary for common firmwares
-    PREDEFINED_ALIASES = {
-        # Short aliases for the most used firmwares
-        "ble": "sniffle",
-        # Multi-protocol Firmware(includes Zigbee, Thread, 15.4)
-        "zigbee": "sniffer_fw_CC1352P_7_v1.10.hex",
-        "thread": "sniffer_fw_CC1352P_7_v1.10.hex",
-        "15.4": "sniffer_fw_CC1352P_7_v1.10.hex",
-        "multiprotocol": "sniffer_fw_CC1352P_7_v1.10.hex",
-        "lora": "cc1352_sniffer_lora",
-        "base": "cc1352_base",
-        "sniffle": "sniffle_cc1352p7_1M",
-        "sniffle-full": "sniffle_cc1352p7_1M.hex",
-        "zigbee-full": "cc1352_sniffer_zigbee.hex",
-        "thread-full": "cc1352_sniffer_thread.hex",
-        "lora-full": "cc1352_sniffer_lora.hex",
-    }
+    from .fw_aliases import get_official_id
 
     # Initialize Catnip to manage firmware operations
     catnip = Catnip()
@@ -650,12 +648,12 @@ def flash(firmware, device, list) -> None:
                 fw_lower = fw.lower()
                 fw_name_without_ext = os.path.splitext(fw)[0]
 
-                # Check if it matches any predefined alias
-                for alias, target in PREDEFINED_ALIASES.items():
-                    if target.lower() in fw_lower:
-                        firmware_to_alias[fw] = alias
-                        alias_usage_count[alias] = alias_usage_count.get(alias, 0) + 1
-                        break
+                # Check if it matches any centralized alias or official ID
+                alias = get_official_id(fw_name_without_ext)
+                if alias:
+                    firmware_to_alias[fw] = alias
+                    alias_usage_count[alias] = alias_usage_count.get(alias, 0) + 1
+                    continue
 
             # Display each firmware with its alias
             for fw in sorted(firmwares):
@@ -886,10 +884,9 @@ def flash(firmware, device, list) -> None:
         exit(1)
 
     # First, check if it's a known alias
-    original_firmware = firmware
-    if firmware in PREDEFINED_ALIASES:
-        firmware = PREDEFINED_ALIASES[firmware]
-        print_info(f"Alias '{original_firmware}' resolved to: {firmware}")
+    official_id = get_official_id(firmware)
+    if official_id and official_id != firmware:
+        print_info(f"Alias '{firmware}' resolved to: {official_id}")
 
     # If no device is specified, get all connected devices
     if device is None:

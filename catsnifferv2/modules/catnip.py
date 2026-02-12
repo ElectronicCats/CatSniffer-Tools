@@ -482,30 +482,30 @@ class Catnip:
         if os.path.exists(firmware_str):
             return self.flash_firmware(firmware_str, device)
 
-        # Reverse aliases - map common names to file names
-        REVERSE_ALIASES = {
-            "airtag_scanner": "airtag_scanner",
-            "airtag_spoofer": "airtag_spoofer",
-            "justworks": "justworks_scanner",
-            "sniffle": "sniffle_cc1352p7_1M",
-            "lora_sniffer": "LoraSniffer",
-            "lora_cli": "LoRa-CLI",
-            "lora_cad": "LoRa-CAD",
-            "lora_freq": "LoRa-Freq",
-        }
+        from .fw_aliases import get_official_id, get_filename_pattern
 
-        # Check if it's a known alias
-        firmware_lower = firmware_str.lower()
-        for alias, pattern in REVERSE_ALIASES.items():
-            if alias.lower() in firmware_lower:
-                # Find the file that matches the pattern
+        # Resolve firmware string to official ID
+        official_id = get_official_id(firmware_str)
+        if official_id:
+            # Try to find a file matching the preferred pattern for this ID
+            pattern = get_filename_pattern(official_id)
+            if pattern:
                 for firm in firmwares:
                     if pattern.lower() in firm.lower():
                         path = os.path.join(self.get_releases_path(), firm)
                         console.print(
-                            f"[dim]Alias '{firmware_str}' matched to: {firm}[/dim]"
+                            f"[dim]Resolved '{firmware_str}' to {official_id} -> {firm}[/dim]"
                         )
                         return self.flash_firmware(path, device)
+
+            # If no pattern or pattern not found, try searching by official ID directly
+            for firm in firmwares:
+                if official_id.lower() in firm.lower():
+                    path = os.path.join(self.get_releases_path(), firm)
+                    console.print(
+                        f"[dim]Resolved '{firmware_str}' to {official_id} -> {firm}[/dim]"
+                    )
+                    return self.flash_firmware(path, device)
 
         # First, try exact match
         for firm in firmwares:
