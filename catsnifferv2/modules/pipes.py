@@ -26,13 +26,14 @@ if platform.system().lower() == "windows":
 
 
 def show_generic_error(title="", e="") -> None:
-    logger.error(f"[bold red][X] Error {title}[/bold red]: {e}")
+    logger.error(f"{title}: {e}")
 
 
 class UnixPipe:
     def __init__(self, path=DEFAULT_UNIX_PATH) -> None:
         self.pipe_path = path
         self.pipe_writer = None
+        self.ready_event = threading.Event()
         # Initial configuration
         self.create()
 
@@ -52,6 +53,7 @@ class UnixPipe:
             self.create()
         try:
             self.pipe_writer = open(self.pipe_path, "ab")
+            self.ready_event.set()
             logger.info(f"[*] Pipeline Open: {self.pipe_path}")
         except Exception as e:
             show_generic_error("Opening Pipeline", e)
@@ -59,8 +61,10 @@ class UnixPipe:
 
     def close(self) -> None:
         try:
-            self.pipe_writer.close()
-            self.pipe_writer = None
+            if self.pipe_writer:
+                self.pipe_writer.close()
+                self.pipe_writer = None
+            self.ready_event.clear()
             logger.info(f"[*] Pipeline Closed: {self.pipe_path}")
         except Exception as e:
             show_generic_error("Closing Pipeline", e)
@@ -96,6 +100,7 @@ class WindowsPipe:
     def __init__(self, path=DEFAULT_WINDOWS_PATH) -> None:
         self.pipe_path = path
         self.pipe_writer = None
+        self.ready_event = threading.Event()
         # Initial configuration
         self.create()
 
@@ -123,9 +128,11 @@ class WindowsPipe:
         logger.info(f"[*] Waiting for a client on {self.pipe_path}.")
         try:
             win32pipe.ConnectNamedPipe(self.pipe_writer, None)
+            self.ready_event.set()
             logger.info(f"[*] Pipeline Open: {self.pipe_path}")
         except pywintypes.error as e:
             if e.winerror == 535:  # ERROR_PIPE_CONNECTED
+                self.ready_event.set()
                 logger.info("[*] Client already connected")
             elif e.winerror == 232:  # ERROR_NO_DATA
                 logger.warning("[!] Client connected and disconnected immediately")
@@ -140,7 +147,8 @@ class WindowsPipe:
                 win32pipe.DisconnectNamedPipe(self.pipe_writer)
                 win32file.CloseHandle(self.pipe_writer)
                 self.pipe_writer = None
-                logger.info(f"[*] Pipeline Closed: {self.pipe_path}")
+            self.ready_event.clear()
+            logger.info(f"[*] Pipeline Closed: {self.pipe_path}")
         except Exception as e:
             show_generic_error("Closing Pipeline", e)
 
@@ -183,7 +191,7 @@ class Wireshark(threading.Thread):
             if not exe_path.exists():
                 exe_path = Path("C:\\Program Files (x86)\\Wireshark\\Wireshark.exe")
         elif self.system == "Linux":
-            exe_path = Path("/usr/bin/wireshark")
+            exe_path = Path("/usr/local/bin/wireshark")
         elif self.system == "Darwin":
             exe_path = Path("/Applications/Wireshark.app/Contents/MacOS/Wireshark")
         else:

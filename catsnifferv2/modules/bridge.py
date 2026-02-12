@@ -89,6 +89,11 @@ def run_sx_bridge(
     shell.send_command(snifferSxCmd.start_streaming())
     console.print(f"[*] LoRa streaming started")
 
+    # Wait for pipe to be ready before starting to stream data
+    if wireshark:
+        console.print("[*] Waiting for Wireshark to open the pipe...")
+        pipe.ready_event.wait()
+
     header_flag = False
 
     while True:
@@ -156,6 +161,11 @@ def run_bridge(
         serial_worker.write(cmd)
         time.sleep(0.1)
 
+    # Wait for pipe to be ready before starting to stream data
+    if wireshark:
+        console.print("[*] Waiting for Wireshark to open the pipe...")
+        pipe.ready_event.wait()
+
     header_flag = False
 
     while True:
@@ -213,6 +223,11 @@ def run_sx_bridge_legacy(
     serial_worker.write(bytes(f"set_pl {preamble_length}\r\n", "utf-8"))
     serial_worker.write(bytes(f"set_sw {sync_word}\r\n", "utf-8"))
     serial_worker.write(bytes(f"set_rx\r\n", "utf-8"))
+
+    # Wait for pipe to be ready before starting to stream data
+    if wireshark:
+        console.print("[*] Waiting for Wireshark to open the pipe...")
+        pipe.ready_event.wait()
 
     header_flag = False
 
