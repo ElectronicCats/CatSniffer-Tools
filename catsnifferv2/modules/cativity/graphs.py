@@ -6,6 +6,7 @@ HOPP_INTERVAL = 3.1
 REFRESH_INTERVAL = 1.1
 MAX_CHANNEL_ACTIVITY = 50
 
+
 class Graphs:
     def __init__(self):
         self.running = True
@@ -88,9 +89,9 @@ class Graphs:
 
     def create_channel_graph(self, console=None):
         with Live(
-            self.generate_channel_graph(), 
+            self.generate_channel_graph(),
             refresh_per_second=REFRESH_INTERVAL,
-            console=console
+            console=console,
         ) as live:
             while self.running:
                 time.sleep(0.4)
@@ -98,9 +99,9 @@ class Graphs:
 
     def create_topology_graph(self, console=None):
         with Live(
-            self.generate_topology_graph(), 
+            self.generate_topology_graph(),
             refresh_per_second=REFRESH_INTERVAL,
-            console=console
+            console=console,
         ) as live:
             while self.running:
                 time.sleep(0.4)

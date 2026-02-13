@@ -8,6 +8,7 @@ from .packets import is_beacon_request, is_beacon_response
 conf.dot15d4_protocol = "zigbee"
 CORDINATOR_ADDR_SHORT = 0x0000
 
+
 class NetworkStats:
     def __init__(self):
         self.start_time = time.time()
@@ -21,6 +22,7 @@ class NetworkStats:
         if is_beacon_response(packet):
             self.beacons_responses += 1
 
+
 class Network:
     def __init__(self):
         self.children = []
@@ -33,7 +35,7 @@ class Network:
             pkt = Dot15d4(packet)
         except Exception:
             return None
-            
+
         if pfilter == "all":
             return packet
         elif pfilter == "thread":
@@ -50,7 +52,7 @@ class Network:
             pkt = Dot15d4(packet)
         except Exception:
             return None
-            
+
         new_pkt = {}
         self.nStats.update_network_stats(pkt)
 
