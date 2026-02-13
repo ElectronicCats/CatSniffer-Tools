@@ -129,6 +129,7 @@ def run_bridge(
     device: CatSnifferDevice,
     channel: int = 11,
     wireshark: bool = False,
+    profile: str = None,
 ):
     """
     Run TI sniffer bridge for Zigbee/Thread.
@@ -137,6 +138,7 @@ def run_bridge(
         device: CatSnifferDevice with bridge_port
         channel: IEEE 802.15.4 channel (11-26)
         wireshark: Whether to launch Wireshark
+        profile: Wireshark configuration profile name
     """
     if platform.system() == "Windows":
         pipe = WindowsPipe()
@@ -147,7 +149,7 @@ def run_bridge(
 
     ws = None
     if wireshark:
-        ws = Wireshark()
+        ws = Wireshark(profile=profile)
         ws.run()
 
     opening_worker.start()

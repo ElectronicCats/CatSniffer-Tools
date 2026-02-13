@@ -511,8 +511,7 @@ def sniff_zigbee(ws, channel, device):
         time.sleep(3)
 
     print_info(f"[{dev}] Sniffing Zigbee at channel: {channel}")
-
-    run_bridge(dev, channel, ws)
+    run_bridge(dev, channel, ws, profile="Zigbee")
 
 
 @sniff.command(SniffingFirmware.THREAD.name.lower())
@@ -546,7 +545,7 @@ def sniff_thread(ws, channel, device):
         time.sleep(3)
 
     print_info(f"[{dev}] Sniffing Thread at channel: {channel}")
-    run_bridge(dev, channel, ws)
+    run_bridge(dev, channel, ws, profile="Thread")
 
 
 @sniff.command(SniffingFirmware.LORA.name.lower())
@@ -1150,9 +1149,58 @@ def verify(test_all, device, quiet):
         return 1
 
 
+@cli.command()
+@click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
+@click.option(
+    "--channel", "-c", type=click.IntRange(11, 26), help="Fixed channel (11-26)"
+)
+@click.option("--topology", "-t", is_flag=True, help="Show network topology")
+@click.option(
+    "--protocol",
+    "-p",
+    default="all",
+    type=click.Choice(["all", "zigbee", "thread"]),
+    help="Protocol filter",
+)
+def cativity(device, channel, topology, protocol):
+    """IQ Activity Monitor"""
+    from .cativity.runner import CativityRunner
+
+    dev = get_device_or_exit(device)
+    cat = Catsniffer(dev.bridge_port)
+
+    # Verify firmware
+    print_info("Checking for Sniffer TI firmware...")
+    if cat.check_firmware_by_metadata("ti_sniffer", dev.shell_port):
+        print_success("Sniffer TI firmware found (via metadata)!")
+    elif cat.check_ti_firmware():
+        print_success("Sniffer TI firmware found (via direct communication)!")
+    else:
+        print_warning("Sniffer TI firmware not found! - Flashing Sniffer TI")
+        # Initialize Catnip for flashing
+        catnip_flash = Catnip()
+        if not catnip_flash.find_flash_firmware("ti_sniffer", dev):
+            print_error("Failed to flash Sniffer TI firmware")
+            return
+
+        print_info("Waiting for device to initialize...")
+        time.sleep(3)
+
+    print_info(f"[{dev}] Starting Cativity analysis...")
+    runner = CativityRunner(dev, console=console)
+    runner.run(channel=channel, topology=topology, protocol=protocol)
+
+
 def main_cli() -> None:
     print_header()
     cli.add_command(sniff)
+    cli.add_command(cativity)
     cli.add_command(help_firmware)
     cli.add_command(verify)
     cli()
