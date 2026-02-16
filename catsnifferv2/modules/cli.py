@@ -1042,29 +1042,6 @@ def flash(firmware, device, list) -> None:
 
 
 @cli.command()
-def help_firmware() -> None:
-    """Show detailed information about available firmware images"""
-    console.print("\n[cyan bold]Firmware Flash Help[/cyan bold]\n")
-    console.print("To see all available firmware images:")
-    console.print("  [green]catsniffer flash --list[/green]\n")
-
-    console.print("To flash a specific firmware:")
-    console.print("  [green]catsniffer flash <firmware_name>[/green]\n")
-
-    console.print("Examples of firmware names:")
-    console.print("  • sniffle_cc1352p7_1M.hex - BLE Sniffer (Sniffle firmware)")
-    console.print("  • cc1352_sniffer_zigbee.hex - Zigbee Sniffer")
-    console.print("  • cc1352_sniffer_thread.hex - Thread Sniffer")
-    console.print("  • cc1352_sniffer_lora.hex - LoRa Sniffer\n")
-
-    console.print("To specify a device (if multiple are connected):")
-    console.print("  [green]catsniffer flash --device 1 <firmware_name>[/green]\n")
-
-    console.print("[yellow]Note:[/yellow] Firmware images are automatically downloaded")
-    console.print("on first run and can be updated by running the CLI daily.")
-
-
-@cli.command()
 def devices() -> None:
     """List connected CatSniffer devices"""
     devs = catsniffer_get_devices()
@@ -1201,6 +1178,5 @@ def main_cli() -> None:
     print_header()
     cli.add_command(sniff)
     cli.add_command(cativity)
-    cli.add_command(help_firmware)
     cli.add_command(verify)
     cli()
