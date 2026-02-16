@@ -624,6 +624,225 @@ def sniff_lora(
     )
 
 
+@sniff.command("wisun")
+@click.option(
+    "--mode",
+    "-m",
+    type=click.Choice(["1a", "1b", "2a", "2b", "3", "4a", "4b"]),
+    default="1a",
+    help="Wi-SUN PHY mode",
+)
+@click.option(
+    "--channel",
+    "-c",
+    default=0,
+    type=int,
+    help="Channel number (0-128 for NA band)",
+)
+@click.option(
+    "--freq",
+    "-f",
+    default=None,
+    type=float,
+    help="Frequency in MHz (overrides channel)",
+)
+@click.option("-ws", is_flag=True, help="Open Wireshark")
+@click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
+def sniff_wisun(mode, channel, freq, ws, device):
+    """Sniff Wi-SUN traffic (Sub-GHz 802.15.4g)"""
+    from protocol.common import WISUN_MODE_TO_PHY, PHY_TABLE
+
+    dev = get_device_or_exit(device)
+    cat = Catsniffer(dev.bridge_port)
+
+    # Verify firmware
+    print_info("Checking for Sniffer TI firmware...")
+    if cat.check_firmware_by_metadata("ti_sniffer", dev.shell_port):
+        print_success("Sniffer TI firmware found (via metadata)!")
+    elif cat.check_ti_firmware():
+        print_success("Sniffer TI firmware found (via direct communication)!")
+    else:
+        print_warning("Sniffer TI firmware not found! - Flashing Sniffer TI")
+        if not catnip.find_flash_firmware("ti_sniffer", dev):
+            return
+        print_info("Waiting for device to initialize...")
+        time.sleep(3)
+
+    phy_number = WISUN_MODE_TO_PHY.get(mode, 4)
+    phy_info = PHY_TABLE[phy_number]
+
+    print_info(f"[{dev}] Sniffing Wi-SUN mode #{mode}")
+    console.print(f"  PHY:      {phy_number} - {phy_info['name']}")
+    console.print(f"  Band:     {phy_info['band']} MHz")
+    console.print(f"  Rate:     {phy_info['data_rate']}")
+
+    if freq is not None:
+        console.print(f"  Frequency: {freq} MHz (manual)")
+    else:
+        console.print(f"  Channel:  {channel}")
+
+    run_bridge(dev, channel, ws, profile=None, phy_number=phy_number, freq_mhz=freq)
+
+
+@sniff.command("zigbee-subghz")
+@click.option(
+    "--region",
+    "-r",
+    type=click.Choice(["na", "eu"]),
+    default="na",
+    help="Region (NA=500kbps 915MHz, EU=100kbps 868MHz)",
+)
+@click.option(
+    "--channel",
+    "-c",
+    default=0,
+    type=int,
+    help="Channel number",
+)
+@click.option(
+    "--freq",
+    "-f",
+    default=None,
+    type=float,
+    help="Frequency in MHz (overrides channel)",
+)
+@click.option("-ws", is_flag=True, help="Open Wireshark")
+@click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
+def sniff_zigbee_subghz(region, channel, freq, ws, device):
+    """Sniff ZigBee R23 sub-GHz traffic (868/915 MHz)"""
+    from protocol.common import ZIGBEE_R23_REGION_TO_PHY, PHY_TABLE
+
+    dev = get_device_or_exit(device)
+    cat = Catsniffer(dev.bridge_port)
+
+    # Verify firmware
+    print_info("Checking for Sniffer TI firmware...")
+    if cat.check_firmware_by_metadata("ti_sniffer", dev.shell_port):
+        print_success("Sniffer TI firmware found (via metadata)!")
+    elif cat.check_ti_firmware():
+        print_success("Sniffer TI firmware found (via direct communication)!")
+    else:
+        print_warning("Sniffer TI firmware not found! - Flashing Sniffer TI")
+        if not catnip.find_flash_firmware("ti_sniffer", dev):
+            return
+        print_info("Waiting for device to initialize...")
+        time.sleep(3)
+
+    phy_number = ZIGBEE_R23_REGION_TO_PHY.get(region, 12)
+    phy_info = PHY_TABLE[phy_number]
+
+    print_info(f"[{dev}] Sniffing ZigBee R23 sub-GHz ({region.upper()} region)")
+    console.print(f"  PHY:      {phy_number} - {phy_info['name']}")
+    console.print(f"  Band:     {phy_info['band']} MHz")
+    console.print(f"  Rate:     {phy_info['data_rate']}")
+
+    if freq is not None:
+        console.print(f"  Frequency: {freq} MHz (manual)")
+    else:
+        console.print(f"  Channel:  {channel}")
+
+    run_bridge(dev, channel, ws, profile="Zigbee", phy_number=phy_number, freq_mhz=freq)
+
+
+@sniff.command("subghz")
+@click.option(
+    "--phy",
+    "-p",
+    type=int,
+    required=True,
+    help="PHY number (0-17 for sub-GHz modes)",
+)
+@click.option(
+    "--freq",
+    "-f",
+    type=float,
+    required=True,
+    help="Frequency in MHz",
+)
+@click.option("-ws", is_flag=True, help="Open Wireshark")
+@click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
+def sniff_subghz(phy, freq, ws, device):
+    """Sniff with specific sub-GHz PHY and frequency"""
+    from protocol.common import PHY_TABLE
+
+    if phy not in PHY_TABLE:
+        print_error(f"Invalid PHY number: {phy}")
+        console.print("Use 'catsniffer sniff list-phys' to see available PHY modes.")
+        return
+
+    phy_info = PHY_TABLE[phy]
+
+    # Validate sub-GHz PHY (0-17)
+    if phy >= 18:
+        print_warning(f"PHY {phy} is not a sub-GHz mode. Use 'sniff zigbee' or 'sniff ble' instead.")
+
+    dev = get_device_or_exit(device)
+    cat = Catsniffer(dev.bridge_port)
+
+    # Verify firmware
+    print_info("Checking for Sniffer TI firmware...")
+    if cat.check_firmware_by_metadata("ti_sniffer", dev.shell_port):
+        print_success("Sniffer TI firmware found (via metadata)!")
+    elif cat.check_ti_firmware():
+        print_success("Sniffer TI firmware found (via direct communication)!")
+    else:
+        print_warning("Sniffer TI firmware not found! - Flashing Sniffer TI")
+        if not catnip.find_flash_firmware("ti_sniffer", dev):
+            return
+        print_info("Waiting for device to initialize...")
+        time.sleep(3)
+
+    print_info(f"[{dev}] Sniffing with PHY {phy}")
+    console.print(f"  PHY:       {phy_info['name']}")
+    console.print(f"  Frequency: {freq} MHz")
+    console.print(f"  Rate:      {phy_info['data_rate']}")
+
+    run_bridge(dev, 0, ws, profile=None, phy_number=phy, freq_mhz=freq)
+
+
+@sniff.command("list-phys")
+def sniff_list_phys():
+    """List all available PHY modes"""
+    from protocol.common import list_available_phys
+
+    table = Table(title="Available PHY Modes (CC1352P)", box=box.ROUNDED)
+    table.add_column("PHY #", style="cyan", justify="center", width=6)
+    table.add_column("Name", style="green", min_width=30)
+    table.add_column("Band", style="yellow", justify="center", width=8)
+    table.add_column("Data Rate", style="magenta", justify="center", width=10)
+
+    for phy_num, name, band, data_rate in list_available_phys():
+        table.add_row(str(phy_num), name, band, data_rate)
+
+    console.print()
+    console.print(table)
+    console.print()
+    console.print("[cyan]Usage Examples:[/cyan]")
+    console.print("  catsniffer sniff wisun --mode 1a            # Wi-SUN mode #1a")
+    console.print("  catsniffer sniff zigbee-subghz --region na  # ZigBee R23 NA (915MHz)")
+    console.print("  catsniffer sniff zigbee-subghz --region eu  # ZigBee R23 EU (868MHz)")
+    console.print("  catsniffer sniff subghz --phy 4 --freq 920.6 # Direct PHY + frequency")
+    console.print("  catsniffer sniff zigbee -c 11               # Standard 2.4GHz Zigbee")
+
+
 @sniff.command(SniffingFirmware.AIRTAG_SCANNER.name.lower())
 @click.option(
     "--device",

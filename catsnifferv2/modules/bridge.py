@@ -12,7 +12,13 @@ from .catsniffer import (
 from .pipes import UnixPipe, WindowsPipe, Wireshark
 from protocol.sniffer_sx import SnifferSx
 from protocol.sniffer_ti import SnifferTI, PacketCategory
-from protocol.common import START_OF_FRAME, END_OF_FRAME, get_global_header
+from protocol.common import (
+    START_OF_FRAME,
+    END_OF_FRAME,
+    get_global_header,
+    PHY_TABLE,
+    get_frequency_for_channel,
+)
 
 # External
 from rich.console import Console
@@ -130,15 +136,19 @@ def run_bridge(
     channel: int = 11,
     wireshark: bool = False,
     profile: str = None,
+    phy_number: int = 18,
+    freq_mhz: float = None,
 ):
     """
-    Run TI sniffer bridge for Zigbee/Thread.
+    Run TI sniffer bridge for Zigbee/Thread/Wi-SUN/802.15.4g.
 
     Args:
         device: CatSnifferDevice with bridge_port
-        channel: IEEE 802.15.4 channel (11-26)
+        channel: Channel number (varies by PHY)
         wireshark: Whether to launch Wireshark
         profile: Wireshark configuration profile name
+        phy_number: PHY number (0-19, default 18 = IEEE 802.15.4 2.4GHz)
+        freq_mhz: Direct frequency in MHz (overrides channel if specified)
     """
     if platform.system() == "Windows":
         pipe = WindowsPipe()
@@ -158,7 +168,15 @@ def run_bridge(
     serial_worker = Catsniffer(port=device.bridge_port)
     serial_worker.connect()
 
-    startup = snifferTICmd.get_startup_cmd(channel)
+    # Get startup commands based on PHY and frequency
+    if freq_mhz is not None:
+        startup = snifferTICmd.get_startup_cmd_freq(freq_mhz, phy_number)
+        console.print(f"[*] Configuring PHY {phy_number} at {freq_mhz} MHz")
+    else:
+        startup = snifferTICmd.get_startup_cmd(channel, phy_number)
+        actual_freq = get_frequency_for_channel(channel, phy_number)
+        console.print(f"[*] Configuring PHY {phy_number}, channel {channel} ({actual_freq} MHz)")
+
     for cmd in startup:
         serial_worker.write(cmd)
         time.sleep(0.1)
@@ -174,7 +192,7 @@ def run_bridge(
         try:
             data = serial_worker.read_until((END_OF_FRAME + START_OF_FRAME))
             if data:
-                ti_packet = sniffer.Packet((START_OF_FRAME + data), channel)
+                ti_packet = sniffer.Packet((START_OF_FRAME + data), channel, phy_number)
                 if ti_packet.category == PacketCategory.DATA_STREAMING_AND_ERROR.value:
                     if not header_flag:
                         header_flag = True
