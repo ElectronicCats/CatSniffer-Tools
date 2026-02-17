@@ -80,8 +80,19 @@ class CCLoader:
             console.print(f"[*] Sending boot command via shell port: {self.shell_port}")
             self.shell = ShellConnection(port=self.shell_port)
             if self.shell.connect():
+                # Flush serial buffers before sending command
+                if (
+                    self.shell
+                    and hasattr(self.shell, "connection")
+                    and self.shell.connection
+                ):
+                    if hasattr(self.shell.connection, "reset_input_buffer"):
+                        self.shell.connection.reset_input_buffer()
+                    if hasattr(self.shell.connection, "reset_output_buffer"):
+                        self.shell.connection.reset_output_buffer()
+
                 result = self.shell.enter_bootloader()
-                time.sleep(0.5)  # Give time for bootloader to start
+                time.sleep(0.2)
                 if result:
                     console.print("[*] Boot command sent successfully")
                 else:
@@ -102,8 +113,15 @@ class CCLoader:
                 self.shell.connect()
 
             if self.shell:
+                # Flush serial buffers before sending exit command
+                if hasattr(self.shell, "connection") and self.shell.connection:
+                    if hasattr(self.shell.connection, "reset_input_buffer"):
+                        self.shell.connection.reset_input_buffer()
+                    if hasattr(self.shell.connection, "reset_output_buffer"):
+                        self.shell.connection.reset_output_buffer()
+
                 result = self.shell.exit_bootloader()
-                time.sleep(0.3)
+                # Removed sleep: exit is immediate, no need to wait
                 self.shell.disconnect()
                 if result:
                     console.print("[*] Exit command sent successfully")
@@ -587,7 +605,7 @@ class Catnip:
 
                     # INITIAL WAITING - Give RP2040 time to reboot and mount NVS
                     console.print("[*] Waiting for device to initialize after reset...")
-                    time.sleep(2.5)
+                    time.sleep(0.5)
 
                     # CONNECTION AND COMMAND RETRIES
                     success = False
@@ -604,8 +622,15 @@ class Catnip:
                             shell = ShellConnection(port=device.shell_port, timeout=3.0)
                             if not shell.connect():
                                 console.print(f"  └─ Failed to connect to shell port")
-                                time.sleep(1.5)
+                                time.sleep(0.8)
                                 continue
+
+                            # Flush serial buffers to clear any stale data
+                            if hasattr(shell, "connection") and shell.connection:
+                                if hasattr(shell.connection, "reset_input_buffer"):
+                                    shell.connection.reset_input_buffer()
+                                if hasattr(shell.connection, "reset_output_buffer"):
+                                    shell.connection.reset_output_buffer()
 
                             # STEP 1: Verify shell responds with a simple command
                             console.print(f"  ├─ Testing shell responsiveness...")
@@ -613,7 +638,7 @@ class Catnip:
                             if not test_resp or "Commands" not in test_resp:
                                 console.print(f"  └─ Shell not responding properly")
                                 shell.disconnect()
-                                time.sleep(1.5)
+                                time.sleep(0.8)
                                 continue
 
                             console.print(
@@ -633,7 +658,7 @@ class Catnip:
                                 break
                             else:
                                 console.print(f"  └─ Metadata update command failed")
-                                time.sleep(1.5)
+                                time.sleep(0.8)
 
                         except Exception as e:
                             last_error = str(e)
@@ -643,7 +668,7 @@ class Catnip:
                                     shell.disconnect()
                                 except:
                                     pass
-                            time.sleep(1.5)
+                            time.sleep(0.8)
 
                     if success:
                         console.print(
