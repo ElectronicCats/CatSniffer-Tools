@@ -282,7 +282,7 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
         )
 
         # Wait for initialization
-        time.sleep(3)
+        time.sleep(1)
 
         if extcap_proc.poll() is not None:
             # The process ended, there was an error
@@ -429,7 +429,7 @@ def sniff_ble(device, wireshark, channel, mode):
 
         # LONGER WAIT AND VERIFICATION RETRIES
         print_info("Waiting for device to initialize after flashing...")
-        time.sleep(4)  # Generous wait
+        time.sleep(1)
 
         # Retry verification several times
         verified = False
@@ -438,6 +438,16 @@ def sniff_ble(device, wireshark, channel, mode):
 
             # Create a new Catsniffer instance to avoid connection issues
             cat = Catsniffer(dev.bridge_port)
+
+            # Flush serial buffers before verification
+            try:
+                cat.connect()
+                if cat.connection:
+                    cat.connection.reset_input_buffer()
+                    cat.connection.reset_output_buffer()
+                    cat.disconnect()
+            except:
+                pass
 
             if cat.check_firmware_by_metadata("sniffle", dev.shell_port):
                 print_success("Sniffle firmware verified successfully (via metadata)!")
@@ -450,7 +460,7 @@ def sniff_ble(device, wireshark, channel, mode):
                 verified = True
                 break
 
-            time.sleep(2)  # Wait before retrying
+            time.sleep(0.5)
 
         if not verified:
             print_error("Firmware verification failed after multiple attempts!")
@@ -508,7 +518,7 @@ def sniff_zigbee(ws, channel, device):
             return
 
         print_info("Waiting for device to initialize...")
-        time.sleep(3)
+        time.sleep(0.5)
 
     print_info(f"[{dev}] Sniffing Zigbee at channel: {channel}")
     run_bridge(dev, channel, ws, profile="Zigbee")
@@ -542,7 +552,7 @@ def sniff_thread(ws, channel, device):
             return
 
         print_info("Waiting for device to initialize...")
-        time.sleep(3)
+        time.sleep(0.5)
 
     print_info(f"[{dev}] Sniffing Thread at channel: {channel}")
     run_bridge(dev, channel, ws, profile="Thread")
@@ -664,7 +674,7 @@ def sniff_airtag_scanner(device, putty):
 
         # Wait for device to initialize
         print_info("Waiting for device to initialize after flashing...")
-        time.sleep(4)
+        time.sleep(1)
 
         # Verify
         if cat.check_firmware_by_metadata(official_id, dev.shell_port):
@@ -1037,7 +1047,7 @@ def flash(firmware, device, list) -> None:
         return
 
     print_info("Waiting for device to restart...")
-    time.sleep(4)
+    time.sleep(1)
     print_success("Device restart complete. Firmware is ready to use!")
 
 
@@ -1167,7 +1177,7 @@ def cativity(device, channel, topology, protocol):
             return
 
         print_info("Waiting for device to initialize...")
-        time.sleep(3)
+        time.sleep(0.5)
 
     print_info(f"[{dev}] Starting Cativity analysis...")
     runner = CativityRunner(dev, console=console)
