@@ -122,19 +122,19 @@ class SnifferSx:
         ):
             if context is None:
                 context = {
-                    "frequency":     915000000,
-                    "bandwidth":     125,
+                    "frequency": 915000000,
+                    "bandwidth": 125,
                     "spread_factor": 7,
-                    "coding_rate":   5,
+                    "coding_rate": 5,
                 }
 
-            self.context  = context
-            self.payload  = b""
-            self.length   = 0
-            self.rssi     = 0.0
-            self.snr      = 0.0
-            self.pcap     = None
-            self.raw_line = None   # the original ASCII line, if text format
+            self.context = context
+            self.payload = b""
+            self.length = 0
+            self.rssi = 0.0
+            self.snr = 0.0
+            self.pcap = None
+            self.raw_line = None  # the original ASCII line, if text format
 
             # Accept bytes or str
             if isinstance(packet_input, (bytes, bytearray)):
@@ -169,9 +169,9 @@ class SnifferSx:
             if not m:
                 raise ValueError(f"Line does not match RX pattern: {line!r}")
 
-            hex_str  = m.group(1).replace(" ", "").replace(".", "")
+            hex_str = m.group(1).replace(" ", "").replace(".", "")
             rssi_int = int(m.group(2))
-            snr_int  = int(m.group(3))
+            snr_int = int(m.group(3))
 
             # If the firmware truncated the payload with "..." we only have
             # the first 40 bytes — that is still useful metadata for Wireshark.
@@ -185,8 +185,8 @@ class SnifferSx:
                 self.payload = b""
 
             self.length = len(self.payload)
-            self.rssi   = float(rssi_int)
-            self.snr    = float(snr_int)
+            self.rssi = float(rssi_int)
+            self.snr = float(snr_int)
 
             self._build_pcap()
 
@@ -208,14 +208,12 @@ class SnifferSx:
             clean = packet_bytes.replace(b"\r\n", b"")
 
             if len(clean) < 16:
-                raise ValueError(
-                    f"Binary frame too short: {len(clean)} bytes"
-                )
+                raise ValueError(f"Binary frame too short: {len(clean)} bytes")
 
             (_, _, self.length) = struct.unpack_from("<HHH", clean)
-            self.payload        = clean[6:-10]
-            self.rssi           = struct.unpack_from("<f", clean[-10:])[0]
-            self.snr            = struct.unpack_from("<f", clean[-6:])[0]
+            self.payload = clean[6:-10]
+            self.rssi = struct.unpack_from("<f", clean[-10:])[0]
+            self.snr = struct.unpack_from("<f", clean[-6:])[0]
 
             self._build_pcap()
 
@@ -242,12 +240,12 @@ class SnifferSx:
             freq_mhz = self.context["frequency"] // 1_000_000
 
             header = (
-                b"\x00"                                             # version
-                + self.length.to_bytes(2, "little")                 # payload length
-                + b"\x03\x00"                                       # interface ID
-                + b"\x05"                                           # protocol
-                + b"\x06"                                           # PHY
-                + freq_mhz.to_bytes(4, "little")                    # frequency MHz
+                b"\x00"  # version
+                + self.length.to_bytes(2, "little")  # payload length
+                + b"\x03\x00"  # interface ID
+                + b"\x05"  # protocol
+                + b"\x06"  # PHY
+                + freq_mhz.to_bytes(4, "little")  # frequency MHz
                 + self.context["bandwidth"].to_bytes(1, "little")
                 + self.context["spread_factor"].to_bytes(1, "little")
                 + self.context["coding_rate"].to_bytes(1, "little")
