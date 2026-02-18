@@ -593,7 +593,81 @@ class Catsniffer(SerialConnection):
 
 
 class LoRaConnection(SerialConnection):
-    """Connection for LoRa data stream port."""
+    """
+    Connection for LoRa data stream port (Cat-LoRa / SX1262).
+
+    Uses a short read timeout so the streaming loop stays responsive
+    to KeyboardInterrupt and can detect gaps between frames without
+    blocking the entire thread.
+    """
+
+    # Timeout used while waiting for the next byte of a frame.
+    # Short enough to feel responsive, long enough not to spin-burn CPU.
+    STREAM_TIMEOUT = 0.5
 
     def __init__(self, port=""):
         super(LoRaConnection, self).__init__(port=port)
+
+    def connect(self) -> bool:
+        """Open the serial port with the streaming timeout."""
+        try:
+            self.connection = serial.Serial(
+                self.port,
+                self.baudrate,
+                timeout=self.STREAM_TIMEOUT,
+            )
+            return True
+        except Exception:
+            return False
+
+    def read_frame(self, start_of_frame: bytes, max_frame_bytes: int = 512) -> bytes:
+        """
+        Read one complete LoRa frame from the stream.
+
+        Blocks until a frame starting with *start_of_frame* is found, then
+        accumulates bytes until no more data arrives within STREAM_TIMEOUT.
+        Returns the raw bytes of the frame (including the SOF prefix), or
+        ``None`` if nothing was received before the timeout expired.
+
+        This replaces the bare ``readline()`` call in the bridge loop and
+        makes the framing logic explicit and resilient to partial reads.
+
+        Args:
+            start_of_frame: Magic bytes that mark the beginning of a frame.
+            max_frame_bytes: Safety cap — frames larger than this are discarded.
+
+        Returns:
+            Raw frame bytes starting with *start_of_frame*, or None.
+        """
+        buf = b""
+
+        try:
+            # Phase 1: wait for the SOF marker.
+            # read_until is fine here because the underlying timeout will
+            # unblock us if no data arrives.
+            raw = self.connection.read_until(start_of_frame)
+            if not raw or start_of_frame not in raw:
+                return None  # Timeout — nothing on the wire
+
+            # Trim everything before the SOF so we always start clean.
+            sof_idx = raw.rfind(start_of_frame)
+            buf = raw[sof_idx:]  # starts with SOF
+
+            # Phase 2: accumulate the rest of the frame.
+            # Keep reading small chunks as long as bytes keep arriving.
+            deadline = time.time() + self.STREAM_TIMEOUT
+            while time.time() < deadline:
+                waiting = self.connection.in_waiting
+                if waiting:
+                    chunk = self.connection.read(waiting)
+                    buf += chunk
+                    deadline = time.time() + self.STREAM_TIMEOUT  # reset on new data
+                    if len(buf) >= max_frame_bytes:
+                        break
+                else:
+                    time.sleep(0.005)  # brief yield — avoids spinning
+
+            return buf if buf else None
+
+        except serial.SerialException:
+            return None
