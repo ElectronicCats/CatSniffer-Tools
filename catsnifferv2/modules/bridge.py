@@ -19,10 +19,10 @@ from protocol.common import START_OF_FRAME, END_OF_FRAME, get_global_header
 from rich.console import Console
 
 console = Console()
-sniffer    = SnifferTI()
-snifferSx  = SnifferSx()
-snifferTICmd  = sniffer.Commands()
-snifferSxCmd  = snifferSx.Commands()
+sniffer = SnifferTI()
+snifferSx = SnifferSx()
+snifferTICmd = sniffer.Commands()
+snifferSxCmd = snifferSx.Commands()
 
 # Delay between shell commands (seconds) — RP2040 needs a small gap
 _SHELL_CMD_DELAY = 0.15
@@ -43,6 +43,7 @@ _IGNORE_PREFIXES = (b"LoRa Control Port", b"LoRa mode set")
 # Internal helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def _configure_lora(
     shell: ShellConnection,
     frequency: int,
@@ -57,12 +58,12 @@ def _configure_lora(
     Returns True if every command received a response.
     """
     steps = [
-        ("frequency",     snifferSxCmd.set_freq(frequency)),
-        ("bandwidth",     snifferSxCmd.set_bw(bandwidth)),
+        ("frequency", snifferSxCmd.set_freq(frequency)),
+        ("bandwidth", snifferSxCmd.set_bw(bandwidth)),
         ("spread factor", snifferSxCmd.set_sf(spread_factor)),
-        ("coding rate",   snifferSxCmd.set_cr(coding_rate)),
-        ("TX power",      snifferSxCmd.set_power(tx_power)),
-        ("apply",         snifferSxCmd.apply()),
+        ("coding rate", snifferSxCmd.set_cr(coding_rate)),
+        ("TX power", snifferSxCmd.set_power(tx_power)),
+        ("apply", snifferSxCmd.apply()),
     ]
 
     all_ok = True
@@ -114,6 +115,7 @@ def _stop_lora_capture(
 # LoRa (SX1262 / RP2040) bridge
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def run_sx_bridge(
     device: CatSnifferDevice,
     frequency: int,
@@ -157,7 +159,9 @@ def run_sx_bridge(
         console.print("[red][X] No shell_port on device — cannot configure LoRa[/red]")
         return
     if not device.lora_port:
-        console.print("[red][X] No lora_port on device — cannot receive LoRa stream[/red]")
+        console.print(
+            "[red][X] No lora_port on device — cannot receive LoRa stream[/red]"
+        )
         return
 
     # ── 2. Set up PCAP pipe ───────────────────────────────────────────────────
@@ -181,9 +185,12 @@ def run_sx_bridge(
     console.print(f"    Coding Rate:      4/{coding_rate}")
     console.print(f"    TX Power:         {tx_power} dBm\n")
 
-    if not _configure_lora(shell, frequency, bandwidth, spread_factor,
-                            coding_rate, tx_power):
-        console.print("[yellow][!] Some config commands had no response — continuing[/yellow]")
+    if not _configure_lora(
+        shell, frequency, bandwidth, spread_factor, coding_rate, tx_power
+    ):
+        console.print(
+            "[yellow][!] Some config commands had no response — continuing[/yellow]"
+        )
 
     # ── 4. Open Cat-LoRa data port ────────────────────────────────────────────
     lora = LoRaConnection(port=device.lora_port)
@@ -242,10 +249,10 @@ def run_sx_bridge(
 
     # ── 8. Streaming loop ─────────────────────────────────────────────────────
     lora_context = {
-        "frequency":     frequency,
-        "bandwidth":     bandwidth,
+        "frequency": frequency,
+        "bandwidth": bandwidth,
         "spread_factor": spread_factor,
-        "coding_rate":   coding_rate,
+        "coding_rate": coding_rate,
     }
 
     # Determine if we should show verbose output
@@ -256,8 +263,8 @@ def run_sx_bridge(
         console.print("\n[green][*] Capture running — press Ctrl+C to stop[/green]\n")
 
     header_written = False
-    packet_count   = 0
-    error_count    = 0
+    packet_count = 0
+    error_count = 0
 
     try:
         while True:
@@ -274,7 +281,9 @@ def run_sx_bridge(
                 continue
             if not stripped.startswith(_LORA_LINE_PREFIX):
                 if not any(stripped.startswith(p) for p in _IGNORE_PREFIXES):
-                    console.print(f"[dim]  (device) {stripped.decode('ascii', errors='replace')}[/dim]")
+                    console.print(
+                        f"[dim]  (device) {stripped.decode('ascii', errors='replace')}[/dim]"
+                    )
                 continue
 
             try:
@@ -305,7 +314,9 @@ def run_sx_bridge(
                 )
             except Exception as exc:
                 error_count += 1
-                console.print(f"[yellow][!] Unexpected error #{error_count}: {exc}[/yellow]")
+                console.print(
+                    f"[yellow][!] Unexpected error #{error_count}: {exc}[/yellow]"
+                )
 
     except KeyboardInterrupt:
         console.print(
@@ -320,6 +331,7 @@ def run_sx_bridge(
 # ──────────────────────────────────────────────────────────────────────────────
 # Zigbee / Thread (TI CC1352) bridge — unchanged
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def run_bridge(
     device: CatSnifferDevice,
@@ -373,6 +385,7 @@ def run_bridge(
 # Legacy wrapper
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def run_sx_bridge_legacy(
     serial_worker: Catsniffer,
     frequency,
@@ -413,10 +426,10 @@ def run_sx_bridge_legacy(
                 packet = snifferSx.Packet(
                     (START_OF_FRAME + data),
                     context={
-                        "frequency":     frequency,
-                        "bandwidth":     bandwidth,
+                        "frequency": frequency,
+                        "bandwidth": bandwidth,
                         "spread_factor": spread_factor,
-                        "coding_rate":   coding_rate,
+                        "coding_rate": coding_rate,
                     },
                 )
                 if not header_flag:
