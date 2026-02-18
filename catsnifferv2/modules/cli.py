@@ -559,6 +559,8 @@ def sniff_thread(ws, channel, device):
 
 
 @sniff.command(SniffingFirmware.LORA.name.lower())
+@click.option("-ws", is_flag=True, help="Open Wireshark")
+@click.option("-v", "--verbose", is_flag=True, help="Show verbose output in terminal")
 @click.option(
     "--frequency",
     "-freq",
@@ -603,6 +605,7 @@ def sniff_thread(ws, channel, device):
 )
 def sniff_lora(
     ws,
+    verbose,
     frequency,
     bandwidth,
     spread_factor,
@@ -631,6 +634,7 @@ def sniff_lora(
         coding_rate,
         tx_power,
         ws,
+        verbose,
     )
 
 
