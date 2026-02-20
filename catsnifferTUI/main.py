@@ -407,9 +407,16 @@ class CatSnifferTestbenchApp(App):
             self._poll_timer.stop()
             self._poll_timer = None
         if self._hotplug_watcher:
-            await self._hotplug_watcher.stop()
-        for device in self.devices.values():
-            await device.disconnect_all()
+            try:
+                await self._hotplug_watcher.stop()
+            except BaseException:
+                pass
+        if self.devices:
+            tasks = [device.disconnect_all() for device in self.devices.values()]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, BaseException):
+                    self._log_error("Device disconnect error during shutdown", result)
 
     def _schedule_rescan(self) -> None:
         if not self._rescan_pending:
