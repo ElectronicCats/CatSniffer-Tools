@@ -145,20 +145,24 @@ class EndpointHandler:
             self._reader_task.cancel()
             try:
                 await self._reader_task
-            except asyncio.CancelledError:
+            except BaseException:
                 pass
             self._reader_task = None
 
         if self._serial and self._serial.is_open:
             try:
-                self._serial.close()
-            except Exception:
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, self._serial.close)
+            except BaseException:
                 pass
             self._serial = None
 
         self.state = EndpointState.DISCONNECTED
-        if self._on_state_changed:
-            self._on_state_changed(self.state)
+        try:
+            if self._on_state_changed:
+                self._on_state_changed(self.state)
+        except BaseException:
+            pass
 
     async def send_command(
         self,
