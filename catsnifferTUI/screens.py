@@ -436,7 +436,7 @@ class DeviceScreen(Screen):
         endpoint = event.endpoint
 
         # Get hex input for TX commands
-        if command.startswith("TX ") and command.count(" ") == 0:
+        if command == "TX":
             hex_input = self.query_one("#tx-hex-input", Input)
             if hex_input.value:
                 command = f"TX {hex_input.value}"

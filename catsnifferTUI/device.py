@@ -273,14 +273,17 @@ class EndpointHandler:
 
         while self._running and self._serial:
             try:
-                # Read available data
+                # Always attempt a small read; some macOS USB-serial drivers
+                # don't reliably update in_waiting until after outbound traffic.
                 loop = asyncio.get_event_loop()
-                if self._serial.in_waiting > 0:
-                    chunk = await loop.run_in_executor(
-                        None,
-                        self._serial.read,
-                        self._serial.in_waiting
-                    )
+                read_len = max(1, int(getattr(self._serial, "in_waiting", 0) or 0))
+                chunk = await loop.run_in_executor(None, self._serial.read, read_len)
+
+                # CDC0 is a raw stream endpoint; don't wait for line breaks.
+                if self.endpoint_type == ENDPOINT_BRIDGE:
+                    if chunk:
+                        await self._process_raw_chunk(chunk)
+                elif chunk:
                     buffer += chunk
 
                     # Process complete lines
@@ -291,18 +294,36 @@ class EndpointHandler:
                             await self._process_line(line)
 
                 # Process command queue
-                try:
-                    queued_cmd = self._command_queue.get_nowait()
-                    await self._send_queued_command(queued_cmd)
-                except asyncio.QueueEmpty:
-                    pass
+                if self._current_command is None:
+                    try:
+                        queued_cmd = self._command_queue.get_nowait()
+                        await self._send_queued_command(queued_cmd)
+                    except asyncio.QueueEmpty:
+                        pass
 
-                await asyncio.sleep(0.01)  # Small delay to prevent CPU spinning
+                await asyncio.sleep(0.005)  # Keep latency low without busy spinning
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 await asyncio.sleep(0.1)
+
+    async def _process_raw_chunk(self, chunk: bytes):
+        """Process raw CDC0 stream chunks immediately."""
+        try:
+            # Prefer printable ASCII for readability; fall back to HEX for binary payloads.
+            text = chunk.decode("ascii", errors="ignore")
+            if text and any(ch.isprintable() and not ch.isspace() for ch in text):
+                display = text.strip() or chunk.hex()
+            else:
+                display = chunk.hex()
+
+            self.log_manager.log_rx(self.device_id, self.endpoint_label, display)
+
+            if self._on_data_received:
+                self._on_data_received(display, {})
+        except Exception:
+            pass
 
     async def _send_queued_command(self, queued_cmd: QueuedCommand):
         """Send a queued command and track response."""
