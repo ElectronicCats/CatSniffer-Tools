@@ -29,8 +29,6 @@ logger = logging.getLogger("rich")
 
 from .fw_aliases import get_official_id
 
-# Redundant map removed. Using fw_aliases.get_official_id instead.
-
 
 class FirmwareMetadata:
     """
@@ -189,6 +187,46 @@ def check_firmware_by_metadata(shell_connection, expected_fw_id: str) -> bool:
         return False
 
 
+def _sanitize_firmware_name(name: str) -> str:
+    """
+    Sanitize a firmware name to create a valid ID.
+
+    Args:
+        name: Raw firmware name
+
+    Returns:
+        Sanitized ID string
+    """
+    if not name or not name.strip():
+        return "unknown_firmware"
+
+    # Convert to lowercase
+    sanitized = name.lower()
+
+    # Remove extension if present
+    if "." in sanitized:
+        sanitized = sanitized.rsplit(".", 1)[0]
+
+    # Replace dots with underscores for consistency
+    sanitized = sanitized.replace(".", "_")
+
+    # Replace any non-allowed characters with underscore
+    sanitized = re.sub(r"[^a-zA-Z0-9_\-]", "_", sanitized)
+
+    # Remove leading/trailing underscores and hyphens
+    sanitized = sanitized.strip("_-")
+
+    # Ensure we have a valid ID after sanitization
+    if not sanitized:
+        return "unknown_firmware"
+
+    # Truncate to max length
+    if len(sanitized) > 31:
+        sanitized = sanitized[:31]
+
+    return sanitized
+
+
 def update_firmware_metadata_after_flash(shell_connection, firmware_name: str) -> bool:
     """
     Updates metadata after flashing a firmware.
@@ -211,19 +249,20 @@ def update_firmware_metadata_after_flash(shell_connection, firmware_name: str) -
     """
     logger.debug(f"Updating metadata for firmware: {firmware_name}")
 
+    if firmware_name is None:
+        logger.debug("firmware_name is None, cannot update metadata")
+        return False
+
     # Normalize name to official ID
     fw_id = FirmwareMetadata.normalize_firmware_name(firmware_name)
 
     if not fw_id:
-        # If normalization fails, use basic name without extension
-        fw_id = firmware_name.lower()
-        if "." in fw_id:
-            fw_id = fw_id.rsplit(".", 1)[0]
-        # Truncate to 31 characters and clean non-allowed characters
-        fw_id = re.sub(r"[^a-zA-Z0-9_\-.]", "_", fw_id)[:31]
+        # If normalization fails, sanitize the name
+        fw_id = _sanitize_firmware_name(firmware_name)
         logger.debug(f"Fallback: using sanitized name '{fw_id}'")
 
     metadata = FirmwareMetadata(shell_connection)
+
     result = metadata.set_firmware_id(fw_id)
 
     if result:
@@ -232,3 +271,54 @@ def update_firmware_metadata_after_flash(shell_connection, firmware_name: str) -
         logger.debug(f"Failed to set firmware ID to {fw_id}")
 
     return result
+
+
+def clear_firmware_metadata(shell_connection) -> bool:
+    """
+    Clears the firmware metadata (sets to unset).
+
+    Args:
+        shell_connection: ShellConnection object
+
+    Returns:
+        bool: True if cleared successfully
+    """
+    try:
+        metadata = FirmwareMetadata(shell_connection)
+        response = shell_connection.send_command("cc1352_fw_id clear", timeout=3.0)
+
+        if response and "OK" in response:
+            logger.debug("Successfully cleared firmware metadata")
+            return True
+        else:
+            logger.debug(f"Failed to clear firmware metadata: {response}")
+            return False
+    except Exception as e:
+        logger.debug(f"Error clearing firmware metadata: {e}")
+        return False
+
+
+def list_official_firmware_ids(shell_connection) -> Optional[list]:
+    """
+    Lists all official firmware IDs supported by the RP2040.
+
+    Args:
+        shell_connection: ShellConnection object
+
+    Returns:
+        list: List of official IDs or None if error
+    """
+    try:
+        response = shell_connection.send_command("cc1352_fw_id list", timeout=3.0)
+
+        if not response:
+            return None
+
+        # Parse response - format: "OK <id1> <id2> ..."
+        if response.startswith("OK "):
+            ids = response[3:].strip().split()
+            return ids
+        return None
+    except Exception as e:
+        logger.debug(f"Error listing firmware IDs: {e}")
+        return None
