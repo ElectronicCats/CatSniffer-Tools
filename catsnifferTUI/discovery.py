@@ -28,7 +28,14 @@ class DeviceIdentity:
     usb_address: Optional[int] = None
 
     def __hash__(self):
-        return hash((self.serial_number, self.usb_bus, self.usb_address))
+        # Only hash by serial_number for stable identity
+        return hash(self.serial_number)
+
+    def __eq__(self, other):
+        if not isinstance(other, DeviceIdentity):
+            return False
+        # Only compare serial_number for equality
+        return self.serial_number == other.serial_number
 
     def __str__(self):
         return f"Serial:{self.serial_number[:8]}"

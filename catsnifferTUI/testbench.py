@@ -22,7 +22,7 @@ from .device import CatSnifferDevice, CommandResult
 @dataclass
 class TestStep:
     """A single test step."""
-    name: str
+    name: int
     endpoint: str  # "CDC1" or "CDC2"
     command: str
     expected_match: str  # Regex pattern
