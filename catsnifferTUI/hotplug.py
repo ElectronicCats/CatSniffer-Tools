@@ -4,6 +4,7 @@ CatSniffer TUI Testbench - Event-Based Hotplug Detection
 Platform-specific USB hotplug detection using native APIs.
 NO POLLING - only event-based or manual rescan.
 """
+
 import asyncio
 import platform
 from typing import Callable, Optional
@@ -55,6 +56,7 @@ class MacOSHotplugWatcher(HotplugWatcher):
         """Start IOKit notification listener."""
         try:
             import asyncio
+
             loop = asyncio.get_event_loop()
 
             # Try to use IOKit
@@ -73,9 +75,7 @@ class MacOSHotplugWatcher(HotplugWatcher):
 
             # Load IOKit
             IOKit = objc.loadBundle(
-                "IOKit",
-                globals(),
-                "/System/Library/Frameworks/IOKit.framework"
+                "IOKit", globals(), "/System/Library/Frameworks/IOKit.framework"
             )
 
             # Create callback object
@@ -97,11 +97,15 @@ class MacOSHotplugWatcher(HotplugWatcher):
                 IONotificationPortRef, None
             )
             CFRunLoopRef = IOKit.CFRunLoopGetCurrent()
-            IOKit.CFRunLoopAddSource(CFRunLoopRef, run_loop_source, IOKit.kCFRunLoopDefaultMode)
+            IOKit.CFRunLoopAddSource(
+                CFRunLoopRef, run_loop_source, IOKit.kCFRunLoopDefaultMode
+            )
 
             # Create observer
             self._observer = USBObserver.alloc().initWithCallback_(
-                lambda: asyncio.get_event_loop().call_soon_threadsafe(self.on_devices_changed)
+                lambda: asyncio.get_event_loop().call_soon_threadsafe(
+                    self.on_devices_changed
+                )
             )
 
             # Register for USB device notifications
@@ -112,7 +116,7 @@ class MacOSHotplugWatcher(HotplugWatcher):
                 matching_dict,
                 self._observer.deviceAdded_,
                 self._observer,
-                None
+                None,
             )
             IOKit.IOServiceAddMatchingNotification(
                 IONotificationPortRef,
@@ -120,7 +124,7 @@ class MacOSHotplugWatcher(HotplugWatcher):
                 matching_dict,
                 self._observer.deviceRemoved_,
                 self._observer,
-                None
+                None,
             )
 
         except Exception:
@@ -156,7 +160,7 @@ class LinuxHotplugWatcher(HotplugWatcher):
 
             context = pyudev.Context()
             monitor = pyudev.Monitor.from_netlink(context)
-            monitor.filter_by(subsystem='tty')
+            monitor.filter_by(subsystem="tty")
 
             self._running = True
             loop = asyncio.get_event_loop()
@@ -166,9 +170,9 @@ class LinuxHotplugWatcher(HotplugWatcher):
                     return
                 # Only trigger for USB serial devices with our VID or any add/remove
                 props = device.properties
-                if 'ID_VENDOR_ID' in props:
+                if "ID_VENDOR_ID" in props:
                     try:
-                        vid = int(props.get('ID_VENDOR_ID', '0'), 16)
+                        vid = int(props.get("ID_VENDOR_ID", "0"), 16)
                         if vid == CATSNIFFER_VID:
                             loop.call_soon_threadsafe(self.on_devices_changed)
                     except ValueError:

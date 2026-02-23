@@ -3,6 +3,7 @@ CatSniffer TUI Testbench Constants
 
 Device identifiers, timeouts, and command definitions.
 """
+
 from enum import Enum
 from typing import Dict, List
 
@@ -22,8 +23,8 @@ SMOKE_TEST_STEP_TIMEOUT = 3.0
 
 # Endpoint Names
 ENDPOINT_BRIDGE = "Cat-Bridge"  # CDC0 - CC1352 HCI UART
-ENDPOINT_LORA = "Cat-LoRa"      # CDC1 - SX1262 LoRa/FSK
-ENDPOINT_SHELL = "Cat-Shell"    # CDC2 - Config/Debug shell
+ENDPOINT_LORA = "Cat-LoRa"  # CDC1 - SX1262 LoRa/FSK
+ENDPOINT_SHELL = "Cat-Shell"  # CDC2 - Config/Debug shell
 
 ENDPOINT_LABELS: Dict[str, str] = {
     ENDPOINT_BRIDGE: "CDC0",
@@ -41,7 +42,6 @@ CDC2_COMMANDS = {
     "band3": "band3",  # LoRa
     "reboot": "reboot",
     "status": "status",
-
     # LoRa Config
     "lora_freq": "lora_freq",
     "lora_sf": "lora_sf",
@@ -54,7 +54,6 @@ CDC2_COMMANDS = {
     "lora_iq": "lora_iq",
     "lora_config": "lora_config",
     "lora_apply": "lora_apply",
-
     # FSK Config
     "fsk_freq": "fsk_freq",
     "fsk_bitrate": "fsk_bitrate",
@@ -66,10 +65,8 @@ CDC2_COMMANDS = {
     "fsk_crc": "fsk_crc",
     "fsk_config": "fsk_config",
     "fsk_apply": "fsk_apply",
-
     # Modulation
     "modulation": "modulation",
-
     # CC1352 FW ID
     "cc1352_fw_id": "cc1352_fw_id",
 }
@@ -95,13 +92,15 @@ GREETING_LORA = "LoRa Control Port"
 
 class DeviceHealth(Enum):
     """Device health status."""
-    HEALTHY = "healthy"      # All 3 endpoints
-    PARTIAL = "partial"      # Missing endpoints but has shell
-    CRITICAL = "critical"    # Missing shell port
+
+    HEALTHY = "healthy"  # All 3 endpoints
+    PARTIAL = "partial"  # Missing endpoints but has shell
+    CRITICAL = "critical"  # Missing shell port
 
 
 class EndpointState(Enum):
     """Endpoint connection state."""
+
     DISCONNECTED = "disconnected"
     CONNECTING = "connecting"
     CONNECTED = "connected"
@@ -110,6 +109,7 @@ class EndpointState(Enum):
 
 class CommandStatus(Enum):
     """Command execution status."""
+
     PASS = "PASS"
     FAIL = "FAIL"
     TIMEOUT = "TIMEOUT"
@@ -118,6 +118,7 @@ class CommandStatus(Enum):
 
 class TerminalMode(Enum):
     """Interactive terminal modes."""
+
     LINE = "line"
     HEX = "hex"
     RAW = "raw"
