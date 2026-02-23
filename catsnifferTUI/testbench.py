@@ -3,6 +3,7 @@ CatSniffer TUI Testbench - Smoke Test Module
 
 Automated test sequences for device validation.
 """
+
 import asyncio
 import re
 import time
@@ -22,6 +23,7 @@ from .device import CatSnifferDevice, CommandResult
 @dataclass
 class TestStep:
     """A single test step."""
+
     name: int
     endpoint: str  # "CDC1" or "CDC2"
     command: str
@@ -35,6 +37,7 @@ class TestStep:
 @dataclass
 class TestStepResult:
     """Result of a single test step."""
+
     step: TestStep
     passed: bool
     command_result: CommandResult
@@ -49,6 +52,7 @@ class TestStepResult:
 @dataclass
 class SmokeTestResult:
     """Result of a complete smoke test."""
+
     device_id: int
     start_time: float
     end_time: float
@@ -124,19 +128,14 @@ class SmokeTestRunner:
             task.cancel()
 
     async def run_single(
-        self,
-        device: CatSnifferDevice,
-        steps: Optional[List[TestStep]] = None
+        self, device: CatSnifferDevice, steps: Optional[List[TestStep]] = None
     ) -> SmokeTestResult:
         """Run smoke test on a single device."""
         steps = steps or SMOKE_TEST_STEPS
         device_id = device.device_id
 
         result = SmokeTestResult(
-            device_id=device_id,
-            start_time=time.time(),
-            end_time=0,
-            step_results=[]
+            device_id=device_id, start_time=time.time(), end_time=0, step_results=[]
         )
 
         async with self._semaphore:
@@ -184,22 +183,20 @@ class SmokeTestRunner:
 
         return result
 
-    async def _execute_step(self, device: CatSnifferDevice, step: TestStep) -> TestStepResult:
+    async def _execute_step(
+        self, device: CatSnifferDevice, step: TestStep
+    ) -> TestStepResult:
         """Execute a single test step."""
         pattern = re.compile(step.expected_match, re.IGNORECASE)
 
         # Select endpoint
         if step.endpoint == "CDC2":
             result = await device.send_shell_command(
-                step.command,
-                timeout=step.timeout,
-                expected_match=pattern
+                step.command, timeout=step.timeout, expected_match=pattern
             )
         elif step.endpoint == "CDC1":
             result = await device.send_lora_command(
-                step.command,
-                timeout=step.timeout,
-                expected_match=pattern
+                step.command, timeout=step.timeout, expected_match=pattern
             )
         else:
             result = CommandResult(
@@ -208,7 +205,7 @@ class SmokeTestRunner:
                 response=None,
                 duration_ms=0,
                 retries=0,
-                error=f"Unknown endpoint: {step.endpoint}"
+                error=f"Unknown endpoint: {step.endpoint}",
             )
 
         # Check if response matches expected pattern
@@ -221,13 +218,11 @@ class SmokeTestRunner:
             passed=passed,
             command_result=result,
             timestamp=time.time(),
-            response_snippet=(result.response[:100] if result.response else "")[:50]
+            response_snippet=(result.response[:100] if result.response else "")[:50],
         )
 
     async def run_multiple(
-        self,
-        devices: List[CatSnifferDevice],
-        steps: Optional[List[TestStep]] = None
+        self, devices: List[CatSnifferDevice], steps: Optional[List[TestStep]] = None
     ) -> Dict[int, SmokeTestResult]:
         """Run smoke tests on multiple devices in parallel (rate-limited)."""
         tasks = {}
@@ -252,7 +247,9 @@ class FleetActions:
     """Fleet-wide actions for all devices."""
 
     def __init__(self):
-        self._on_complete: Optional[Callable[[str, Dict[int, CommandResult]], None]] = None
+        self._on_complete: Optional[Callable[[str, Dict[int, CommandResult]], None]] = (
+            None
+        )
 
     def set_callbacks(
         self,
@@ -262,9 +259,7 @@ class FleetActions:
         self._on_complete = on_complete
 
     async def set_all_band(
-        self,
-        devices: List[CatSnifferDevice],
-        band: str
+        self, devices: List[CatSnifferDevice], band: str
     ) -> Dict[int, CommandResult]:
         """Set band on all devices."""
         results = {}
@@ -284,7 +279,7 @@ class FleetActions:
                     response=None,
                     duration_ms=0,
                     retries=0,
-                    error=str(e)
+                    error=str(e),
                 )
 
         if self._on_complete:
@@ -293,9 +288,7 @@ class FleetActions:
         return results
 
     async def set_all_lora_freq(
-        self,
-        devices: List[CatSnifferDevice],
-        freq_hz: int
+        self, devices: List[CatSnifferDevice], freq_hz: int
     ) -> Dict[int, CommandResult]:
         """Set LoRa frequency on all devices."""
         results = {}
@@ -317,7 +310,7 @@ class FleetActions:
                     response=None,
                     duration_ms=0,
                     retries=0,
-                    error=str(e)
+                    error=str(e),
                 )
 
         if self._on_complete:
@@ -326,8 +319,7 @@ class FleetActions:
         return results
 
     async def refresh_all_status(
-        self,
-        devices: List[CatSnifferDevice]
+        self, devices: List[CatSnifferDevice]
     ) -> Dict[int, bool]:
         """Refresh status on all devices."""
         results = {}

@@ -278,9 +278,13 @@ class CatSnifferTestbenchApp(App):
         self._poll_timer = None
         self._device_view_state: Dict[int, str] = {}
         self._all_table_state: str = ""
-        self._terminal_buffers: Dict[int, Dict[str, List[str]]] = defaultdict(lambda: defaultdict(list))
+        self._terminal_buffers: Dict[int, Dict[str, List[str]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
         self._pending_shell_echo: Dict[int, List[str]] = defaultdict(list)
-        self._terminal_mode: Dict[int, Dict[str, str]] = defaultdict(lambda: defaultdict(lambda: "text"))
+        self._terminal_mode: Dict[int, Dict[str, str]] = defaultdict(
+            lambda: defaultdict(lambda: "text")
+        )
         self._fleet_shell_buffer: List[str] = []
         self._fleet_shell_mode: str = "text"
         self._fleet_lora_buffer: List[str] = []
@@ -314,56 +318,115 @@ class CatSnifferTestbenchApp(App):
                         yield Button("FSK Mode", id="fleet-fsk-mode-shell")
                         yield Button("Stream", id="fleet-stream")
                         yield Button("Command", id="fleet-command")
-                        yield Button("Run Smoke Test", id="fleet-smoke", variant="warning")
+                        yield Button(
+                            "Run Smoke Test", id="fleet-smoke", variant="warning"
+                        )
                         yield Button("Save Logs", id="fleet-save-logs")
                     with Horizontal(classes="action-group"):
                         yield Label("Tip:", classes="action-label")
-                        yield Static("Use tab 5 for all CDC2 shell and tab 6 for all CDC1 LoRa")
+                        yield Static(
+                            "Use tab 5 for all CDC2 shell and tab 6 for all CDC1 LoRa"
+                        )
 
             for i in range(1, 5):
                 yield ScrollableContainer(id=f"device-{i}-pane", classes="device-pane")
             with Horizontal(id="all-io-pane"):
                 with Vertical(id="all-shell-pane", classes="io-column"):
-                    yield Static("Broadcast shell (CDC2) to all connected devices", classes="device-summary")
+                    yield Static(
+                        "Broadcast shell (CDC2) to all connected devices",
+                        classes="device-summary",
+                    )
                     yield Container(
                         Horizontal(
-                            Static("All Devices Shell Terminal (CDC2)", classes="term-title"),
-                            Button("ASCII", id="fleet-shell-mode", classes="term-mode-btn"),
-                            Button("Clear", id="fleet-shell-clear", classes="term-clear-btn"),
+                            Static(
+                                "All Devices Shell Terminal (CDC2)",
+                                classes="term-title",
+                            ),
+                            Button(
+                                "ASCII", id="fleet-shell-mode", classes="term-mode-btn"
+                            ),
+                            Button(
+                                "Clear",
+                                id="fleet-shell-clear",
+                                classes="term-clear-btn",
+                            ),
                             classes="term-header-row",
                         ),
                         ScrollableContainer(
-                            Static("(no data yet)", id="fleet-shell-log", classes="terminal-log"),
+                            Static(
+                                "(no data yet)",
+                                id="fleet-shell-log",
+                                classes="terminal-log",
+                            ),
                             id="fleet-shell-log-scroll",
                             classes="terminal-log-scroll",
                         ),
                         Horizontal(
-                            Input(placeholder="Broadcast command to all CDC2...", id="fleet-shell-input"),
+                            Input(
+                                placeholder="Broadcast command to all CDC2...",
+                                id="fleet-shell-input",
+                            ),
                             Button("Send", id="fleet-shell-send"),
                             classes="term-input-row",
                         ),
                         classes="terminal-panel",
                     )
                 with Vertical(id="all-lora-pane", classes="io-column"):
-                    yield Static("Broadcast LoRa endpoint (CDC1) to all connected devices", classes="device-summary")
+                    yield Static(
+                        "Broadcast LoRa endpoint (CDC1) to all connected devices",
+                        classes="device-summary",
+                    )
                     yield Container(
                         Horizontal(
-                            Static("All Devices LoRa Terminal (CDC1)", classes="term-title"),
-                            Checkbox("D1", value=True, id="fleet-lora-dev-1", classes="target-checkbox"),
-                            Checkbox("D2", value=True, id="fleet-lora-dev-2", classes="target-checkbox"),
-                            Checkbox("D3", value=True, id="fleet-lora-dev-3", classes="target-checkbox"),
-                            Checkbox("D4", value=True, id="fleet-lora-dev-4", classes="target-checkbox"),
-                            Button("ASCII", id="fleet-lora-mode", classes="term-mode-btn"),
-                            Button("Clear", id="fleet-lora-clear", classes="term-clear-btn"),
+                            Static(
+                                "All Devices LoRa Terminal (CDC1)", classes="term-title"
+                            ),
+                            Checkbox(
+                                "D1",
+                                value=True,
+                                id="fleet-lora-dev-1",
+                                classes="target-checkbox",
+                            ),
+                            Checkbox(
+                                "D2",
+                                value=True,
+                                id="fleet-lora-dev-2",
+                                classes="target-checkbox",
+                            ),
+                            Checkbox(
+                                "D3",
+                                value=True,
+                                id="fleet-lora-dev-3",
+                                classes="target-checkbox",
+                            ),
+                            Checkbox(
+                                "D4",
+                                value=True,
+                                id="fleet-lora-dev-4",
+                                classes="target-checkbox",
+                            ),
+                            Button(
+                                "ASCII", id="fleet-lora-mode", classes="term-mode-btn"
+                            ),
+                            Button(
+                                "Clear", id="fleet-lora-clear", classes="term-clear-btn"
+                            ),
                             classes="term-header-row",
                         ),
                         ScrollableContainer(
-                            Static("(no data yet)", id="fleet-lora-log", classes="terminal-log"),
+                            Static(
+                                "(no data yet)",
+                                id="fleet-lora-log",
+                                classes="terminal-log",
+                            ),
                             id="fleet-lora-log-scroll",
                             classes="terminal-log-scroll",
                         ),
                         Horizontal(
-                            Input(placeholder="Broadcast payload to all CDC1...", id="fleet-lora-input"),
+                            Input(
+                                placeholder="Broadcast payload to all CDC1...",
+                                id="fleet-lora-input",
+                            ),
                             Button("Send", id="fleet-lora-send"),
                             classes="term-input-row",
                         ),
@@ -376,7 +439,9 @@ class CatSnifferTestbenchApp(App):
     async def on_mount(self) -> None:
         table = self.query_one("#devices-table", DataTable)
         try:
-            table.add_columns("Slot", "Serial", "CDC0", "CDC1", "CDC2", "Health", "Status")
+            table.add_columns(
+                "Slot", "Serial", "CDC0", "CDC1", "CDC2", "Health", "Status"
+            )
         except Exception:
             pass
 
@@ -453,13 +518,17 @@ class CatSnifferTestbenchApp(App):
             return
 
         if button_id == "fleet-shell-mode":
-            self._fleet_shell_mode = "hex" if self._fleet_shell_mode == "text" else "text"
+            self._fleet_shell_mode = (
+                "hex" if self._fleet_shell_mode == "text" else "text"
+            )
             try:
                 mode_btn = self.query_one("#fleet-shell-mode", Button)
                 mode_btn.label = "HEX" if self._fleet_shell_mode == "hex" else "ASCII"
             except Exception:
                 pass
-            self._set_status(f"All Devices Shell mode: {self._fleet_shell_mode.upper()}")
+            self._set_status(
+                f"All Devices Shell mode: {self._fleet_shell_mode.upper()}"
+            )
             return
 
         if button_id == "fleet-lora-send":
@@ -525,7 +594,9 @@ class CatSnifferTestbenchApp(App):
             try:
                 _, _, device_s, endpoint = button_id.split("-", 3)
                 device_id = int(device_s)
-                input_widget = self.query_one(f"#term-input-{device_id}-{endpoint}", Input)
+                input_widget = self.query_one(
+                    f"#term-input-{device_id}-{endpoint}", Input
+                )
                 text = input_widget.value
                 input_widget.value = ""
                 asyncio.create_task(self._send_terminal_line(device_id, endpoint, text))
@@ -540,7 +611,9 @@ class CatSnifferTestbenchApp(App):
                 device_id = int(device_s)
                 self._terminal_buffers[device_id][endpoint].clear()
                 self._append_terminal_line(device_id, endpoint, "(cleared)")
-                self._set_status(f"Cleared {self.ENDPOINT_DISPLAY.get(endpoint, endpoint)} log on #{device_id}")
+                self._set_status(
+                    f"Cleared {self.ENDPOINT_DISPLAY.get(endpoint, endpoint)} log on #{device_id}"
+                )
             except Exception as error:
                 self._set_status(f"Terminal clear parse error: {error}")
             return
@@ -551,9 +624,15 @@ class CatSnifferTestbenchApp(App):
                 _, _, device_s, endpoint = button_id.split("-", 3)
                 device_id = int(device_s)
                 current = self._terminal_mode[device_id][endpoint]
-                self._terminal_mode[device_id][endpoint] = "hex" if current == "text" else "text"
+                self._terminal_mode[device_id][endpoint] = (
+                    "hex" if current == "text" else "text"
+                )
                 mode_btn = self.query_one(f"#term-mode-{device_id}-{endpoint}", Button)
-                mode_btn.label = "HEX" if self._terminal_mode[device_id][endpoint] == "hex" else "ASCII"
+                mode_btn.label = (
+                    "HEX"
+                    if self._terminal_mode[device_id][endpoint] == "hex"
+                    else "ASCII"
+                )
                 self._set_status(
                     f"{self.ENDPOINT_DISPLAY.get(endpoint, endpoint)} mode: {self._terminal_mode[device_id][endpoint].upper()}"
                 )
@@ -569,7 +648,7 @@ class CatSnifferTestbenchApp(App):
                     self._set_status(f"No device in slot {device_id}")
                     return
                 device = self.devices[device_id]
-                action = button_id[len(prefix):]
+                action = button_id[len(prefix) :]
 
                 if action == "status":
                     asyncio.create_task(self._execute_command(device, "status"))
@@ -580,15 +659,23 @@ class CatSnifferTestbenchApp(App):
                 elif action == "band3":
                     asyncio.create_task(self._execute_command(device, "band3"))
                 elif action == "lora":
-                    asyncio.create_task(self._execute_command(device, "modulation lora"))
+                    asyncio.create_task(
+                        self._execute_command(device, "modulation lora")
+                    )
                 elif action == "fsk":
                     asyncio.create_task(self._execute_command(device, "modulation fsk"))
                 elif action == "stream":
-                    asyncio.create_task(self._execute_command(device, "lora_mode stream"))
+                    asyncio.create_task(
+                        self._execute_command(device, "lora_mode stream")
+                    )
                 elif action == "command":
-                    asyncio.create_task(self._execute_command(device, "lora_mode command"))
+                    asyncio.create_task(
+                        self._execute_command(device, "lora_mode command")
+                    )
                 elif action == "smoke" and device_id in self._smoke_runners:
-                    asyncio.create_task(self._smoke_runners[device_id].run_single(device))
+                    asyncio.create_task(
+                        self._smoke_runners[device_id].run_single(device)
+                    )
                 elif action == "save-logs":
                     self._save_terminal_logs(device_id)
                 return
@@ -654,17 +741,17 @@ class CatSnifferTestbenchApp(App):
         self.selected_tab = tab_id
 
         all_pane = self.query_one("#all-pane", Vertical)
-        all_pane.display = (tab_id == "all")
+        all_pane.display = tab_id == "all"
         io_pane = self.query_one("#all-io-pane", Horizontal)
-        io_pane.display = (tab_id == "io-all")
+        io_pane.display = tab_id == "io-all"
         shell_pane = self.query_one("#all-shell-pane", Vertical)
-        shell_pane.display = (tab_id == "io-all")
+        shell_pane.display = tab_id == "io-all"
         lora_pane = self.query_one("#all-lora-pane", Vertical)
-        lora_pane.display = (tab_id == "io-all")
+        lora_pane.display = tab_id == "io-all"
 
         for device_id in range(1, 5):
             pane = self.query_one(f"#device-{device_id}-pane", ScrollableContainer)
-            pane.display = (tab_id == f"device-{device_id}")
+            pane.display = tab_id == f"device-{device_id}"
 
         self._update_tab_styles(tab_id)
         self._set_status(f"Selected: {tab_id} | Devices: {len(self.devices)}")
@@ -715,7 +802,10 @@ class CatSnifferTestbenchApp(App):
 
                     if disc.identity not in self._identity_map:
                         used_slots = set(self._identity_map.values())
-                        available_slot = next((slot for slot in range(1, 5) if slot not in used_slots), None)
+                        available_slot = next(
+                            (slot for slot in range(1, 5) if slot not in used_slots),
+                            None,
+                        )
                         if available_slot is None:
                             continue
 
@@ -740,7 +830,9 @@ class CatSnifferTestbenchApp(App):
 
                 for identity, device_id in list(self._identity_map.items()):
                     if identity not in current_identities:
-                        self._miss_count[identity] = self._miss_count.get(identity, 0) + 1
+                        self._miss_count[identity] = (
+                            self._miss_count.get(identity, 0) + 1
+                        )
                         if self._miss_count[identity] >= 2:
                             if device_id in self.devices:
                                 await self.devices[device_id].disconnect_all()
@@ -852,12 +944,16 @@ class CatSnifferTestbenchApp(App):
                     Button("FSK Mode", id=f"dev{device_id}-fsk"),
                     Button("Stream", id=f"dev{device_id}-stream"),
                     Button("Command", id=f"dev{device_id}-command"),
-                    Button("Run Smoke Test", id=f"dev{device_id}-smoke", variant="warning"),
+                    Button(
+                        "Run Smoke Test", id=f"dev{device_id}-smoke", variant="warning"
+                    ),
                     Static("", classes="flex-spacer"),
                     Button("Save Logs", id=f"dev{device_id}-save-logs"),
                     classes="button-row",
                 ),
-                Static(f"Smoke: {'Running...' if device.smoke_test_running else 'Idle'} | r=Rescan"),
+                Static(
+                    f"Smoke: {'Running...' if device.smoke_test_running else 'Idle'} | r=Rescan"
+                ),
                 classes="panel quick-panel",
             )
 
@@ -865,23 +961,36 @@ class CatSnifferTestbenchApp(App):
             term_cdc1 = self._terminal_widget(device_id, "CDC1", bool(device.lora))
             term_cdc2 = self._terminal_widget(device_id, "CDC2", bool(device.shell))
 
-            terminal_row = Horizontal(term_cdc0, term_cdc1, term_cdc2, classes="terminal-grid")
+            terminal_row = Horizontal(
+                term_cdc0, term_cdc1, term_cdc2, classes="terminal-grid"
+            )
             pane.mount(actions, terminal_row)
 
         except Exception as error:
             self._log_error(f"Device pane update failed ({device_id})", error)
 
-    def _terminal_widget(self, device_id: int, endpoint: str, available: bool) -> Container:
-        log_text = "\n".join(self._terminal_buffers[device_id][endpoint]) or "(no data yet)"
+    def _terminal_widget(
+        self, device_id: int, endpoint: str, available: bool
+    ) -> Container:
+        log_text = (
+            "\n".join(self._terminal_buffers[device_id][endpoint]) or "(no data yet)"
+        )
         endpoint_name = self.ENDPOINT_DISPLAY.get(endpoint, endpoint)
-        mode_label = "HEX" if self._terminal_mode[device_id][endpoint] == "hex" else "ASCII"
+        mode_label = (
+            "HEX" if self._terminal_mode[device_id][endpoint] == "hex" else "ASCII"
+        )
         return Container(
             Horizontal(
                 Static(
                     f"{endpoint_name} Terminal {'(connected)' if available else '(not available)'}",
                     classes="term-title",
                 ),
-                Button(mode_label, id=f"term-mode-{device_id}-{endpoint}", disabled=not available, classes="term-mode-btn"),
+                Button(
+                    mode_label,
+                    id=f"term-mode-{device_id}-{endpoint}",
+                    disabled=not available,
+                    classes="term-mode-btn",
+                ),
                 Button(
                     "Clear",
                     id=f"term-clear-{device_id}-{endpoint}",
@@ -891,13 +1000,24 @@ class CatSnifferTestbenchApp(App):
                 classes="term-header-row",
             ),
             ScrollableContainer(
-                Static(log_text, id=f"term-log-{device_id}-{endpoint}", classes="terminal-log"),
+                Static(
+                    log_text,
+                    id=f"term-log-{device_id}-{endpoint}",
+                    classes="terminal-log",
+                ),
                 id=f"term-log-scroll-{device_id}-{endpoint}",
                 classes="terminal-log-scroll",
             ),
             Horizontal(
-                Input(placeholder=f"{endpoint_name} input...", id=f"term-input-{device_id}-{endpoint}"),
-                Button("Send", id=f"term-send-{device_id}-{endpoint}", disabled=not available),
+                Input(
+                    placeholder=f"{endpoint_name} input...",
+                    id=f"term-input-{device_id}-{endpoint}",
+                ),
+                Button(
+                    "Send",
+                    id=f"term-send-{device_id}-{endpoint}",
+                    disabled=not available,
+                ),
                 classes="term-input-row",
             ),
             classes="terminal-panel",
@@ -922,7 +1042,9 @@ class CatSnifferTestbenchApp(App):
     async def _execute_command(self, device: CatSnifferDevice, command: str) -> None:
         self._set_status(f"Running on #{device.device_id}: {command}")
         self._append_terminal_line(device.device_id, "CDC2", f"> {command}")
-        self._append_fleet_shell_line(f"[#{device.device_id}] > {command}", device.device_id)
+        self._append_fleet_shell_line(
+            f"[#{device.device_id}] > {command}", device.device_id
+        )
         self._pending_shell_echo[device.device_id].append(command)
         result = await device.send_shell_command(command)
         # Avoid full device-pane rebuild on every command press; keep terminal UX stable.
@@ -953,25 +1075,46 @@ class CatSnifferTestbenchApp(App):
                             # Some firmware echoes command inline with response:
                             # e.g. "band12.4GHz Band"
                             if line.startswith(cmd_l):
-                                self._append_terminal_line(device.device_id, endpoint_label, f"< (echo) {cmd}")
-                                self._append_fleet_shell_line(f"[#{device.device_id}] < (echo) {cmd}", device.device_id)
+                                self._append_terminal_line(
+                                    device.device_id, endpoint_label, f"< (echo) {cmd}"
+                                )
+                                self._append_fleet_shell_line(
+                                    f"[#{device.device_id}] < (echo) {cmd}",
+                                    device.device_id,
+                                )
                                 pending.pop(0)
-                                remainder = line_raw[len(cmd):].strip()
+                                remainder = line_raw[len(cmd) :].strip()
                                 if remainder:
-                                    self._append_terminal_line(device.device_id, endpoint_label, f"< {remainder}")
-                                    self._append_fleet_shell_line(f"[#{device.device_id}] < {remainder}", device.device_id)
+                                    self._append_terminal_line(
+                                        device.device_id,
+                                        endpoint_label,
+                                        f"< {remainder}",
+                                    )
+                                    self._append_fleet_shell_line(
+                                        f"[#{device.device_id}] < {remainder}",
+                                        device.device_id,
+                                    )
                                 continue
 
-                        self._append_terminal_line(device.device_id, endpoint_label, f"< {line_raw}")
-                        self._append_fleet_shell_line(f"[#{device.device_id}] < {line_raw}", device.device_id)
+                        self._append_terminal_line(
+                            device.device_id, endpoint_label, f"< {line_raw}"
+                        )
+                        self._append_fleet_shell_line(
+                            f"[#{device.device_id}] < {line_raw}", device.device_id
+                        )
                     return
 
                 for raw in incoming_lines:
                     line_raw = raw.rstrip("\r")
                     if line_raw:
-                        self._append_terminal_line(device.device_id, endpoint_label, f"< {line_raw}")
+                        self._append_terminal_line(
+                            device.device_id, endpoint_label, f"< {line_raw}"
+                        )
                         if endpoint_label == "CDC1":
-                            self._append_fleet_lora_line(f"[#{device.device_id}] < {line_raw}", device.device_id)
+                            self._append_fleet_lora_line(
+                                f"[#{device.device_id}] < {line_raw}", device.device_id
+                            )
+
             return _cb
 
         if device.bridge:
@@ -989,13 +1132,17 @@ class CatSnifferTestbenchApp(App):
         try:
             widget = self.query_one(f"#term-log-{device_id}-{endpoint}", Static)
             widget.update("\n".join(buf))
-            scroller = self.query_one(f"#term-log-scroll-{device_id}-{endpoint}", ScrollableContainer)
+            scroller = self.query_one(
+                f"#term-log-scroll-{device_id}-{endpoint}", ScrollableContainer
+            )
             scroller.scroll_end(animate=False)
         except Exception:
             pass
 
     async def _fleet_action(self, command: str) -> None:
-        tasks = [self._execute_command(device, command) for device in self.devices.values()]
+        tasks = [
+            self._execute_command(device, command) for device in self.devices.values()
+        ]
         if tasks:
             await asyncio.gather(*tasks)
 
@@ -1013,7 +1160,9 @@ class CatSnifferTestbenchApp(App):
             for device_id in range(1, 5):
                 self._update_device_pane(device_id)
 
-    async def _send_terminal_line(self, device_id: int, endpoint: str, text: str) -> None:
+    async def _send_terminal_line(
+        self, device_id: int, endpoint: str, text: str
+    ) -> None:
         device = self.devices.get(device_id)
         if not device:
             self._set_status(f"No device in slot {device_id}")
@@ -1047,7 +1196,9 @@ class CatSnifferTestbenchApp(App):
             try:
                 raw = bytes.fromhex(payload.replace(" ", ""))
             except ValueError:
-                self._set_status(f"Invalid HEX input for {self.ENDPOINT_DISPLAY.get(endpoint, endpoint)}")
+                self._set_status(
+                    f"Invalid HEX input for {self.ENDPOINT_DISPLAY.get(endpoint, endpoint)}"
+                )
                 return
             ok = await handler.send_raw(raw)
         else:
@@ -1055,16 +1206,24 @@ class CatSnifferTestbenchApp(App):
         if endpoint == "CDC2":
             self._append_terminal_line(device_id, endpoint, "")
         if ok:
-            self._set_status(f"Sent to #{device_id} {self.ENDPOINT_DISPLAY.get(endpoint, endpoint)}")
+            self._set_status(
+                f"Sent to #{device_id} {self.ENDPOINT_DISPLAY.get(endpoint, endpoint)}"
+            )
         else:
-            self._set_status(f"Send failed on #{device_id} {self.ENDPOINT_DISPLAY.get(endpoint, endpoint)}")
+            self._set_status(
+                f"Send failed on #{device_id} {self.ENDPOINT_DISPLAY.get(endpoint, endpoint)}"
+            )
 
     async def _send_fleet_shell_line(self, text: str) -> None:
         payload = text.strip()
         if not payload:
             return
 
-        targets = [(device_id, device.shell) for device_id, device in sorted(self.devices.items()) if device.shell]
+        targets = [
+            (device_id, device.shell)
+            for device_id, device in sorted(self.devices.items())
+            if device.shell
+        ]
         if not targets:
             self._set_status("No Shell (CDC2) endpoints available")
             return
@@ -1083,18 +1242,24 @@ class CatSnifferTestbenchApp(App):
                     self._pending_shell_echo[device_id].append(payload)
                     sent_count += 1
                 else:
-                    self._append_fleet_shell_line(f"[#{device_id}] ! send failed", device_id)
+                    self._append_fleet_shell_line(
+                        f"[#{device_id}] ! send failed", device_id
+                    )
         else:
             for device_id, handler in targets:
                 if handler and await handler.send_line(payload):
                     self._pending_shell_echo[device_id].append(payload)
                     sent_count += 1
                 else:
-                    self._append_fleet_shell_line(f"[#{device_id}] ! send failed", device_id)
+                    self._append_fleet_shell_line(
+                        f"[#{device_id}] ! send failed", device_id
+                    )
 
         self._set_status(f"Broadcast to {sent_count}/{len(targets)} device(s) on CDC2")
 
-    def _append_fleet_shell_line(self, line: str, device_id: Optional[int] = None) -> None:
+    def _append_fleet_shell_line(
+        self, line: str, device_id: Optional[int] = None
+    ) -> None:
         styled = escape(line)
         if device_id in self.DEVICE_COLORS:
             styled = f"[{self.DEVICE_COLORS[device_id]}]{styled}[/]"
@@ -1121,7 +1286,9 @@ class CatSnifferTestbenchApp(App):
             if device_id in selected and device.lora
         ]
         if not selected:
-            self._set_status("Select at least one device checkbox (D1..D4) for CDC1 send")
+            self._set_status(
+                "Select at least one device checkbox (D1..D4) for CDC1 send"
+            )
             return
         if not targets:
             self._set_status("No selected LoRa (CDC1) endpoints available")
@@ -1139,16 +1306,24 @@ class CatSnifferTestbenchApp(App):
             for device_id, handler in targets:
                 if handler and await handler.send_raw(raw):
                     sent_count += 1
-                    self._append_fleet_lora_line(f"[#{device_id}] > {payload}", device_id)
+                    self._append_fleet_lora_line(
+                        f"[#{device_id}] > {payload}", device_id
+                    )
                 else:
-                    self._append_fleet_lora_line(f"[#{device_id}] ! send failed", device_id)
+                    self._append_fleet_lora_line(
+                        f"[#{device_id}] ! send failed", device_id
+                    )
         else:
             for device_id, handler in targets:
                 if handler and await handler.send_line(payload):
                     sent_count += 1
-                    self._append_fleet_lora_line(f"[#{device_id}] > {payload}", device_id)
+                    self._append_fleet_lora_line(
+                        f"[#{device_id}] > {payload}", device_id
+                    )
                 else:
-                    self._append_fleet_lora_line(f"[#{device_id}] ! send failed", device_id)
+                    self._append_fleet_lora_line(
+                        f"[#{device_id}] ! send failed", device_id
+                    )
 
         self._set_status(f"Broadcast to {sent_count}/{len(targets)} device(s) on CDC1")
 
@@ -1163,7 +1338,9 @@ class CatSnifferTestbenchApp(App):
                 pass
         return selected
 
-    def _append_fleet_lora_line(self, line: str, device_id: Optional[int] = None) -> None:
+    def _append_fleet_lora_line(
+        self, line: str, device_id: Optional[int] = None
+    ) -> None:
         styled = escape(line)
         if device_id in self.DEVICE_COLORS:
             styled = f"[{self.DEVICE_COLORS[device_id]}]{styled}[/]"
@@ -1186,7 +1363,9 @@ class CatSnifferTestbenchApp(App):
             device_id = int(self.selected_tab.split("-")[1])
             input_widget = self.query_one(f"#term-input-{device_id}-{endpoint}", Input)
             input_widget.focus()
-            self._set_status(f"Focused {self.ENDPOINT_DISPLAY.get(endpoint, endpoint)} input on #{device_id}")
+            self._set_status(
+                f"Focused {self.ENDPOINT_DISPLAY.get(endpoint, endpoint)} input on #{device_id}"
+            )
         except Exception:
             self._set_status("Terminal input not available")
 
@@ -1199,8 +1378,14 @@ class CatSnifferTestbenchApp(App):
                 lines = self._terminal_buffers[device_id][endpoint]
                 if not lines:
                     continue
-                endpoint_name = self.ENDPOINT_DISPLAY.get(endpoint, endpoint).lower().replace(" ", "-")
-                path = os.path.join(base_dir, f"{self._session_stamp}-{endpoint_name}.log")
+                endpoint_name = (
+                    self.ENDPOINT_DISPLAY.get(endpoint, endpoint)
+                    .lower()
+                    .replace(" ", "-")
+                )
+                path = os.path.join(
+                    base_dir, f"{self._session_stamp}-{endpoint_name}.log"
+                )
                 with open(path, "w", encoding="utf-8") as fh:
                     fh.write("\n".join(lines) + "\n")
                 count += 1

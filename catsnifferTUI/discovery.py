@@ -4,6 +4,7 @@ CatSniffer TUI Testbench Discovery
 USB/serial port discovery and device grouping logic.
 Adapted from verify_endpoints.py
 """
+
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -23,6 +24,7 @@ from .constants import (
 @dataclass(frozen=True)
 class DeviceIdentity:
     """Stable identity for a physical device."""
+
     serial_number: str
     usb_bus: Optional[int] = None
     usb_address: Optional[int] = None
@@ -44,6 +46,7 @@ class DeviceIdentity:
 @dataclass
 class DiscoveredPort:
     """Information about a discovered serial port."""
+
     device: str
     description: str
     hwid: str
@@ -56,6 +59,7 @@ class DiscoveredPort:
 @dataclass
 class DiscoveredDevice:
     """A discovered CatSniffer with its endpoints."""
+
     identity: DeviceIdentity
     ports: Dict[str, str] = field(default_factory=dict)  # endpoint_name -> port_path
 
@@ -106,7 +110,7 @@ def _extract_serial_number(hwid: str) -> Optional[str]:
         return None
 
     # Try to find SER=XXXX pattern
-    match = re.search(r'SER=([A-Fa-f0-9]+)', hwid)
+    match = re.search(r"SER=([A-Fa-f0-9]+)", hwid)
     if match:
         return match.group(1)
 
@@ -119,8 +123,8 @@ def _extract_usb_info(port) -> Tuple[Optional[int], Optional[int]]:
     address = None
 
     # Try location string (e.g., "1-2.3" means bus 1, address path 2.3)
-    if hasattr(port, 'location') and port.location:
-        parts = port.location.split('-')
+    if hasattr(port, "location") and port.location:
+        parts = port.location.split("-")
         if parts:
             try:
                 bus = int(parts[0])
@@ -128,9 +132,9 @@ def _extract_usb_info(port) -> Tuple[Optional[int], Optional[int]]:
                 pass
 
     # Try hwid for USB bus/address
-    if hasattr(port, 'hwid') and port.hwid:
+    if hasattr(port, "hwid") and port.hwid:
         # Pattern: USB VID:PID=1209:BABB SER=... LOCATION=1-2
-        loc_match = re.search(r'LOCATION=(\d+)-(\d+)', port.hwid)
+        loc_match = re.search(r"LOCATION=(\d+)-(\d+)", port.hwid)
         if loc_match:
             try:
                 bus = int(loc_match.group(1))
@@ -152,7 +156,7 @@ def _group_ports_by_device(ports: List) -> Dict[str, List]:
             serial_num = _extract_serial_number(port.hwid)
 
         # Fallback to location
-        if not serial_num and hasattr(port, 'location') and port.location:
+        if not serial_num and hasattr(port, "location") and port.location:
             serial_num = f"loc-{port.location}"
 
         # Last resort: use port device as identifier
@@ -214,8 +218,7 @@ def discover_devices() -> List[DiscoveredDevice]:
 
     # Filter by CatSniffer VID/PID
     cat_ports = [
-        p for p in all_ports
-        if p.vid == CATSNIFFER_VID and p.pid == CATSNIFFER_PID
+        p for p in all_ports if p.vid == CATSNIFFER_VID and p.pid == CATSNIFFER_PID
     ]
 
     if not cat_ports:
@@ -238,19 +241,14 @@ def discover_devices() -> List[DiscoveredDevice]:
 
         # Create identity
         identity = DeviceIdentity(
-            serial_number=serial_num,
-            usb_bus=bus,
-            usb_address=address
+            serial_number=serial_num, usb_bus=bus, usb_address=address
         )
 
         # Map endpoints
         endpoint_map = _map_endpoints_intelligent(ports)
 
         # Create discovered device (even if incomplete)
-        device = DiscoveredDevice(
-            identity=identity,
-            ports=endpoint_map
-        )
+        device = DiscoveredDevice(identity=identity, ports=endpoint_map)
         devices.append(device)
 
     return devices

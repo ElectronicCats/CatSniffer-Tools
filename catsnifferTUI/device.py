@@ -3,6 +3,7 @@ CatSniffer TUI Testbench Device Management
 
 CatSniffer device representation and serial endpoint handlers.
 """
+
 import asyncio
 import re
 import time
@@ -30,6 +31,7 @@ from .logging import LogManager, log_manager
 @dataclass
 class CommandResult:
     """Result of a command execution."""
+
     command: str
     status: CommandStatus
     response: Optional[str]
@@ -45,6 +47,7 @@ class CommandResult:
 @dataclass
 class QueuedCommand:
     """A command waiting to be sent."""
+
     command: str
     future: asyncio.Future
     timeout: float
@@ -114,11 +117,8 @@ class EndpointHandler:
             self._serial = await loop.run_in_executor(
                 None,
                 lambda: serial.Serial(
-                    self.port,
-                    DEFAULT_BAUDRATE,
-                    timeout=0.1,
-                    write_timeout=1.0
-                )
+                    self.port, DEFAULT_BAUDRATE, timeout=0.1, write_timeout=1.0
+                ),
             )
 
             self._running = True
@@ -169,7 +169,7 @@ class EndpointHandler:
         command: str,
         timeout: float = COMMAND_TIMEOUT,
         retry: int = 1,
-        expected_match: Optional[Pattern] = None
+        expected_match: Optional[Pattern] = None,
     ) -> CommandResult:
         """
         Send a command and wait for response.
@@ -181,7 +181,7 @@ class EndpointHandler:
                 response=None,
                 duration_ms=0,
                 retries=0,
-                error="Endpoint not connected"
+                error="Endpoint not connected",
             )
 
         # Check mode guard for CDC1
@@ -192,7 +192,7 @@ class EndpointHandler:
                 response=None,
                 duration_ms=0,
                 retries=0,
-                error="CDC1 is in STREAM mode. Switch to command mode first."
+                error="CDC1 is in STREAM mode. Switch to command mode first.",
             )
 
         for attempt in range(retry + 1):
@@ -205,7 +205,7 @@ class EndpointHandler:
                     command=command,
                     future=future,
                     timeout=timeout,
-                    expected_match=expected_match
+                    expected_match=expected_match,
                 )
                 await self._command_queue.put(queued_cmd)
 
@@ -218,14 +218,16 @@ class EndpointHandler:
                 self.log_manager.log_tx(self.device_id, self.endpoint_label, command)
 
                 if response:
-                    self.log_manager.log_rx(self.device_id, self.endpoint_label, response)
+                    self.log_manager.log_rx(
+                        self.device_id, self.endpoint_label, response
+                    )
 
                 return CommandResult(
                     command=command,
                     status=CommandStatus.PASS if response else CommandStatus.FAIL,
                     response=response,
                     duration_ms=duration_ms,
-                    retries=attempt
+                    retries=attempt,
                 )
 
             except asyncio.TimeoutError:
@@ -238,7 +240,7 @@ class EndpointHandler:
                     response=None,
                     duration_ms=duration_ms,
                     retries=attempt,
-                    error="Command timed out"
+                    error="Command timed out",
                 )
             except Exception as e:
                 duration_ms = (time.time() - start_time) * 1000
@@ -248,7 +250,7 @@ class EndpointHandler:
                     response=None,
                     duration_ms=duration_ms,
                     retries=attempt,
-                    error=str(e)
+                    error=str(e),
                 )
 
     async def send_raw(self, data: bytes) -> bool:
@@ -262,14 +264,16 @@ class EndpointHandler:
             await loop.run_in_executor(None, self._serial.flush)
 
             # Log TX
-            self.log_manager.log_tx(self.device_id, self.endpoint_label, data.hex(), len(data))
+            self.log_manager.log_tx(
+                self.device_id, self.endpoint_label, data.hex(), len(data)
+            )
             return True
         except Exception:
             return False
 
     async def send_line(self, line: str) -> bool:
         """Send a line with CRLF."""
-        return await self.send_raw((line + "\r\n").encode('ascii'))
+        return await self.send_raw((line + "\r\n").encode("ascii"))
 
     async def _reader_loop(self):
         """Background task reading from serial port."""
@@ -291,8 +295,8 @@ class EndpointHandler:
                     buffer += chunk
 
                     # Process complete lines
-                    while b'\n' in buffer:
-                        line, buffer = buffer.split(b'\n', 1)
+                    while b"\n" in buffer:
+                        line, buffer = buffer.split(b"\n", 1)
                         line = line.strip()
                         if line:
                             await self._process_line(line)
@@ -335,7 +339,7 @@ class EndpointHandler:
             queued_cmd.sent_at = time.time()
 
             # Send command
-            cmd_bytes = (queued_cmd.command + "\r\n").encode('ascii')
+            cmd_bytes = (queued_cmd.command + "\r\n").encode("ascii")
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, self._serial.write, cmd_bytes)
             await loop.run_in_executor(None, self._serial.flush)
@@ -353,7 +357,7 @@ class EndpointHandler:
     async def _process_line(self, line: bytes):
         """Process a received line."""
         try:
-            line_str = line.decode('ascii', errors='ignore').strip()
+            line_str = line.decode("ascii", errors="ignore").strip()
             if not line_str:
                 return
 
@@ -361,7 +365,9 @@ class EndpointHandler:
             parsed = self._parse_response(line_str)
 
             # Log RX
-            self.log_manager.log_rx(self.device_id, self.endpoint_label, line_str, parsed)
+            self.log_manager.log_rx(
+                self.device_id, self.endpoint_label, line_str, parsed
+            )
 
             # Check if this matches current command expectation
             if self._current_command and not self._current_command.future.done():
@@ -391,28 +397,26 @@ class EndpointHandler:
         """Parse response for special formats."""
         # LoRa RX format: "RX: <hex...> | RSSI: <int> | SNR: <int>"
         lora_match = re.match(
-            r'RX:\s*([A-Fa-f0-9]+)\s*\|\s*RSSI:\s*(-?\d+)\s*\|\s*SNR:\s*(-?\d+)',
-            line
+            r"RX:\s*([A-Fa-f0-9]+)\s*\|\s*RSSI:\s*(-?\d+)\s*\|\s*SNR:\s*(-?\d+)", line
         )
         if lora_match:
             return {
                 "type": "lora_rx",
                 "data": lora_match.group(1),
                 "rssi": int(lora_match.group(2)),
-                "snr": int(lora_match.group(3))
+                "snr": int(lora_match.group(3)),
             }
 
         # FSK RX format: "FSK RX: <hex...> | RSSI: <int> | Len: <int>"
         fsk_match = re.match(
-            r'FSK RX:\s*([A-Fa-f0-9]+)\s*\|\s*RSSI:\s*(-?\d+)\s*\|\s*Len:\s*(\d+)',
-            line
+            r"FSK RX:\s*([A-Fa-f0-9]+)\s*\|\s*RSSI:\s*(-?\d+)\s*\|\s*Len:\s*(\d+)", line
         )
         if fsk_match:
             return {
                 "type": "fsk_rx",
                 "data": fsk_match.group(1),
                 "rssi": int(fsk_match.group(2)),
-                "len": int(fsk_match.group(3))
+                "len": int(fsk_match.group(3)),
             }
 
         return None
@@ -440,26 +444,17 @@ class CatSnifferDevice:
 
         if discovered.bridge_port:
             self.bridge = EndpointHandler(
-                discovered.bridge_port,
-                ENDPOINT_BRIDGE,
-                device_id,
-                log_manager
+                discovered.bridge_port, ENDPOINT_BRIDGE, device_id, log_manager
             )
 
         if discovered.lora_port:
             self.lora = EndpointHandler(
-                discovered.lora_port,
-                ENDPOINT_LORA,
-                device_id,
-                log_manager
+                discovered.lora_port, ENDPOINT_LORA, device_id, log_manager
             )
 
         if discovered.shell_port:
             self.shell = EndpointHandler(
-                discovered.shell_port,
-                ENDPOINT_SHELL,
-                device_id,
-                log_manager
+                discovered.shell_port, ENDPOINT_SHELL, device_id, log_manager
             )
 
         # Device state cache
@@ -545,7 +540,7 @@ class CatSnifferDevice:
                 response=None,
                 duration_ms=0,
                 retries=0,
-                error="CDC2 (Shell) not available"
+                error="CDC2 (Shell) not available",
             )
         return await self.shell.send_command(command, **kwargs)
 
@@ -558,7 +553,7 @@ class CatSnifferDevice:
                 response=None,
                 duration_ms=0,
                 retries=0,
-                error="CDC1 (LoRa) not available"
+                error="CDC1 (LoRa) not available",
             )
 
         # Mode guard
@@ -569,7 +564,7 @@ class CatSnifferDevice:
                 response=None,
                 duration_ms=0,
                 retries=0,
-                error="CDC1 is in STREAM mode. Switch to command mode first."
+                error="CDC1 is in STREAM mode. Switch to command mode first.",
             )
 
         return await self.lora.send_command(command, **kwargs)

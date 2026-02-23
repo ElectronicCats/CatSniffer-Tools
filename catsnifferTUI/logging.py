@@ -3,6 +3,7 @@ CatSniffer TUI Testbench Logging
 
 Ring buffer log management and export functionality.
 """
+
 import os
 from collections import deque
 from dataclasses import dataclass, field
@@ -16,6 +17,7 @@ from .constants import LOG_BUFFER_SIZE, LOG_EXPORT_DIR
 @dataclass
 class LogEntry:
     """Single log entry."""
+
     timestamp: float
     device_id: int
     endpoint: str  # "CDC0", "CDC1", "CDC2"
@@ -51,11 +53,13 @@ class RingBufferLog:
             device_id=device_id,
             endpoint=endpoint,
             direction="TX",
-            data=data
+            data=data,
         )
         self.entries.append(entry)
 
-    def add_rx(self, device_id: int, endpoint: str, data: str, parsed: Optional[Dict] = None):
+    def add_rx(
+        self, device_id: int, endpoint: str, data: str, parsed: Optional[Dict] = None
+    ):
         """Add RX entry with optional parsed data."""
         entry = LogEntry(
             timestamp=datetime.now().timestamp(),
@@ -63,7 +67,7 @@ class RingBufferLog:
             endpoint=endpoint,
             direction="RX",
             data=data,
-            parsed=parsed
+            parsed=parsed,
         )
         self.entries.append(entry)
 
@@ -75,7 +79,7 @@ class RingBufferLog:
             endpoint="",
             direction="",
             data="",
-            is_mark=True
+            is_mark=True,
         )
         self.entries.append(entry)
         self._marks.append(entry.timestamp)
@@ -84,7 +88,7 @@ class RingBufferLog:
         self,
         device_id: Optional[int] = None,
         endpoint: Optional[str] = None,
-        search: Optional[str] = None
+        search: Optional[str] = None,
     ) -> List[LogEntry]:
         """Filter entries by device, endpoint, and search string."""
         result = list(self.entries)
@@ -101,7 +105,9 @@ class RingBufferLog:
 
         return result
 
-    def export_to_file(self, path: Optional[str] = None, device_id: Optional[int] = None) -> str:
+    def export_to_file(
+        self, path: Optional[str] = None, device_id: Optional[int] = None
+    ) -> str:
         """Export logs to file. Returns file path."""
         if path is None:
             os.makedirs(LOG_EXPORT_DIR, exist_ok=True)
@@ -157,7 +163,9 @@ class LogManager:
         self.get_device_log(device_id).add_tx(device_id, endpoint, data)
         self._add_bytes(device_id, endpoint, "tx", bytes_count or len(data))
 
-    def log_rx(self, device_id: int, endpoint: str, data: str, parsed: Optional[Dict] = None):
+    def log_rx(
+        self, device_id: int, endpoint: str, data: str, parsed: Optional[Dict] = None
+    ):
         """Log RX to both global and device logs."""
         self.global_log.add_rx(device_id, endpoint, data, parsed)
         self.get_device_log(device_id).add_rx(device_id, endpoint, data, parsed)
@@ -181,11 +189,14 @@ class LogManager:
 
     def get_counters(self, device_id: int) -> Dict[str, Dict[str, int]]:
         """Get byte counters for device."""
-        return self._byte_counters.get(device_id, {
-            "CDC0": {"tx": 0, "rx": 0},
-            "CDC1": {"tx": 0, "rx": 0},
-            "CDC2": {"tx": 0, "rx": 0},
-        })
+        return self._byte_counters.get(
+            device_id,
+            {
+                "CDC0": {"tx": 0, "rx": 0},
+                "CDC1": {"tx": 0, "rx": 0},
+                "CDC2": {"tx": 0, "rx": 0},
+            },
+        )
 
     def reset_counters(self, device_id: int):
         """Reset byte counters for device."""

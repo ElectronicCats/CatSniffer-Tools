@@ -3,6 +3,7 @@ CatSniffer TUI Testbench - Screen Definitions
 
 Tab screens for All Devices and individual device views.
 """
+
 import asyncio
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -98,7 +99,7 @@ class AllDevicesScreen(Screen):
                             Button("All → Sub-GHz (band2)", id="fleet-band2"),
                             Button("All → LoRa (band3)", id="fleet-band3"),
                         ),
-                        classes="action-group"
+                        classes="action-group",
                     ),
                     Vertical(
                         Label("LoRa Frequency:"),
@@ -106,28 +107,34 @@ class AllDevicesScreen(Screen):
                             Input(placeholder="915000000", id="fleet-freq"),
                             Button("Set All", id="fleet-set-freq"),
                         ),
-                        classes="action-group"
+                        classes="action-group",
                     ),
                     Vertical(
                         Label("Smoke Test:"),
                         Horizontal(
-                            Button("Run All Smoke Tests", id="fleet-smoke", variant="warning"),
+                            Button(
+                                "Run All Smoke Tests",
+                                id="fleet-smoke",
+                                variant="warning",
+                            ),
                             Button("Cancel All", id="fleet-cancel"),
                         ),
-                        classes="action-group"
+                        classes="action-group",
                     ),
-                    classes="action-buttons"
+                    classes="action-buttons",
                 ),
-                id="fleet-actions"
+                id="fleet-actions",
             ),
-            id="main-container"
+            id="main-container",
         )
         yield Footer()
 
     def on_mount(self):
         """Initialize table."""
         table = self.query_one("#devices-table", DataTable)
-        table.add_columns("Device", "CDC0", "CDC1", "CDC2", "Health", "Status", "LoRa Mode", "Last RX")
+        table.add_columns(
+            "Device", "CDC0", "CDC1", "CDC2", "Health", "Status", "LoRa Mode", "Last RX"
+        )
 
     def update_devices(self, devices: Dict[int, CatSnifferDevice]):
         """Update device table."""
@@ -143,17 +150,37 @@ class AllDevicesScreen(Screen):
             health = device.health.value
             test_status = "Testing..." if device.smoke_test_running else "Idle"
             lora_mode = device.lora.lora_mode if device.lora else "N/A"
-            last_rx = datetime.fromtimestamp(device.last_rx_time).strftime("%H:%M:%S") if device.last_rx_time else "--"
+            last_rx = (
+                datetime.fromtimestamp(device.last_rx_time).strftime("%H:%M:%S")
+                if device.last_rx_time
+                else "--"
+            )
 
             table.add_row(
                 f"#{device_id}",
-                f"[green]{cdc0_status}[/green]" if device.bridge else f"[dim]{cdc0_status}[/dim]",
-                f"[green]{cdc1_status}[/green]" if device.lora else f"[dim]{cdc1_status}[/dim]",
-                f"[green]{cdc2_status}[/green]" if device.shell else f"[dim]{cdc2_status}[/dim]",
-                f"[green]{health}[/green]" if health == "healthy" else f"[yellow]{health}[/yellow]",
+                (
+                    f"[green]{cdc0_status}[/green]"
+                    if device.bridge
+                    else f"[dim]{cdc0_status}[/dim]"
+                ),
+                (
+                    f"[green]{cdc1_status}[/green]"
+                    if device.lora
+                    else f"[dim]{cdc1_status}[/dim]"
+                ),
+                (
+                    f"[green]{cdc2_status}[/green]"
+                    if device.shell
+                    else f"[dim]{cdc2_status}[/dim]"
+                ),
+                (
+                    f"[green]{health}[/green]"
+                    if health == "healthy"
+                    else f"[yellow]{health}[/yellow]"
+                ),
                 test_status,
                 lora_mode,
-                last_rx
+                last_rx,
             )
 
     def on_button_pressed(self, event: Button.Pressed):
@@ -179,6 +206,7 @@ class AllDevicesScreen(Screen):
 
 class FleetAction(Message):
     """Fleet action message."""
+
     def __init__(self, action: str, value: str = ""):
         super().__init__()
         self.action = action
@@ -187,6 +215,7 @@ class FleetAction(Message):
 
 class FleetSmokeTest(Message):
     """Fleet smoke test request."""
+
     pass
 
 
@@ -268,10 +297,12 @@ class DeviceScreen(Screen):
             Horizontal(
                 StatusIndicator(self._device.health.value),
                 Label(f"CatSniffer #{self.device_id}", classes="device-title"),
-                Label(self._device.identity.serial_number[:16], classes="serial-display"),
-                classes="header-content"
+                Label(
+                    self._device.identity.serial_number[:16], classes="serial-display"
+                ),
+                classes="header-content",
             ),
-            id="device-header"
+            id="device-header",
         )
         yield Horizontal(
             # CDC2 Panel (Config)
@@ -293,7 +324,7 @@ class DeviceScreen(Screen):
                         Horizontal(
                             CommandButton("Status", "status", variant="primary"),
                         ),
-                        classes="config-section"
+                        classes="config-section",
                     ),
                     Container(
                         Label("LoRa Config:", classes="config-section"),
@@ -311,7 +342,7 @@ class DeviceScreen(Screen):
                             CommandButton("Show Config", "lora_config"),
                             CommandButton("Apply", "lora_apply", variant="success"),
                         ),
-                        classes="config-section"
+                        classes="config-section",
                     ),
                     Container(
                         Label("FSK Config:", classes="config-section"),
@@ -324,7 +355,7 @@ class DeviceScreen(Screen):
                             CommandButton("Show Config", "fsk_config"),
                             CommandButton("Apply", "fsk_apply", variant="success"),
                         ),
-                        classes="config-section"
+                        classes="config-section",
                     ),
                     Container(
                         Label("Modulation:", classes="config-section"),
@@ -332,11 +363,11 @@ class DeviceScreen(Screen):
                             CommandButton("LoRa", "modulation lora", variant="primary"),
                             CommandButton("FSK", "modulation fsk"),
                         ),
-                        classes="config-section"
+                        classes="config-section",
                     ),
-                    classes="scroll-content"
+                    classes="scroll-content",
                 ),
-                classes="endpoint-panel"
+                classes="endpoint-panel",
             ),
             # CDC1 Panel (LoRa/FSK)
             Container(
@@ -345,9 +376,11 @@ class DeviceScreen(Screen):
                     Label("Mode:", classes="config-section"),
                     Horizontal(
                         CommandButton("Stream", "lora_mode stream"),
-                        CommandButton("Command", "lora_mode command", variant="primary"),
+                        CommandButton(
+                            "Command", "lora_mode command", variant="primary"
+                        ),
                     ),
-                    classes="config-section"
+                    classes="config-section",
                 ),
                 Container(
                     Label("LoRa Commands:", classes="config-section"),
@@ -359,7 +392,7 @@ class DeviceScreen(Screen):
                         Input(placeholder="TX hex data...", id="tx-hex-input"),
                         CommandButton("TX", "TX", endpoint="CDC1"),
                     ),
-                    classes="config-section"
+                    classes="config-section",
                 ),
                 Container(
                     Label("FSK Commands:", classes="config-section"),
@@ -371,14 +404,14 @@ class DeviceScreen(Screen):
                         Input(placeholder="FSK TX hex...", id="fsk-tx-input"),
                         CommandButton("FSKTX", "FSKTX", endpoint="CDC1"),
                     ),
-                    classes="config-section"
+                    classes="config-section",
                 ),
                 Container(
                     Label("Last RX:", classes="config-section"),
                     Static("No data", id="last-rx-display"),
-                    classes="config-section"
+                    classes="config-section",
                 ),
-                classes="endpoint-panel"
+                classes="endpoint-panel",
             ),
             # CDC0 Panel (Bridge)
             Container(
@@ -389,12 +422,12 @@ class DeviceScreen(Screen):
                         Button("Start Monitor", id="start-monitor"),
                         Button("Stop Monitor", id="stop-monitor"),
                     ),
-                    classes="config-section"
+                    classes="config-section",
                 ),
                 Container(
                     Label("Bytes:", classes="config-section"),
                     Static("TX: 0 | RX: 0", id="bridge-counters"),
-                    classes="config-section"
+                    classes="config-section",
                 ),
                 Container(
                     Label("Test:", classes="config-section"),
@@ -402,16 +435,19 @@ class DeviceScreen(Screen):
                         Input(placeholder="Hex bytes to send...", id="bridge-tx-input"),
                         Button("Send", id="bridge-send", variant="warning"),
                     ),
-                    Static("[yellow]Warning: Binary passthrough[/yellow]", id="bridge-warning"),
-                    classes="config-section"
+                    Static(
+                        "[yellow]Warning: Binary passthrough[/yellow]",
+                        id="bridge-warning",
+                    ),
+                    classes="config-section",
                 ),
                 Container(
                     Button("Open Terminal", id="open-bridge-terminal"),
-                    classes="config-section"
+                    classes="config-section",
                 ),
-                classes="endpoint-panel"
+                classes="endpoint-panel",
             ),
-            id="panels-container"
+            id="panels-container",
         )
         yield Container(
             TestProgressPanel(id="test-panel"),
@@ -420,7 +456,7 @@ class DeviceScreen(Screen):
                 Button("Clear Results", id="clear-results"),
                 Static("Status: Idle", id="test-status"),
             ),
-            id="test-controls"
+            id="test-controls",
         )
         yield Footer()
 
@@ -430,7 +466,9 @@ class DeviceScreen(Screen):
         health = self.query_one(StatusIndicator)
         health.state = self._device.health.value
 
-    def on_command_button_command_requested(self, event: CommandButton.CommandRequested):
+    def on_command_button_command_requested(
+        self, event: CommandButton.CommandRequested
+    ):
         """Handle command button clicks."""
         command = event.command
         endpoint = event.endpoint
@@ -446,11 +484,7 @@ class DeviceScreen(Screen):
                 command = f"FSKTX {hex_input.value}"
 
         # Post message to app
-        self.app.post_message(DeviceCommand(
-            self.device_id,
-            command,
-            endpoint
-        ))
+        self.app.post_message(DeviceCommand(self.device_id, command, endpoint))
 
     def on_button_pressed(self, event: Button.Pressed):
         """Handle button presses."""
@@ -461,7 +495,9 @@ class DeviceScreen(Screen):
             panel.clear_results()
         elif event.button.id == "open-bridge-terminal":
             if self._device.bridge:
-                self.app.open_terminal(self._device.bridge, self.device_id, "Cat-Bridge")
+                self.app.open_terminal(
+                    self._device.bridge, self.device_id, "Cat-Bridge"
+                )
 
     def update_test_progress(self, step_result: TestStepResult):
         """Update smoke test progress."""
@@ -471,31 +507,40 @@ class DeviceScreen(Screen):
             step_result.step.endpoint,
             step_result.step.command,
             step_result.passed,
-            step_result.response_snippet
+            step_result.response_snippet,
         )
 
     def update_test_complete(self, result: SmokeTestResult):
         """Update when smoke test completes."""
         status = self.query_one("#test-status", Static)
         if result.passed:
-            status.update(f"[green]PASS: {result.passed_count}/{result.total_count}[/green]")
+            status.update(
+                f"[green]PASS: {result.passed_count}/{result.total_count}[/green]"
+            )
         else:
-            status.update(f"[red]FAIL: {result.passed_count}/{result.total_count}[/red]")
+            status.update(
+                f"[red]FAIL: {result.passed_count}/{result.total_count}[/red]"
+            )
 
     def update_last_rx(self, data: str, parsed: dict):
         """Update last RX display."""
         display = self.query_one("#last-rx-display", Static)
         if parsed:
             if parsed.get("type") == "lora_rx":
-                display.update(f"LoRa: {parsed['data'][:20]} | RSSI: {parsed['rssi']} | SNR: {parsed['snr']}")
+                display.update(
+                    f"LoRa: {parsed['data'][:20]} | RSSI: {parsed['rssi']} | SNR: {parsed['snr']}"
+                )
             elif parsed.get("type") == "fsk_rx":
-                display.update(f"FSK: {parsed['data'][:20]} | RSSI: {parsed['rssi']} | Len: {parsed['len']}")
+                display.update(
+                    f"FSK: {parsed['data'][:20]} | RSSI: {parsed['rssi']} | Len: {parsed['len']}"
+                )
         else:
             display.update(data[:60])
 
 
 class DeviceCommand(Message):
     """Device command message."""
+
     def __init__(self, device_id: int, command: str, endpoint: str):
         super().__init__()
         self.device_id = device_id
@@ -505,6 +550,7 @@ class DeviceCommand(Message):
 
 class DeviceSmokeTest(Message):
     """Device smoke test request."""
+
     def __init__(self, device_id: int):
         super().__init__()
         self.device_id = device_id

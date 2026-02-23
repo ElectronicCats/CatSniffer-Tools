@@ -3,6 +3,7 @@ CatSniffer TUI Testbench - Custom Widgets
 
 Custom TUI widgets for the testbench interface.
 """
+
 from typing import Optional
 from datetime import datetime
 
@@ -68,12 +69,14 @@ class DeviceListItem(Container):
 
     class Selected(Message):
         """Device selected message."""
+
         def __init__(self, device_id: int):
             super().__init__()
             self.device_id = device_id
 
     class TerminalRequested(Message):
         """Terminal requested for endpoint."""
+
         def __init__(self, device_id: int, endpoint: str):
             super().__init__()
             self.device_id = device_id
@@ -89,7 +92,7 @@ class DeviceListItem(Container):
         device_name: str,
         health: DeviceHealth,
         endpoints: dict,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.device_id = device_id
@@ -101,17 +104,16 @@ class DeviceListItem(Container):
         yield Horizontal(
             StatusIndicator(self.health, classes="device-health"),
             Label(self.device_name, classes="device-name"),
-            classes="device-header"
+            classes="device-header",
         )
         yield Container(
             *[
                 EndpointHealthIndicator(
-                    ENDPOINT_LABELS.get(ep, ep),
-                    "connected" if port else "disconnected"
+                    ENDPOINT_LABELS.get(ep, ep), "connected" if port else "disconnected"
                 )
                 for ep, port in self._endpoints.items()
             ],
-            classes="endpoints-list"
+            classes="endpoints-list",
         )
 
     def on_click(self):
@@ -124,10 +126,12 @@ class LogViewer(Container):
 
     class MarkRequested(Message):
         """Mark button pressed."""
+
         pass
 
     class ExportRequested(Message):
         """Export button pressed."""
+
         pass
 
     def __init__(self, **kwargs):
@@ -146,7 +150,7 @@ class LogViewer(Container):
             Input(placeholder="Search...", id="search-input", classes="search-input"),
             Button("MARK", id="mark-btn", variant="primary"),
             Button("Export", id="export-btn"),
-            classes="log-controls"
+            classes="log-controls",
         )
         yield DataTable(id="log-table", zebra_stripes=True)
 
@@ -162,8 +166,9 @@ class LogViewer(Container):
         elif event.button.id == "export-btn":
             self.post_message(self.ExportRequested())
 
-    def add_entry(self, timestamp: float, device_id: int, endpoint: str,
-                  direction: str, data: str):
+    def add_entry(
+        self, timestamp: float, device_id: int, endpoint: str, direction: str, data: str
+    ):
         """Add a log entry."""
         table = self.query_one("#log-table", DataTable)
         ts = datetime.fromtimestamp(timestamp).strftime("%H:%M:%S.%f")[:-3]
@@ -198,7 +203,7 @@ class TestProgressPanel(Container):
         yield Horizontal(
             Label("Status:", classes="status-label"),
             Static("Idle", id="test-status"),
-            classes="status-row"
+            classes="status-row",
         )
 
     def on_mount(self):
@@ -211,8 +216,9 @@ class TestProgressPanel(Container):
         table = self.query_one("#test-results", DataTable)
         table.clear()
 
-    def add_step_result(self, step_num: int, endpoint: str, command: str,
-                        passed: bool, response: str):
+    def add_step_result(
+        self, step_num: int, endpoint: str, command: str, passed: bool, response: str
+    ):
         """Add a step result."""
         table = self.query_one("#test-results", DataTable)
         status = "[green]PASS[/green]" if passed else "[red]FAIL[/red]"
@@ -232,13 +238,20 @@ class CommandButton(Button):
 
     class CommandRequested(Message):
         """Command button pressed."""
+
         def __init__(self, command: str, endpoint: str):
             super().__init__()
             self.command = command
             self.endpoint = endpoint
 
-    def __init__(self, label: str, command: str, endpoint: str = "CDC2",
-                 variant: str = "default", **kwargs):
+    def __init__(
+        self,
+        label: str,
+        command: str,
+        endpoint: str = "CDC2",
+        variant: str = "default",
+        **kwargs,
+    ):
         super().__init__(label, variant=variant, **kwargs)
         self._command = command
         self._endpoint = endpoint
@@ -253,13 +266,20 @@ class ConfigField(Horizontal):
 
     class ValueChanged(Message):
         """Value changed in field."""
+
         def __init__(self, field_name: str, value: str):
             super().__init__()
             self.field_name = field_name
             self.value = value
 
-    def __init__(self, label: str, field_name: str, default: str = "",
-                 placeholder: str = "", **kwargs):
+    def __init__(
+        self,
+        label: str,
+        field_name: str,
+        default: str = "",
+        placeholder: str = "",
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self._label = label
         self._field_name = field_name
@@ -272,7 +292,7 @@ class ConfigField(Horizontal):
             value=self._default,
             placeholder=self._placeholder,
             id=f"field-{self._field_name}",
-            classes="config-input"
+            classes="config-input",
         )
 
     def on_input_changed(self, event: Input.Changed):

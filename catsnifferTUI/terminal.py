@@ -3,6 +3,7 @@ CatSniffer TUI Testbench - Interactive Serial Terminal
 
 Modal screen for direct serial port interaction.
 """
+
 import asyncio
 import time
 from typing import Optional
@@ -112,7 +113,7 @@ class InteractiveSerialTerminal(ModalScreen):
         endpoint_handler: EndpointHandler,
         device_id: int,
         endpoint_type: str,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self._endpoint = endpoint_handler
@@ -133,7 +134,7 @@ class InteractiveSerialTerminal(ModalScreen):
             Container(
                 Label(
                     f"Serial Terminal - CatSniffer #{self.device_id} {self.endpoint_label}",
-                    id="terminal-title"
+                    id="terminal-title",
                 ),
                 Horizontal(
                     Select(
@@ -144,7 +145,7 @@ class InteractiveSerialTerminal(ModalScreen):
                         ],
                         value=TerminalMode.LINE,
                         id="mode-select",
-                        classes="setting-select"
+                        classes="setting-select",
                     ),
                     Select(
                         options=[
@@ -155,29 +156,26 @@ class InteractiveSerialTerminal(ModalScreen):
                         ],
                         value="\r\n",
                         id="ending-select",
-                        classes="setting-select"
+                        classes="setting-select",
                     ),
-                    Label(
-                        f"Port: {self._endpoint.port}",
-                        id="port-label"
-                    ),
-                    id="settings-row"
+                    Label(f"Port: {self._endpoint.port}", id="port-label"),
+                    id="settings-row",
                 ),
                 Log(id="terminal-log", highlight=True),
                 Horizontal(
                     Input(placeholder="Enter command or hex data...", id="input-field"),
                     Button("Send", variant="primary", id="send-btn"),
-                    id="input-row"
+                    id="input-row",
                 ),
                 Horizontal(
                     Label(f"TX: 0 bytes | RX: 0 bytes", id="status-label"),
                     Button("Clear", id="clear-btn"),
                     Button("Close", variant="error", id="close-btn"),
-                    id="status-row"
+                    id="status-row",
                 ),
-                id="terminal-container"
+                id="terminal-container",
             ),
-            Footer()
+            Footer(),
         )
 
     async def on_mount(self):
@@ -198,7 +196,7 @@ class InteractiveSerialTerminal(ModalScreen):
     async def on_unmount(self):
         """Clean up on unmount."""
         self._monitoring = False
-        if hasattr(self, '_monitor_task'):
+        if hasattr(self, "_monitor_task"):
             self._monitor_task.cancel()
 
     async def _monitor_loop(self):
@@ -271,7 +269,7 @@ class InteractiveSerialTerminal(ModalScreen):
 
         elif self._mode == TerminalMode.RAW:
             # Send as raw bytes
-            raw_bytes = data.encode('ascii', errors='replace')
+            raw_bytes = data.encode("ascii", errors="replace")
             asyncio.create_task(self._send_raw(raw_bytes))
             log.write_line(f"> {data}")
 
@@ -292,7 +290,7 @@ class InteractiveSerialTerminal(ModalScreen):
     async def _send_line(self, line: str):
         """Send line with ending."""
         if self._endpoint:
-            await self._endpoint.send_raw((line + self._line_ending).encode('ascii'))
+            await self._endpoint.send_raw((line + self._line_ending).encode("ascii"))
 
     def action_clear_log(self):
         """Clear the terminal log."""
