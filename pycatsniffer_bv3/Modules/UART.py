@@ -14,9 +14,8 @@ else:
     DEFAULT_COMPORT = "/dev/ttyACM0"
 
 DEFAULT_SERIAL_BAUDRATE = 921600
-CATSNIFFER_VID = 11914
-CATSNIFFER_PID = 192
-
+CATSNIFFER_VID = 0x2e8a
+CATSNIFFER_PID = [0x000a, 0x00c0]
 
 class UART(threading.Thread):
     def __init__(self, serial_port: str = DEFAULT_COMPORT):
@@ -113,6 +112,6 @@ class UART(threading.Thread):
     def find_catsniffer_serial_port(self):
         ports = serial.tools.list_ports.comports()
         for port in ports:
-            if port.vid == CATSNIFFER_VID and port.pid == CATSNIFFER_PID:
+            if port.vid == CATSNIFFER_VID and port.pid in CATSNIFFER_PID:
                 return port.device
         return DEFAULT_COMPORT
