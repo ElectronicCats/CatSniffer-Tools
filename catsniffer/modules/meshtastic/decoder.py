@@ -2,8 +2,6 @@
 """
 Meshtastic Offline Decoder
 Decrypt and decode a hex-encoded Meshtastic packet
-
-Kevin Leon @ Electronic Cats
 """
 
 import argparse
@@ -69,20 +67,48 @@ def decode_nodeinfo(data):
     return output
 
 
+def _try_decode_as_plain_text(data):
+    """Try to decode raw bytes as UTF-8 plain text (no protobuf wrapper)."""
+    try:
+        text = data.decode("utf-8")
+        # Must be printable enough to be considered valid text
+        if text.isprintable() or all(c.isprintable() or c in "\n\r\t" for c in text):
+            return text
+    except UnicodeDecodeError:
+        pass
+    return None
+
+
 def decode_protobuf(decrypted, source_id, dest_id):
-    """Decode protobuf message"""
+    """Decode protobuf message. Falls back to plain-text detection if protobuf parsing fails."""
     data = mesh_pb2.Data()
+    parsed_ok = False
     try:
         data.ParseFromString(decrypted)
+        # ParseFromString can succeed even on garbage — validate portnum is non-zero
+        if data.portnum != 0:
+            parsed_ok = True
     except Exception:
-        return "INVALID PROTOBUF"
+        pass
+
+    if not parsed_ok:
+        # Fallback 1: try the raw bytes as plain-text (unencrypted open-channel packets)
+        plain = _try_decode_as_plain_text(decrypted)
+        if plain:
+            label = (
+                f"{source_id} -> {dest_id}"
+                if dest_id == "ffffffff"
+                else f"{source_id} -> {dest_id} (private)"
+            )
+            return f"[TEXT - UNENCRYPTED] {label}: {plain}"
+        return f"INVALID PROTOBUF\n  Hint: try --key ham for open/unencrypted channels"
 
     if data.portnum == 1:  # TEXT
         text = data.payload.decode("utf-8", errors="replace")
         return (
             f"[TEXT] {source_id} -> {dest_id}: {text}"
             if dest_id == "ffffffff"
-            else "[TEXT] PRIVATE MESSAGE"
+            else f"[TEXT] {source_id} -> {dest_id} (private): {text}"
         )
     elif data.portnum == 3:  # POSITION
         pos = mesh_pb2.Position()
@@ -122,7 +148,11 @@ class MeshtasticDecoder:
 
     def decode(self, hex_data):
         """
-        Decode a hex-encoded Meshtastic packet
+        Decode a hex-encoded Meshtastic packet.
+
+        Tries decryption with the provided key first. If the result is not a valid
+        protobuf, also attempts to parse the raw (unencrypted) payload as a fallback,
+        which handles open/ham channels where no encryption is applied.
 
         Args:
             hex_data: Hex string of the packet (dest + sender + packet_id + flags + channel + reserved + payload)
@@ -131,11 +161,24 @@ class MeshtasticDecoder:
             tuple: (decrypted_hex, decoded_message)
         """
         packet = extract_fields(hex_data)
-        decrypted = decrypt_packet(packet, self.key)
         src = packet["sender"].hex()
         dst = packet["dest"].hex()
 
-        return decrypted.hex(), decode_protobuf(decrypted, src, dst)
+        # Attempt 1: decrypt with the configured key
+        decrypted = decrypt_packet(packet, self.key)
+        result = decode_protobuf(decrypted, src, dst)
+
+        # Attempt 2: if decryption didn't produce a valid message, try the raw payload
+        # (covers unencrypted / plain-text packets on open channels)
+        if result.startswith("INVALID PROTOBUF") or result.startswith(
+            "[TEXT - UNENCRYPTED]"
+        ):
+            raw_payload = packet["payload"]
+            raw_result = decode_protobuf(raw_payload, src, dst)
+            if not raw_result.startswith("INVALID PROTOBUF"):
+                return raw_payload.hex(), raw_result
+
+        return decrypted.hex(), result
 
 
 def main():
