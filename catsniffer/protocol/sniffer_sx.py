@@ -60,7 +60,7 @@ class SnifferSx:
     #  • RSSI is int16 (dBm), SNR is int8 (dB) — both signed integers
     #  • The regex is intentionally lenient about whitespace
     _RX_PATTERN = re.compile(
-        r"RX:\s*([0-9A-Fa-f.]+?)\s*\|\s*RSSI:\s*(-?\d+)\s*\|\s*SNR:\s*(-?\d+)",
+        r"(?:LORA\s+)?RX:\s*(.*?)\s*\|\s*RSSI:\s*(-?\d+)\s*\|\s*SNR:\s*(-?\d+)",
         re.ASCII,
     )
 
@@ -169,17 +169,22 @@ class SnifferSx:
             if not m:
                 raise ValueError(f"Line does not match RX pattern: {line!r}")
 
-            hex_str = m.group(1).replace(" ", "").replace(".", "")
+            # Clean the hex string of spaces and any trailing dots
+            hex_str_raw = m.group(1).replace(" ", "")
+            if "..." in hex_str_raw:
+                hex_str_raw = hex_str_raw.split("...")[0]
+
+            # Remove any single dots and NON-HEX characters
+            hex_clean = "".join(
+                c for c in hex_str_raw if c.lower() in "0123456789abcdef"
+            )
+            if len(hex_clean) % 2 != 0:
+                hex_clean = hex_clean[:-1]
+
             rssi_int = int(m.group(2))
             snr_int = int(m.group(3))
 
-            # If the firmware truncated the payload with "..." we only have
-            # the first 40 bytes — that is still useful metadata for Wireshark.
             try:
-                # Remove any trailing dots (truncation marker)
-                hex_clean = hex_str.rstrip(".")
-                if len(hex_clean) % 2 != 0:
-                    hex_clean = hex_clean[:-1]  # drop incomplete nibble
                 self.payload = bytes.fromhex(hex_clean)
             except ValueError:
                 self.payload = b""

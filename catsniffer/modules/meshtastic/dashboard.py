@@ -3,7 +3,7 @@
 Meshtastic Chat TUI Dashboard
 A beautiful, scrollable terminal app for Meshtastic chat
 
-Kevin Leon @ Electronic Cats
+Daniel Ruiz @ Electronic Cats
 """
 
 from __future__ import annotations
@@ -34,10 +34,12 @@ from textual.widgets import DataTable, Static, Input, Footer
 
 # Hardware / protobufs
 from modules.catsniffer import LoRaConnection
+from protocol.sniffer_sx import SnifferSx
 from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
 
 # -------------------------- Radio / decoding helpers -------------------------
 DEFAULT_KEYS = [
+    "1PG7OiApB1nwvP+rz05pAQ==",  # Default LongFast key
     "OEu8wB3AItGBvza4YSHh+5a3LlW/dCJ+nWr7SNZMsaE=",
     "6IzsaoVhx1ETWeWuu0dUWMLqItvYJLbRzwgTAKCfvtY=",
     "TiIdi8MJG+IRnIkS8iUZXRU+MHuGtuzEasOWXp4QndU=",
@@ -64,6 +66,16 @@ def msb2lsb(hexstr: str) -> str:
 
 
 def extract_frame(raw: bytes) -> bytes:
+    # ASCII text format fallback (RX: <HEX> or LORA RX: <HEX>)
+    as_str = raw.decode("ascii", errors="ignore").strip()
+    if "RX:" in as_str or "LORA RX:" in as_str:
+        try:
+            pkt = SnifferSx.Packet(as_str)
+            # Match the return format of extract_frame (raw bytes)
+            return pkt.payload
+        except Exception:
+            pass
+
     if not raw.startswith(b"@S") or not raw.endswith(b"@E\r\n"):
         raise ValueError("Invalid frame")
     length = int.from_bytes(raw[2:4], byteorder="big")
@@ -152,7 +164,9 @@ class Monitor(LoRaConnection):
     def _recv_worker(self) -> None:
         while self.running:
             try:
-                data = self.read()
+                # Use readline to ensure we get a full ASCII line for the text formats
+                # Binary frames (@S...@E\r\n) also end with \r\n, so this is generally safe
+                data = self.readline()
                 if data:
                     self.rx_queue.put(data)
             except Exception as e:
@@ -509,15 +523,16 @@ async def run_app(args) -> None:
     mon = Monitor(args.port, args.baudrate, rx_queue)
     mon.start()
 
-    # Configure radio
-    mon.write(f"set_bw {CHANNELS_PRESET[args.preset]['bw']}\r\n".encode())
-    mon.write(f"set_sf {CHANNELS_PRESET[args.preset]['sf']}\r\n".encode())
-    mon.write(f"set_cr {CHANNELS_PRESET[args.preset]['cr']}\r\n".encode())
-    mon.write(f"set_pl {CHANNELS_PRESET[args.preset]['pl']}\r\n".encode())
-    mon.write(f"set_sw {SYNC_WORLD}\r\n".encode())
+    # Configure radio (ensure correct shell commands are used)
+    # The CatSniffer Shell uses lora_ prefix for configuration
+    mon.write(f"lora_bw {CHANNELS_PRESET[args.preset]['bw']}\r\n".encode())
+    mon.write(f"lora_sf {CHANNELS_PRESET[args.preset]['sf']}\r\n".encode())
+    mon.write(f"lora_cr {CHANNELS_PRESET[args.preset]['cr']}\r\n".encode())
+    mon.write(f"lora_preamble {CHANNELS_PRESET[args.preset]['pl']}\r\n".encode())
+    mon.write(f"lora_syncword {SYNC_WORLD}\r\n".encode())
     freq_hz = int(args.frequency * 1_000_000)
-    mon.write(f"set_freq {freq_hz}\r\n".encode())
-    mon.write(b"set_rx\r\n")
+    mon.write(f"lora_freq {freq_hz}\r\n".encode())
+    mon.write(b"lora_apply\r\n")
 
     try:
         app = MeshtasticChatApp(

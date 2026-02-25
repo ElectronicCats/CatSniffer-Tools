@@ -240,6 +240,9 @@ class SerialConnection:
     def read(self, size=1024) -> bytes:
         return self.connection.read(size)
 
+    def readline(self) -> bytes:
+        return self.connection.readline()
+
     def read_until(self, frame: bytes) -> bytes:
         try:
             bytestream = self.connection.read_until(frame)

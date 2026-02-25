@@ -18,14 +18,16 @@ from cryptography.hazmat.backends import default_backend
 from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
 
 from modules.catsniffer import LoRaConnection
+from protocol.sniffer_sx import SnifferSx
 
 DEFAULT_KEYS = [
+    "1PG7OiApB1nwvP+rz05pAQ==",
     "OEu8wB3AItGBvza4YSHh+5a3LlW/dCJ+nWr7SNZMsaE=",
     "6IzsaoVhx1ETWeWuu0dUWMLqItvYJLbRzwgTAKCfvtY=",
     "TiIdi8MJG+IRnIkS8iUZXRU+MHuGtuzEasOWXp4QndU=",
 ]
 
-SYNC_WORLD = 0x2B
+SYNC_WORLD = 52
 
 CHANNELS_PRESET = {
     "defcon33": {"sf": 7, "bw": 9, "cr": 5, "pl": 16},
@@ -49,6 +51,16 @@ def msb2lsb(hexstr):
 
 def extract_frame(raw):
     """Extract frame from raw data"""
+    # ASCII text format fallback (RX: <HEX> or LORA RX: <HEX>)
+    as_str = raw.decode("ascii", errors="ignore").strip()
+    if "RX:" in as_str or "LORA RX:" in as_str:
+        try:
+            pkt = SnifferSx.Packet(as_str)
+            # Match the return format of extract_frame (raw bytes)
+            return pkt.payload
+        except Exception:
+            pass
+
     if not raw.startswith(b"@S") or not raw.endswith(b"@E\r\n"):
         raise ValueError("Invalid frame")
     length = int.from_bytes(raw[2:4], byteorder="big")
@@ -190,7 +202,7 @@ class MeshtasticLiveDecoder:
             shell.send_command(f"lora_sf {preset_config['sf']}")
             shell.send_command(f"lora_cr {preset_config['cr']}")
             shell.send_command(f"lora_preamble {preset_config['pl']}")
-            shell.send_command("lora_syncword 43")
+            shell.send_command("lora_syncword 52")
             shell.send_command(f"lora_freq {frequency}")
             shell.send_command("lora_apply")
             shell.disconnect()
@@ -217,7 +229,9 @@ class MeshtasticLiveDecoder:
         """Worker thread for receiving data"""
         while self.running:
             try:
-                data = self.lora.read()
+                # Use readline to ensure we get a full ASCII line for the text formats
+                # Binary frames (@S...@E\r\n) also end with \r\n, so this is generally safe
+                data = self.lora.readline()
                 if data:
                     self.rx_queue.put(data)
             except Exception as e:

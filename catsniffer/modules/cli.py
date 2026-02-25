@@ -10,6 +10,8 @@
 import logging
 import os
 import tempfile
+import sys
+import queue
 
 # Internal
 from .catnip import Catnip
@@ -1188,9 +1190,295 @@ def cativity(device, channel, topology, protocol):
     runner.run(channel=channel, topology=topology, protocol=protocol)
 
 
+# ===================== Meshtastic Commands =====================
+
+
+@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+def meshtastic():
+    """Meshtastic protocol tools"""
+    pass
+
+
+@meshtastic.command("decode")
+@click.option(
+    "-i",
+    "--input",
+    required=True,
+    help="Hex-encoded payload (raw packet data starting with dest, sender, etc.)",
+)
+@click.option(
+    "-k",
+    "--key",
+    default="1PG7OiApB1nwvP+rz05pAQ==",
+    help="Base64-encoded AES key. Use 'ham' or 'nokey' for open channels",
+)
+def meshtastic_decode(input, key):
+    """Decrypt and decode a hex-encoded Meshtastic packet"""
+    from .meshtastic import MeshtasticDecoder
+
+    try:
+        decoder = MeshtasticDecoder(key=key)
+        decrypted_hex, result = decoder.decode(input)
+        print(f"Decrypted raw (hex): {decrypted_hex}")
+        print(result)
+    except Exception as e:
+        print_error(f"Error: {e}")
+        sys.exit(1)
+
+
+@meshtastic.command("live")
+@click.option(
+    "-d",
+    "--device",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
+@click.option(
+    "-baud",
+    "--baudrate",
+    type=int,
+    default=115200,
+    help="Baudrate (default: 115200)",
+)
+@click.option(
+    "-f",
+    "--frequency",
+    type=float,
+    default=902.0,
+    help="Frequency in MHz (default: 902.0)",
+)
+@click.option(
+    "-ps",
+    "--preset",
+    type=click.Choice(
+        [
+            "defcon33",
+            "ShortTurbo",
+            "ShortSlow",
+            "ShortFast",
+            "MediumSlow",
+            "MediumFast",
+            "LongSlow",
+            "LongFast",
+            "LongMod",
+            "VLongSlow",
+        ]
+    ),
+    default="LongFast",
+    help="Channel preset (default: LongFast)",
+)
+def meshtastic_live(device, baudrate, frequency, preset):
+    """Live Meshtastic decoder - Capture and decode packets in real-time"""
+    from .meshtastic import MeshtasticLiveDecoder
+
+    # Get device or exit with error
+    dev = get_device_or_exit(device)
+
+    # Use the LoRa port from the device
+    port = dev.lora_port
+    if not port:
+        print_error("LoRa port not found for device!")
+        return
+
+    decoder = MeshtasticLiveDecoder(port, baudrate)
+
+    freq_hz = int(frequency * 1_000_000)
+    print_info(f"Using device: {dev}")
+    print_info(f"Configuring radio: {frequency} MHz ({freq_hz} Hz), preset: {preset}")
+    decoder.configure_radio(freq_hz, preset, shell_port=dev.shell_port)
+
+    print_info("Starting capture... Press Ctrl+C to stop")
+    decoder.start()
+
+    try:
+        decoder.process_packets()
+    except KeyboardInterrupt:
+        print_info("Shutting down...")
+    finally:
+        decoder.stop()
+
+
+@meshtastic.command("dashboard")
+@click.option(
+    "-d",
+    "--device",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
+@click.option(
+    "-baud",
+    "--baudrate",
+    type=int,
+    default=115200,
+    help="Baudrate (default: 115200)",
+)
+@click.option(
+    "-f",
+    "--frequency",
+    type=float,
+    default=902.0,
+    help="Frequency in MHz (default: 902.0)",
+)
+@click.option(
+    "-ps",
+    "--preset",
+    type=click.Choice(
+        [
+            "defcon33",
+            "ShortTurbo",
+            "ShortSlow",
+            "ShortFast",
+            "MediumSlow",
+            "MediumFast",
+            "LongSlow",
+            "LongFast",
+            "LongMod",
+            "VLongSlow",
+        ]
+    ),
+    default="LongFast",
+    help="Channel preset (default: LongFast)",
+)
+def meshtastic_dashboard(device, baudrate, frequency, preset):
+    """Meshtastic Chat TUI - Beautiful terminal dashboard for Meshtastic"""
+    import asyncio
+    from .meshtastic import MeshtasticChatApp, Monitor, CHANNELS_PRESET
+
+    # Get device or exit with error
+    dev = get_device_or_exit(device)
+
+    # Use the LoRa port from the device
+    port = dev.lora_port
+    if not port:
+        print_error("LoRa port not found for device!")
+        return
+
+    print_info(f"Using device: {dev}")
+
+    # Create monitor
+    rx_queue = queue.Queue()
+    mon = Monitor(port, baudrate, rx_queue)
+    mon.start()
+
+    # Configure radio via shell port
+    from .catsniffer import ShellConnection
+
+    if not dev.shell_port:
+        print_error("Shell port not found for device!")
+        return
+
+    shell = ShellConnection(dev.shell_port)
+    shell.connect()
+
+    preset_config = CHANNELS_PRESET.get(preset, CHANNELS_PRESET["LongFast"])
+
+    # Map old BW indices (7=125, 8=250, 9=500) to kHz required by shell
+    bw_map = {7: 125, 8: 250, 9: 500}
+    bw_khz = bw_map.get(preset_config["bw"], 250)
+
+    shell.send_command(f"lora_bw {bw_khz}")
+    shell.send_command(f"lora_sf {preset_config['sf']}")
+    shell.send_command(f"lora_cr {preset_config['cr']}")
+    shell.send_command(f"lora_preamble {preset_config['pl']}")
+    shell.send_command("lora_syncword 52")
+    freq_hz = int(frequency * 1_000_000)
+    shell.send_command(f"lora_freq {freq_hz}")
+    shell.send_command("lora_apply")
+    shell.disconnect()
+
+    try:
+        app = MeshtasticChatApp(monitor=mon, preset=preset, freq=str(frequency))
+        asyncio.run(app.run_async())
+    finally:
+        mon.stop()
+
+
+@meshtastic.command("config")
+@click.argument("file")
+def meshtastic_config(file):
+    """Extract PSKs and config info from a Meshtastic JSONC config file"""
+    from .meshtastic import MeshtasticConfigExtractor
+
+    extractor = MeshtasticConfigExtractor(file)
+    if extractor.load():
+        extractor.print_all()
+    else:
+        sys.exit(1)
+
+
+# ===================== LoRa Commands =====================
+
+
+@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+def lora():
+    """LoRa SX1262 tools"""
+    pass
+
+
+@lora.command("spectrum")
+@click.option(
+    "-d",
+    "--device",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
+@click.option(
+    "-b",
+    "--baudrate",
+    type=int,
+    default=115200,
+    help="Baudrate (default: 115200)",
+)
+@click.option(
+    "--start-freq",
+    type=float,
+    default=150,
+    help="Starting frequency in MHz (default: 150)",
+)
+@click.option(
+    "--end-freq",
+    type=float,
+    default=960,
+    help="End frequency in MHz (default: 960)",
+)
+@click.option(
+    "--offset",
+    type=int,
+    default=-15,
+    help="RSSI offset in dBm (default: -15)",
+)
+def lora_spectrum(device, baudrate, start_freq, end_freq, offset):
+    """Live Spectrum Scanner for SX1262 - Real-time frequency spectrum analyzer"""
+    from .sx1262.spectrum import SpectrumScan
+
+    # Get device or exit with error
+    dev = get_device_or_exit(device)
+
+    # Use the LoRa port from the device
+    port = dev.lora_port
+    if not port:
+        print_error("LoRa port not found for device!")
+        return
+
+    print_info(f"Using device: {dev}")
+    print_info(f"Starting spectrum scan: {start_freq}-{end_freq} MHz")
+
+    scanner = SpectrumScan(port=port, baudrate=baudrate)
+
+    try:
+        scanner.run(start_freq=start_freq, end_freq=end_freq, rssi_offset=offset)
+    except KeyboardInterrupt:
+        scanner.stop_task()
+
+
 def main_cli() -> None:
     print_header()
     cli.add_command(sniff)
     cli.add_command(cativity)
+    cli.add_command(meshtastic)
+    cli.add_command(lora)
     cli.add_command(verify)
     cli()
