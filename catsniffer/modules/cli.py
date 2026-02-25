@@ -741,6 +741,8 @@ def flash(firmware, device, list) -> None:
         try:
             # Get the list of local firmwares
             firmwares = catnip.get_local_firmware()
+            # Filter to only show .hex files
+            firmwares = [fw for fw in firmwares if fw.lower().endswith(".hex")]
 
             if not firmwares:
                 print_warning("No firmware images found locally.")
@@ -1004,10 +1006,14 @@ def flash(firmware, device, list) -> None:
         )
         exit(1)
 
-    # First, check if it's a known alias
-    official_id = get_official_id(firmware)
-    if official_id and official_id != firmware:
-        print_info(f"Alias '{firmware}' resolved to: {official_id}")
+    # If the input is a valid file path, we skip alias resolution to avoid confusion
+    if os.path.exists(firmware):
+        print_info(f"Flashing from custom path: {firmware}")
+    else:
+        # Check if it's a known alias
+        official_id = get_official_id(firmware)
+        if official_id and official_id != firmware:
+            print_info(f"Alias '{firmware}' resolved to: {official_id}")
 
     # If no device is specified, get all connected devices
     if device is None:
