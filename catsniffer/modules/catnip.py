@@ -490,15 +490,18 @@ class Catnip:
             firmware_str: Firmware name, path, or alias
             device: CatSnifferDevice (optional, will auto-detect if not provided)
         """
+        # Check if it's a direct file path (moved to top to avoid dependency on releases)
+        if os.path.exists(firmware_str):
+            # Get device if not provided
+            if device is None:
+                device = catsniffer_get_device()
+            return self.flash_firmware(firmware_str, device)
+
         firmwares = self.get_local_firmware()
 
         # Get device if not provided
         if device is None:
             device = catsniffer_get_device()
-
-        # Check if it's a direct file path
-        if os.path.exists(firmware_str):
-            return self.flash_firmware(firmware_str, device)
 
         from .fw_aliases import get_official_id, get_filename_pattern
 
