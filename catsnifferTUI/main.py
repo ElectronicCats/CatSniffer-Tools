@@ -189,8 +189,19 @@ class CatSnifferTestbenchApp(App):
         margin-bottom: 0;
     }
 
+    .lora-header-row {
+        height: auto;
+        margin-bottom: 0;
+    }
+
+    .lora-target-row {
+        height: auto;
+        margin-bottom: 0;
+    }
+
     .term-title {
         width: 1fr;
+        text-wrap: nowrap;
     }
 
     .term-clear-btn {
@@ -210,6 +221,10 @@ class CatSnifferTestbenchApp(App):
 
     .target-checkbox {
         margin-right: 1;
+    }
+
+    .fleet-lora-title {
+        width: 1fr;
     }
 
     .flex-spacer {
@@ -377,39 +392,46 @@ class CatSnifferTestbenchApp(App):
                         classes="device-summary",
                     )
                     yield Container(
-                        Horizontal(
-                            Static(
-                                "All Devices LoRa Terminal (CDC1)", classes="term-title"
+                        Vertical(
+                            Horizontal(
+                                Static(
+                                    "All Devices LoRa Terminal (CDC1)",
+                                    classes="term-title fleet-lora-title",
+                                ),
+                                Button(
+                                    "ASCII", id="fleet-lora-mode", classes="term-mode-btn"
+                                ),
+                                Button(
+                                    "Clear", id="fleet-lora-clear", classes="term-clear-btn"
+                                ),
+                                classes="lora-header-row",
                             ),
-                            Checkbox(
-                                "D1",
-                                value=True,
-                                id="fleet-lora-dev-1",
-                                classes="target-checkbox",
-                            ),
-                            Checkbox(
-                                "D2",
-                                value=True,
-                                id="fleet-lora-dev-2",
-                                classes="target-checkbox",
-                            ),
-                            Checkbox(
-                                "D3",
-                                value=True,
-                                id="fleet-lora-dev-3",
-                                classes="target-checkbox",
-                            ),
-                            Checkbox(
-                                "D4",
-                                value=True,
-                                id="fleet-lora-dev-4",
-                                classes="target-checkbox",
-                            ),
-                            Button(
-                                "ASCII", id="fleet-lora-mode", classes="term-mode-btn"
-                            ),
-                            Button(
-                                "Clear", id="fleet-lora-clear", classes="term-clear-btn"
+                            Horizontal(
+                                Checkbox(
+                                    "D1",
+                                    value=True,
+                                    id="fleet-lora-dev-1",
+                                    classes="target-checkbox",
+                                ),
+                                Checkbox(
+                                    "D2",
+                                    value=True,
+                                    id="fleet-lora-dev-2",
+                                    classes="target-checkbox",
+                                ),
+                                Checkbox(
+                                    "D3",
+                                    value=True,
+                                    id="fleet-lora-dev-3",
+                                    classes="target-checkbox",
+                                ),
+                                Checkbox(
+                                    "D4",
+                                    value=True,
+                                    id="fleet-lora-dev-4",
+                                    classes="target-checkbox",
+                                ),
+                                classes="lora-target-row",
                             ),
                             classes="term-header-row",
                         ),
