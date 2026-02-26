@@ -399,10 +399,14 @@ class CatSnifferTestbenchApp(App):
                                     classes="term-title fleet-lora-title",
                                 ),
                                 Button(
-                                    "ASCII", id="fleet-lora-mode", classes="term-mode-btn"
+                                    "ASCII",
+                                    id="fleet-lora-mode",
+                                    classes="term-mode-btn",
                                 ),
                                 Button(
-                                    "Clear", id="fleet-lora-clear", classes="term-clear-btn"
+                                    "Clear",
+                                    id="fleet-lora-clear",
+                                    classes="term-clear-btn",
                                 ),
                                 classes="lora-header-row",
                             ),
@@ -739,16 +743,32 @@ class CatSnifferTestbenchApp(App):
         self._switch_tab("io-all")
 
     def action_tab_device_1(self) -> None:
-        self._switch_tab("device-1")
+        try:
+            self._switch_tab("device-1")
+        except Exception as error:
+            self._log_error("Tab switch failed (device-1)", error)
+            self._set_status(f"Tab switch failed: {error}")
 
     def action_tab_device_2(self) -> None:
-        self._switch_tab("device-2")
+        try:
+            self._switch_tab("device-2")
+        except Exception as error:
+            self._log_error("Tab switch failed (device-2)", error)
+            self._set_status(f"Tab switch failed: {error}")
 
     def action_tab_device_3(self) -> None:
-        self._switch_tab("device-3")
+        try:
+            self._switch_tab("device-3")
+        except Exception as error:
+            self._log_error("Tab switch failed (device-3)", error)
+            self._set_status(f"Tab switch failed: {error}")
 
     def action_tab_device_4(self) -> None:
-        self._switch_tab("device-4")
+        try:
+            self._switch_tab("device-4")
+        except Exception as error:
+            self._log_error("Tab switch failed (device-4)", error)
+            self._set_status(f"Tab switch failed: {error}")
 
     def action_focus_term_1(self) -> None:
         self._focus_terminal_input("CDC0")
@@ -760,23 +780,51 @@ class CatSnifferTestbenchApp(App):
         self._focus_terminal_input("CDC2")
 
     def _switch_tab(self, tab_id: str) -> None:
-        self.selected_tab = tab_id
+        try:
+            self.selected_tab = tab_id
 
-        all_pane = self.query_one("#all-pane", Vertical)
-        all_pane.display = tab_id == "all"
-        io_pane = self.query_one("#all-io-pane", Horizontal)
-        io_pane.display = tab_id == "io-all"
-        shell_pane = self.query_one("#all-shell-pane", Vertical)
-        shell_pane.display = tab_id == "io-all"
-        lora_pane = self.query_one("#all-lora-pane", Vertical)
-        lora_pane.display = tab_id == "io-all"
+            try:
+                all_pane = self.query_one("#all-pane", Vertical)
+                all_pane.display = tab_id == "all"
+            except Exception:
+                pass
+            try:
+                io_pane = self.query_one("#all-io-pane", Horizontal)
+                io_pane.display = tab_id == "io-all"
+            except Exception:
+                pass
+            try:
+                shell_pane = self.query_one("#all-shell-pane", Vertical)
+                shell_pane.display = tab_id == "io-all"
+            except Exception:
+                pass
+            try:
+                lora_pane = self.query_one("#all-lora-pane", Vertical)
+                lora_pane.display = tab_id == "io-all"
+            except Exception:
+                pass
 
-        for device_id in range(1, 5):
-            pane = self.query_one(f"#device-{device_id}-pane", ScrollableContainer)
-            pane.display = tab_id == f"device-{device_id}"
+            for device_id in range(1, 5):
+                try:
+                    pane = self.query_one(
+                        f"#device-{device_id}-pane", ScrollableContainer
+                    )
+                    pane.display = tab_id == f"device-{device_id}"
+                except Exception:
+                    pass
 
-        self._update_tab_styles(tab_id)
-        self._set_status(f"Selected: {tab_id} | Devices: {len(self.devices)}")
+            if tab_id.startswith("device-"):
+                try:
+                    active_device = int(tab_id.split("-")[1])
+                    self._update_device_pane(active_device)
+                except Exception:
+                    pass
+
+            self._update_tab_styles(tab_id)
+            self._set_status(f"Selected: {tab_id} | Devices: {len(self.devices)}")
+        except Exception as error:
+            self._log_error(f"Switch tab failed ({tab_id})", error)
+            self._set_status(f"Switch tab error: {error}")
 
     def _update_tab_styles(self, tab_id: str) -> None:
         tab_map = {
@@ -1026,6 +1074,7 @@ class CatSnifferTestbenchApp(App):
                     log_text,
                     id=f"term-log-{device_id}-{endpoint}",
                     classes="terminal-log",
+                    markup=False,
                 ),
                 id=f"term-log-scroll-{device_id}-{endpoint}",
                 classes="terminal-log-scroll",
@@ -1148,7 +1197,11 @@ class CatSnifferTestbenchApp(App):
 
     def _append_terminal_line(self, device_id: int, endpoint: str, line: str) -> None:
         buf = self._terminal_buffers[device_id][endpoint]
-        buf.append(line)
+        # Keep terminal logs robust against binary/control bytes coming from CDC streams.
+        sanitized = "".join(
+            ch if (ch in "\n\r\t" or 32 <= ord(ch) <= 126) else "." for ch in str(line)
+        )
+        buf.append(sanitized)
         if len(buf) > 200:
             del buf[: len(buf) - 200]
         try:
