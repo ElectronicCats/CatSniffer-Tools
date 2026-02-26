@@ -1251,8 +1251,8 @@ def meshtastic_decode(input, key):
     "-f",
     "--frequency",
     type=float,
-    default=902.0,
-    help="Frequency in MHz (default: 902.0)",
+    default=906.875,
+    help="Frequency in MHz (default: 906.875)",
 )
 @click.option(
     "-ps",
@@ -1287,12 +1287,22 @@ def meshtastic_live(device, baudrate, frequency, preset):
         print_error("LoRa port not found for device!")
         return
 
+    # Use the Shell port for configuration
+    shell_port = dev.shell_port
+    if not shell_port:
+        print_error("Shell port not found for device! Required for configuration.")
+        return
+
     decoder = MeshtasticLiveDecoder(port, baudrate)
 
     freq_hz = int(frequency * 1_000_000)
     print_info(f"Using device: {dev}")
     print_info(f"Configuring radio: {frequency} MHz ({freq_hz} Hz), preset: {preset}")
-    decoder.configure_radio(freq_hz, preset, shell_port=dev.shell_port)
+
+    # Configure radio using shell port with correct commands
+    if not decoder.configure_radio(freq_hz, preset, shell_port):
+        print_error("Failed to configure radio")
+        return
 
     print_info("Starting capture... Press Ctrl+C to stop")
     decoder.start()
@@ -1324,8 +1334,8 @@ def meshtastic_live(device, baudrate, frequency, preset):
     "-f",
     "--frequency",
     type=float,
-    default=902.0,
-    help="Frequency in MHz (default: 902.0)",
+    default=906.875,
+    help="Frequency in MHz (default: 906.875)",
 )
 @click.option(
     "-ps",
@@ -1350,7 +1360,7 @@ def meshtastic_live(device, baudrate, frequency, preset):
 def meshtastic_dashboard(device, baudrate, frequency, preset):
     """Meshtastic Chat TUI - Beautiful terminal dashboard for Meshtastic"""
     import asyncio
-    from .meshtastic import MeshtasticChatApp, Monitor, CHANNELS_PRESET
+    from .meshtastic import MeshtasticChatApp, Monitor, CHANNELS_PRESET, SYNC_WORLD
 
     # Get device or exit with error
     dev = get_device_or_exit(device)
@@ -1361,6 +1371,12 @@ def meshtastic_dashboard(device, baudrate, frequency, preset):
         print_error("LoRa port not found for device!")
         return
 
+    # Use the Shell port for configuration
+    shell_port = dev.shell_port
+    if not shell_port:
+        print_error("Shell port not found for device! Required for configuration.")
+        return
+
     print_info(f"Using device: {dev}")
 
     # Create monitor
@@ -1368,31 +1384,46 @@ def meshtastic_dashboard(device, baudrate, frequency, preset):
     mon = Monitor(port, baudrate, rx_queue)
     mon.start()
 
-    # Configure radio via shell port
+    # Configure radio via shell port with correct commands
     from .catsniffer import ShellConnection
 
-    if not dev.shell_port:
-        print_error("Shell port not found for device!")
-        return
-
-    shell = ShellConnection(dev.shell_port)
+    print_info("Configuring radio...")
+    shell = ShellConnection(shell_port)
     shell.connect()
 
     preset_config = CHANNELS_PRESET.get(preset, CHANNELS_PRESET["LongFast"])
 
-    # Map old BW indices (7=125, 8=250, 9=500) to kHz required by shell
+    # Convert bandwidth index to actual kHz value
     bw_map = {7: 125, 8: 250, 9: 500}
     bw_khz = bw_map.get(preset_config["bw"], 250)
 
-    shell.send_command(f"lora_bw {bw_khz}")
-    shell.send_command(f"lora_sf {preset_config['sf']}")
-    shell.send_command(f"lora_cr {preset_config['cr']}")
-    shell.send_command(f"lora_preamble {preset_config['pl']}")
-    shell.send_command("lora_syncword 52")
     freq_hz = int(frequency * 1_000_000)
-    shell.send_command(f"lora_freq {freq_hz}")
-    shell.send_command("lora_apply")
+
+    # Send configuration commands using the correct syntax
+    commands = [
+        f"lora_freq {freq_hz}",
+        f"lora_sf {preset_config['sf']}",
+        f"lora_bw {bw_khz}",
+        f"lora_cr {preset_config['cr']}",
+        f"lora_preamble {preset_config['pl']}",
+        "lora_syncword public",
+        "lora_apply",
+    ]
+
+    for cmd in commands:
+        print(f"  > {cmd}")
+        shell.send_command(cmd)
+        time.sleep(0.1)
+
+    # Verify configuration
+    print_info("Current LoRa configuration:")
+    shell.send_command("lora_config")
+    time.sleep(0.5)
+
+    # Switch to stream mode
+    shell.send_command("lora_mode stream")
     shell.disconnect()
+    print_success("Radio configured successfully")
 
     try:
         app = MeshtasticChatApp(monitor=mon, preset=preset, freq=str(frequency))

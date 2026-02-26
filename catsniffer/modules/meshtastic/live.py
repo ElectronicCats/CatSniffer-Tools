@@ -2,13 +2,12 @@
 """
 Meshtastic Live Decoder
 Live decoder for Meshtastic packets from CatSniffer LoRa port
-
-Kevin Leon @ Electronic Cats
 """
 
 import argparse
 import base64
 import queue
+import struct
 import sys
 import threading
 import time
@@ -21,13 +20,13 @@ from modules.catsniffer import LoRaConnection
 from protocol.sniffer_sx import SnifferSx
 
 DEFAULT_KEYS = [
-    "1PG7OiApB1nwvP+rz05pAQ==",
+    "1PG7OiApB1nwvP+rz05pAQ==",  # Default LongFast key
     "OEu8wB3AItGBvza4YSHh+5a3LlW/dCJ+nWr7SNZMsaE=",
     "6IzsaoVhx1ETWeWuu0dUWMLqItvYJLbRzwgTAKCfvtY=",
     "TiIdi8MJG+IRnIkS8iUZXRU+MHuGtuzEasOWXp4QndU=",
 ]
 
-SYNC_WORLD = 52
+SYNC_WORLD = 0x2B
 
 CHANNELS_PRESET = {
     "defcon33": {"sf": 7, "bw": 9, "cr": 5, "pl": 16},
@@ -38,7 +37,6 @@ CHANNELS_PRESET = {
     "MediumFast": {"sf": 9, "bw": 8, "cr": 5, "pl": 8},
     "LongSlow": {"sf": 12, "bw": 7, "cr": 5, "pl": 8},
     "LongFast": {"sf": 11, "bw": 8, "cr": 5, "pl": 8},
-    "LongFast125": {"sf": 11, "bw": 7, "cr": 5, "pl": 8},
     "LongMod": {"sf": 11, "bw": 7, "cr": 8, "pl": 8},
     "VLongSlow": {"sf": 11, "bw": 7, "cr": 8, "pl": 8},
 }
@@ -69,17 +67,22 @@ def extract_frame(raw):
 
 def extract_fields(data):
     """Extract fields from frame data"""
-    return {
+    fields = {
         "dest": data[0:4],
         "sender": data[4:8],
         "packet_id": data[8:12],
         "flags": data[12:13],
+        "channel": data[13:14],
+        "reserved": data[14:16],
         "payload": data[16:],
     }
+    # print(f"[DEBUG] Extracted fields: { {k: v.hex() for k, v in fields.items()} }")
+    return fields
 
 
 def decrypt(payload, key, sender, packet_id):
     """Decrypt payload with given key"""
+    # Meshtastic interleaved nonce: ID(4) + 0000 + SENDER(4) + 0000
     nonce = packet_id + b"\x00\x00\x00\x00" + sender + b"\x00\x00\x00\x00"
     cipher = Cipher(algorithms.AES(key), modes.CTR(nonce), backend=default_backend())
     return cipher.decryptor().update(payload)
@@ -179,41 +182,64 @@ class MeshtasticLiveDecoder:
         self.running = False
         self.lora = None
         self.thread = None
+        self.shell = None
 
     def configure_radio(self, frequency, preset="LongFast", shell_port=None):
-        """Configure radio parameters"""
-        if self.lora is None:
-            self.lora = LoRaConnection(self.port)
-            self.lora.connect()
+        """Configure radio parameters using the shell port with correct commands"""
+        from ..catsniffer import ShellConnection
+
+        if shell_port is None:
+            print("[ERROR] Shell port required for configuration")
+            return False
 
         preset_config = CHANNELS_PRESET.get(preset, CHANNELS_PRESET["LongFast"])
 
-        if shell_port:
-            from ..catsniffer import ShellConnection
+        # Convert bandwidth index to actual kHz value
+        bw_map = {7: 125, 8: 250, 9: 500}
+        bw_khz = bw_map.get(preset_config["bw"], 250)
 
-            shell = ShellConnection(shell_port)
-            shell.connect()
+        print(f"[*] Configuring radio via shell port {shell_port}")
 
-            # Map old BW indices (7=125, 8=250, 9=500) to kHz required by shell
-            bw_map = {7: 125, 8: 250, 9: 500}
-            bw_khz = bw_map.get(preset_config["bw"], 250)
+        try:
+            self.shell = ShellConnection(shell_port)
+            self.shell.connect()
 
-            shell.send_command(f"lora_bw {bw_khz}")
-            shell.send_command(f"lora_sf {preset_config['sf']}")
-            shell.send_command(f"lora_cr {preset_config['cr']}")
-            shell.send_command(f"lora_preamble {preset_config['pl']}")
-            shell.send_command("lora_syncword 52")
-            shell.send_command(f"lora_freq {frequency}")
-            shell.send_command("lora_apply")
-            shell.disconnect()
-        else:
-            self.lora.write(f"set_bw {preset_config['bw']}\r\n".encode())
-            self.lora.write(f"set_sf {preset_config['sf']}\r\n".encode())
-            self.lora.write(f"set_cr {preset_config['cr']}\r\n".encode())
-            self.lora.write(f"set_pl {preset_config['pl']}\r\n".encode())
-            self.lora.write(f"set_sw {SYNC_WORLD}\r\n".encode())
-            self.lora.write(f"set_freq {frequency}\r\n".encode())
-            self.lora.write(b"set_rx\r\n")
+            # Send configuration commands using the correct syntax
+            commands = [
+                f"lora_freq {frequency}",  # Frequency in Hz
+                f"lora_sf {preset_config['sf']}",  # Spreading factor
+                f"lora_bw {bw_khz}",  # Bandwidth in kHz
+                f"lora_cr {preset_config['cr']}",  # Coding rate
+                f"lora_preamble {preset_config['pl']}",  # Preamble length
+                f"lora_syncword public",  # Syncword (public for Meshtastic)
+                "lora_apply",  # Apply configuration
+            ]
+
+            for cmd in commands:
+                print(f"  > {cmd}")
+                self.shell.send_command(cmd)
+                time.sleep(0.1)  # Small delay between commands
+
+            # Verify configuration
+            print("[*] Current LoRa configuration:")
+            self.shell.send_command("lora_config")
+            time.sleep(0.5)
+
+            # Switch to stream mode
+            self.shell.send_command("lora_mode stream")
+
+            self.shell.disconnect()
+            print("[✓] Radio configured successfully")
+            return True
+
+        except Exception as e:
+            print(f"[ERROR] Failed to configure radio: {e}")
+            if self.shell:
+                try:
+                    self.shell.disconnect()
+                except:
+                    pass
+            return False
 
     def start(self):
         """Start receiving packets"""
@@ -227,10 +253,20 @@ class MeshtasticLiveDecoder:
 
     def _recv_worker(self):
         """Worker thread for receiving data"""
+        last_ka = 0.0
         while self.running:
             try:
+                # Keepalive: send a null byte every 2 seconds to keep the radio semaphore active
+                now = time.time()
+                if now - last_ka > 2.0:
+                    try:
+                        self.lora.connection.write(b"\x00")
+                        self.lora.connection.flush()
+                        last_ka = now
+                    except Exception:
+                        pass
+
                 # Use readline to ensure we get a full ASCII line for the text formats
-                # Binary frames (@S...@E\r\n) also end with \r\n, so this is generally safe
                 data = self.lora.readline()
                 if data:
                     self.rx_queue.put(data)
@@ -271,6 +307,10 @@ class MeshtasticLiveDecoder:
                                     fields["sender"].hex(),
                                     fields["dest"].hex(),
                                 )
+                                # Add channel info to decoded output if possible
+                                if decoded and "channel" in fields:
+                                    ch_num = fields["channel"][0]
+                                    decoded = decoded.replace("]", f" CH:{ch_num}]", 1)
                                 if decoded:
                                     print_packet_info(fields, decrypted)
                                     print(f"[INFO] Decryption successful")
@@ -313,8 +353,8 @@ Examples:
         "-f",
         "--frequency",
         type=float,
-        default=902.0,
-        help="Frequency in MHz (default: 902.0)",
+        default=906.875,
+        help="Frequency in MHz (default: 906.875)",
     )
     parser.add_argument(
         "-ps",
@@ -322,6 +362,11 @@ Examples:
         choices=list(CHANNELS_PRESET.keys()),
         default="LongFast",
         help="Channel preset (default: LongFast)",
+    )
+    parser.add_argument(
+        "-s",
+        "--shell-port",
+        help="Shell port for configuration (if different from LoRa port)",
     )
 
     args = parser.parse_args()
@@ -332,7 +377,15 @@ Examples:
     print(
         f"[*] Configuring radio: {args.frequency} MHz ({freq_hz} Hz), preset: {args.preset}"
     )
-    decoder.configure_radio(freq_hz, args.preset)
+
+    # You'll need to pass the shell port here - this would come from the CLI in cli.py
+    # For now, we'll assume it's provided
+    if args.shell_port:
+        decoder.configure_radio(freq_hz, args.preset, args.shell_port)
+    else:
+        print(
+            "[WARNING] No shell port provided. Radio may not be configured correctly."
+        )
 
     print("[*] Starting capture... Press Ctrl+C to stop")
     decoder.start()

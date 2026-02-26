@@ -34,6 +34,7 @@ def extract_fields(data_hex):
 
 def decrypt_packet(packet, key):
     """Decrypt Meshtastic packet payload"""
+    # Interleaved nonce: PacketID (4) + 0000 + SenderID (4) + 0000
     nonce = (
         packet["packet_id"]
         + b"\x00\x00\x00\x00"
