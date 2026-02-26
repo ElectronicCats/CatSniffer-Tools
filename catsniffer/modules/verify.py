@@ -201,6 +201,7 @@ def test_basic_commands(device: VerificationDevice) -> bool:
         ("status", "status", "Mode:", "Status command"),
         ("lora_config", "lora_config", "LoRa Configuration:", "LoRa config command"),
         ("lora_mode", "lora_mode stream", "STREAM", "LoRa mode switch"),
+        ("identify", "identify", "identify", "Identify command"),
     ]
 
     results = []
