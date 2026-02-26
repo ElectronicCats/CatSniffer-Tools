@@ -1091,6 +1091,51 @@ def devices() -> None:
 
 @cli.command()
 @click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
+def identify(device) -> None:
+    """Send identification command to CatSniffer device"""
+    import serial
+
+    dev = get_device_or_exit(device)
+
+    if not dev.shell_port:
+        print_error("Shell port not available for this device!")
+        exit(1)
+
+    print_info(f"Sending 'Identify' command to {dev} on port {dev.shell_port}...")
+
+    try:
+        with serial.Serial(dev.shell_port, 115200, timeout=1.0) as ser:
+            ser.reset_input_buffer()
+            ser.reset_output_buffer()
+
+            cmd_bytes = b"identify\r\n"
+            ser.write(cmd_bytes)
+            ser.flush()
+
+            time.sleep(0.3)
+
+            # Read any response (optional, not required)
+            if ser.in_waiting:
+                response = ser.read(ser.in_waiting)
+                response_str = response.decode("ascii", errors="ignore").strip()
+                if response_str:
+                    print_info(f"Response: {response_str}")
+
+        print_success("Identification command sent successfully!")
+
+    except Exception as e:
+        print_error(f"Failed to send identification command: {str(e)}")
+        exit(1)
+
+
+@cli.command()
+@click.option(
     "--test-all",
     is_flag=True,
     help="Run all tests including LoRa configuration and communication",
