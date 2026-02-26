@@ -1,6 +1,6 @@
 #! /usr/bin/env python3
 
-# Kevin Leon @ Electronic Cats
+# Electronic Cats
 # Original Creation Date: Dec 19, 2025
 # This code is beerware; if you see me (or any other Electronic Cats
 # member) at the local, and you've found our code helpful,
@@ -44,7 +44,6 @@ from pathlib import Path
 # APP Information
 CLI_NAME = "Catsniffer"
 VERSION_NUMBER = "3.0.0"
-AUTHOR = "JahazielLem"
 COMPANY = "Electronic Cats - PWNLAB"
 
 # Defining styles for reuse
@@ -472,6 +471,9 @@ def sniff_ble(device, wireshark, channel, mode):
             )
             # We don't return, allow to continue anyway
 
+    # Send identification command to help identify which device was flashed
+    send_identify_command(dev)
+
     if wireshark:
         # Always use the direct method when --wireshark is specified
         success = run_extcap_directly(dev.bridge_port, channel, mode)
@@ -522,6 +524,9 @@ def sniff_zigbee(ws, channel, device):
         print_info("Waiting for device to initialize...")
         time.sleep(0.5)
 
+    # Send identification command to help identify which device was flashed
+    send_identify_command(dev)
+
     print_info(f"[{dev}] Sniffing Zigbee at channel: {channel}")
     run_bridge(dev, channel, ws, profile="Zigbee")
 
@@ -555,6 +560,9 @@ def sniff_thread(ws, channel, device):
 
         print_info("Waiting for device to initialize...")
         time.sleep(0.5)
+
+    # Send identification command to help identify which device was flashed
+    send_identify_command(dev)
 
     print_info(f"[{dev}] Sniffing Thread at channel: {channel}")
     run_bridge(dev, channel, ws, profile="Thread")
@@ -688,6 +696,9 @@ def sniff_airtag_scanner(device, putty):
         else:
             print_warning("Firmware verification failed, but continuing...")
 
+    # Send identification command to help identify which device was flashed
+    send_identify_command(dev)
+
     if putty:
         putty_path = find_putty_path()
         if not putty_path:
@@ -709,6 +720,42 @@ def sniff_airtag_scanner(device, putty):
     else:
         print_info("Airtag Scanner firmware is ready!")
         print_info(f"\nConnect to {dev.bridge_port} at 9600 baud to see the output.")
+
+
+def send_identify_command(device):
+    """Send identification command to device to help identify it visually."""
+    import serial
+
+    if not device.shell_port:
+        print_warning("Shell port not available for identification!")
+        return False
+
+    print_info(f"Sending identification command to {device}...")
+
+    try:
+        with serial.Serial(device.shell_port, 115200, timeout=1.0) as ser:
+            ser.reset_input_buffer()
+            ser.reset_output_buffer()
+
+            cmd_bytes = b"identify\r\n"
+            ser.write(cmd_bytes)
+            ser.flush()
+
+            time.sleep(0.3)
+
+            # Read any response (optional)
+            if ser.in_waiting:
+                response = ser.read(ser.in_waiting)
+                response_str = response.decode("ascii", errors="ignore").strip()
+                if response_str:
+                    print_info(f"Device response: {response_str}")
+
+        print_success(f"Identification command sent to device #{device.device_id}!")
+        return True
+
+    except Exception as e:
+        print_warning(f"Could not send identification command: {str(e)}")
+        return False
 
 
 @cli.command()
@@ -1062,6 +1109,9 @@ def flash(firmware, device, list) -> None:
     time.sleep(1)
     print_success("Device restart complete. Firmware is ready to use!")
 
+    # Send identification command to help identify which device was flashed
+    send_identify_command(dev)
+
 
 @cli.command()
 def devices() -> None:
@@ -1235,6 +1285,9 @@ def cativity(device, channel, topology, protocol):
 
         print_info("Waiting for device to initialize...")
         time.sleep(0.5)
+
+    # Send identification command to help identify which device was flashed
+    send_identify_command(dev)
 
     print_info(f"[{dev}] Starting Cativity analysis...")
     runner = CativityRunner(dev, console=console)
