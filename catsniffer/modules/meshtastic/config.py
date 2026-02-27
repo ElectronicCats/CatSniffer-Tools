@@ -3,7 +3,7 @@
 Meshtastic Full Config Extractor
 Extract PSKs and important config info from a Meshtastic JSONC config file
 
-Kevin Leon @ Electronic Cats
+Electronic Cats
 """
 
 import re

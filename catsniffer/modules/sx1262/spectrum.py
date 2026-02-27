@@ -3,7 +3,7 @@
 Live Spectrum Scanner for SX1262
 Real-time spectrum analyzer with matplotlib visualization
 
-Kevin Leon @ Electronic Cats
+Electronic Cats
 """
 
 import sys

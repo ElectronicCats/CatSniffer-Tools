@@ -16,8 +16,12 @@ class LoRaShellCommands:
         return f"lora_sf {spreading_factor}"
 
     @staticmethod
-    def set_bw(bandwidth_khz: int) -> str:
-        return f"lora_bw {bandwidth_khz}"
+    def set_bw(bandwidth: int) -> str:
+        # El firmware espera el índice (7,8,9) o el valor en kHz
+        if bandwidth in [7, 8, 9]:
+            bw_map = {7: 125, 8: 250, 9: 500}
+            return f"lora_bw {bw_map[bandwidth]}"
+        return f"lora_bw {bandwidth}"
 
     @staticmethod
     def set_cr(coding_rate: int) -> str:
@@ -26,6 +30,12 @@ class LoRaShellCommands:
     @staticmethod
     def set_power(tx_power_dbm: int) -> str:
         return f"lora_power {tx_power_dbm}"
+
+    @staticmethod
+    def set_syncword(syncword: str) -> str:
+        if syncword in ["private", "public"]:
+            return f"lora_syncword {syncword}"
+        return f"lora_syncword {syncword}"
 
     @staticmethod
     def set_mode(mode: str) -> str:
@@ -49,70 +59,28 @@ class LoRaShellCommands:
 
 
 class SnifferSx:
-    """SX1262 LoRa sniffer protocol handler."""
+    """SX1262 LoRa sniffer protocol handler - Updated for new FW output format."""
 
-    # ── Regex for the text line the RP2040 firmware emits on Cat-LoRa ──────
-    # Format produced by lora_rx_cb() in main.c:
-    #   "RX: <HEX_PAYLOAD>[...] | RSSI: <int> | SNR: <int>\r\n"
-    #
-    # Notes:
-    #  • Payload may be truncated with "..." if > 40 bytes
-    #  • RSSI is int16 (dBm), SNR is int8 (dB) — both signed integers
-    #  • The regex is intentionally lenient about whitespace
+    # Regex patterns for different RX formats
     _RX_PATTERN = re.compile(
         r"(?:LORA\s+)?RX:\s*(.*?)\s*\|\s*RSSI:\s*(-?\d+)\s*\|\s*SNR:\s*(-?\d+)",
-        re.ASCII,
+        re.ASCII | re.IGNORECASE,
     )
 
-    class Commands:
+    _FSK_PATTERN = re.compile(
+        r"FSK\s+RX:\s*(.*?)\s*\|\s*RSSI:\s*(-?\d+)\s*\|\s*Len:\s*(\d+)",
+        re.ASCII | re.IGNORECASE,
+    )
+
+    class Commands(LoRaShellCommands):
         """Shell commands for LoRa configuration."""
 
-        def set_freq(self, frequency_hz: int) -> str:
-            return LoRaShellCommands.set_freq(frequency_hz)
-
-        def set_bw(self, bandwidth_khz: int) -> str:
-            return LoRaShellCommands.set_bw(bandwidth_khz)
-
-        def set_sf(self, spreading_factor: int) -> str:
-            return LoRaShellCommands.set_sf(spreading_factor)
-
-        def set_cr(self, coding_rate: int) -> str:
-            return LoRaShellCommands.set_cr(coding_rate)
-
-        def set_power(self, tx_power_dbm: int) -> str:
-            return LoRaShellCommands.set_power(tx_power_dbm)
-
-        def set_mode(self, mode: str) -> str:
-            return LoRaShellCommands.set_mode(mode)
-
-        def get_config(self) -> str:
-            return LoRaShellCommands.get_config()
-
-        def apply(self) -> str:
-            return LoRaShellCommands.apply_config()
-
-        def start_streaming(self) -> str:
-            return LoRaShellCommands.set_mode("stream")
-
-        def start_command(self) -> str:
-            return LoRaShellCommands.set_mode("command")
-
-    # ── Packet ───────────────────────────────────────────────────────────────
+        pass
 
     class Packet:
         """
         LoRa packet parsed from the ASCII line emitted by the RP2040 firmware.
-
-        The firmware's lora_rx_cb() writes to CDC1 (Cat-LoRa) as:
-            RX: <HEX>[...] | RSSI: <int> | SNR: <int>\r\n
-
-        This class accepts that raw line (bytes or str), extracts the fields,
-        and builds a PCAP record compatible with Wireshark's LoRa dissector
-        (link-type 148).
-
-        For backward compatibility it also accepts the old binary frame format
-        (starts with START_OF_FRAME bytes) — those are passed through to the
-        legacy dissect path.
+        Supports both LORA RX and FSK RX formats.
         """
 
         def __init__(
@@ -134,113 +102,86 @@ class SnifferSx:
             self.rssi = 0.0
             self.snr = 0.0
             self.pcap = None
-            self.raw_line = None  # the original ASCII line, if text format
+            self.raw_line = None
+            self.is_fsk = False
 
             # Accept bytes or str
             if isinstance(packet_input, (bytes, bytearray)):
-                # Check if it looks like the text format
                 try:
                     as_str = packet_input.decode("ascii", errors="ignore")
                 except Exception:
                     as_str = ""
-
-                if "RX:" in as_str:
-                    self._dissect_text(as_str)
-                else:
-                    # Legacy binary format
-                    self._dissect_binary(packet_input)
+                self._dissect_text(as_str)
             elif isinstance(packet_input, str):
                 self._dissect_text(packet_input)
             else:
                 raise ValueError(f"Unsupported packet_input type: {type(packet_input)}")
 
-        # ── Text-format parser ────────────────────────────────────────────
-
         def _dissect_text(self, line: str) -> None:
-            """
-            Parse the ASCII line emitted by lora_rx_cb() in main.c.
-
-            Example:
-                "RX: 486F6C61 4D756E64 6F202330 | RSSI: -45 | SNR: 8\r\n"
-            """
+            """Parse the ASCII line emitted by the firmware."""
             self.raw_line = line.strip()
 
+            # Try FSK pattern first
+            m = SnifferSx._FSK_PATTERN.search(line)
+            if m:
+                self.is_fsk = True
+                hex_str_raw = m.group(1).replace(" ", "")
+                rssi_int = int(m.group(2))
+                length = int(m.group(3))
+
+                # Clean hex string
+                if "..." in hex_str_raw:
+                    hex_str_raw = hex_str_raw.split("...")[0]
+                hex_clean = "".join(
+                    c for c in hex_str_raw if c.lower() in "0123456789abcdef"
+                )
+                if len(hex_clean) % 2 != 0:
+                    hex_clean = hex_clean[:-1]
+
+                try:
+                    self.payload = bytes.fromhex(hex_clean)
+                except ValueError:
+                    self.payload = b""
+
+                self.length = len(self.payload)
+                self.rssi = float(rssi_int)
+                self.snr = 0.0  # FSK no tiene SNR en este formato
+
+                self._build_pcap()
+                return
+
+            # Try LoRa pattern
             m = SnifferSx._RX_PATTERN.search(line)
-            if not m:
-                raise ValueError(f"Line does not match RX pattern: {line!r}")
+            if m:
+                hex_str_raw = m.group(1).replace(" ", "")
+                rssi_int = int(m.group(2))
+                snr_int = int(m.group(3))
 
-            # Clean the hex string of spaces and any trailing dots
-            hex_str_raw = m.group(1).replace(" ", "")
-            if "..." in hex_str_raw:
-                hex_str_raw = hex_str_raw.split("...")[0]
+                if "..." in hex_str_raw:
+                    hex_str_raw = hex_str_raw.split("...")[0]
+                hex_clean = "".join(
+                    c for c in hex_str_raw if c.lower() in "0123456789abcdef"
+                )
+                if len(hex_clean) % 2 != 0:
+                    hex_clean = hex_clean[:-1]
 
-            # Remove any single dots and NON-HEX characters
-            hex_clean = "".join(
-                c for c in hex_str_raw if c.lower() in "0123456789abcdef"
-            )
-            if len(hex_clean) % 2 != 0:
-                hex_clean = hex_clean[:-1]
+                try:
+                    self.payload = bytes.fromhex(hex_clean)
+                except ValueError:
+                    self.payload = b""
 
-            rssi_int = int(m.group(2))
-            snr_int = int(m.group(3))
+                self.length = len(self.payload)
+                self.rssi = float(rssi_int)
+                self.snr = float(snr_int)
 
-            try:
-                self.payload = bytes.fromhex(hex_clean)
-            except ValueError:
-                self.payload = b""
+                self._build_pcap()
+                return
 
-            self.length = len(self.payload)
-            self.rssi = float(rssi_int)
-            self.snr = float(snr_int)
-
-            self._build_pcap()
-
-        # ── Binary / legacy format parser ─────────────────────────────────
-
-        def _dissect_binary(self, packet_bytes: bytes) -> None:
-            """
-            Parse the original binary frame format (START_OF_FRAME header).
-
-            Frame layout (little-endian):
-              Offset  Size  Field
-                 0      2   SOF marker
-                 2      2   (reserved / frame type)
-                 4      2   payload length
-                 6      N   payload
-                -10     4   RSSI (float32)
-                 -6     4   SNR  (float32)
-            """
-            clean = packet_bytes.replace(b"\r\n", b"")
-
-            if len(clean) < 16:
-                raise ValueError(f"Binary frame too short: {len(clean)} bytes")
-
-            (_, _, self.length) = struct.unpack_from("<HHH", clean)
-            self.payload = clean[6:-10]
-            self.rssi = struct.unpack_from("<f", clean[-10:])[0]
-            self.snr = struct.unpack_from("<f", clean[-6:])[0]
-
-            self._build_pcap()
-
-        # ── PCAP record builder ───────────────────────────────────────────
+            raise ValueError(f"Line does not match any RX pattern: {line!r}")
 
         def _build_pcap(self) -> None:
             """
             Build a PCAP record for Wireshark's LoRa dissector (link-type 148).
-
-            Record header layout (all little-endian):
-              1 B  version
-              2 B  payload length
-              2 B  interface ID (0x0003)
-              1 B  protocol  (0x05)
-              1 B  PHY       (0x06)
-              4 B  frequency in MHz
-              1 B  bandwidth (kHz: 125/250/500)
-              1 B  spreading factor
-              1 B  coding rate
-              4 B  RSSI (float32)
-              4 B  SNR  (float32)
-              N B  payload
             """
             freq_mhz = self.context["frequency"] // 1_000_000
 

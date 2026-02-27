@@ -36,8 +36,10 @@ CHANNELS_PRESET = {
     "VLongSlow": {"sf": 12, "bw": 7, "cr": 5, "pl": 8},
 }
 
+
 def msb2lsb(hexstr: str) -> str:
     return hexstr[6:8] + hexstr[4:6] + hexstr[2:4] + hexstr[0:2]
+
 
 def extract_frame(raw: bytes) -> bytes:
     """
@@ -46,7 +48,7 @@ def extract_frame(raw: bytes) -> bytes:
     """
     try:
         as_str = raw.decode("ascii", errors="ignore").strip()
-        
+
         # Pattern for LORA RX
         if "LORA RX:" in as_str:
             hex_match = re.search(r"LORA RX:\s*([0-9A-Fa-f\s]+)", as_str)
@@ -55,7 +57,7 @@ def extract_frame(raw: bytes) -> bytes:
                 hex_clean = "".join(c for c in hex_str if c in "0123456789ABCDEFabcdef")
                 if hex_clean and len(hex_clean) % 2 == 0:
                     return bytes.fromhex(hex_clean)
-                    
+
         # Pattern for FSK RX
         elif "FSK RX:" in as_str:
             hex_match = re.search(r"FSK RX:\s*([0-9A-Fa-f\s]+)", as_str)
@@ -64,7 +66,7 @@ def extract_frame(raw: bytes) -> bytes:
                 hex_clean = "".join(c for c in hex_str if c in "0123456789ABCDEFabcdef")
                 if hex_clean and len(hex_clean) % 2 == 0:
                     return bytes.fromhex(hex_clean)
-                    
+
         # Simple "RX:" format (legacy)
         elif "RX:" in as_str and "LORA" not in as_str and "FSK" not in as_str:
             hex_match = re.search(r"RX:\s*([0-9A-Fa-f\s]+)", as_str)
@@ -80,11 +82,12 @@ def extract_frame(raw: bytes) -> bytes:
     if raw.startswith(b"@S") and raw.endswith(b"@E\r\n"):
         try:
             length = int.from_bytes(raw[2:4], byteorder="big")
-            return raw[4:4 + length]
+            return raw[4 : 4 + length]
         except Exception:
             pass
-            
+
     return b""
+
 
 def extract_fields(data: bytes) -> Dict[str, bytes]:
     """Extracts the fields from the Meshtastic packet"""
@@ -100,11 +103,13 @@ def extract_fields(data: bytes) -> Dict[str, bytes]:
         "payload": data[16:],
     }
 
+
 def decrypt(payload: bytes, key: bytes, sender: bytes, packet_id: bytes) -> bytes:
     """Decrypt payload with given key"""
     nonce = packet_id + b"\x00\x00\x00\x00" + sender + b"\x00\x00\x00\x00"
     cipher = Cipher(algorithms.AES(key), modes.CTR(nonce), backend=default_backend())
     return cipher.decryptor().update(payload)
+
 
 def decode_protobuf(data: bytes, src: str, dst: str) -> Optional[str]:
     """Decode protobuf message"""
@@ -137,6 +142,7 @@ def decode_protobuf(data: bytes, src: str, dst: str) -> Optional[str]:
     except Exception:
         return None
 
+
 def decode_nodeinfo(data: bytes) -> str:
     """Decode NODEINFO protobuf"""
     info = mesh_pb2.User()
@@ -154,12 +160,15 @@ def decode_nodeinfo(data: bytes) -> str:
     output += f"  Messaging  : {'Disabled' if info.is_unmessagable else 'Enabled'}"
     return output
 
-def configure_meshtastic_radio(shell_port: str, freq_hz: int, preset: str = "LongFast") -> bool:
+
+def configure_meshtastic_radio(
+    shell_port: str, freq_hz: int, preset: str = "LongFast"
+) -> bool:
     """Configure radio parameters using the shell port with proper values for Meshtastic"""
     from modules.catsniffer import ShellConnection
-    
+
     preset_config = CHANNELS_PRESET.get(preset, CHANNELS_PRESET["LongFast"])
-    
+
     print(f"[*] Configuring radio via shell port {shell_port}")
     print(f"[*] Preset: {preset}, Freq: {freq_hz} Hz")
 
@@ -175,7 +184,7 @@ def configure_meshtastic_radio(shell_port: str, freq_hz: int, preset: str = "Lon
             f"lora_preamble {preset_config['pl']}",
             f"lora_syncword 0x{SYNC_WORD_MESHTASTIC:02X}",
             "lora_apply",
-            "lora_mode stream"
+            "lora_mode stream",
         ]
 
         for cmd in commands:
@@ -186,7 +195,7 @@ def configure_meshtastic_radio(shell_port: str, freq_hz: int, preset: str = "Lon
         print("[*] Current LoRa configuration:")
         shell.send_command("lora_config")
         time.sleep(0.5)
-        
+
         shell.disconnect()
         print("[✓] Radio configured successfully")
         return True
