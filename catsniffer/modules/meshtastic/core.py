@@ -24,16 +24,16 @@ DEFAULT_KEYS = [
 SYNC_WORD_MESHTASTIC = 0x2B
 
 CHANNELS_PRESET = {
-    "defcon33": {"sf": 7, "bw": 9, "cr": 5, "pl": 16},
-    "ShortTurbo": {"sf": 7, "bw": 9, "cr": 5, "pl": 8},
-    "ShortSlow": {"sf": 9, "bw": 8, "cr": 5, "pl": 8},
-    "ShortFast": {"sf": 8, "bw": 8, "cr": 5, "pl": 8},
-    "MediumSlow": {"sf": 10, "bw": 8, "cr": 5, "pl": 8},
-    "MediumFast": {"sf": 9, "bw": 8, "cr": 5, "pl": 8},
-    "LongSlow": {"sf": 12, "bw": 8, "cr": 5, "pl": 8},
-    "LongFast": {"sf": 11, "bw": 8, "cr": 5, "pl": 8},
-    "LongMod": {"sf": 11, "bw": 8, "cr": 6, "pl": 8},
-    "VLongSlow": {"sf": 12, "bw": 7, "cr": 5, "pl": 8},
+    "defcon33": {"sf": 7, "bw": 500, "cr": 5, "pl": 16},
+    "ShortTurbo": {"sf": 7, "bw": 500, "cr": 5, "pl": 8},
+    "ShortSlow": {"sf": 9, "bw": 250, "cr": 5, "pl": 8},
+    "ShortFast": {"sf": 8, "bw": 250, "cr": 5, "pl": 8},
+    "MediumSlow": {"sf": 10, "bw": 250, "cr": 5, "pl": 8},
+    "MediumFast": {"sf": 9, "bw": 250, "cr": 5, "pl": 8},
+    "LongSlow": {"sf": 12, "bw": 250, "cr": 5, "pl": 8},
+    "LongFast": {"sf": 11, "bw": 250, "cr": 5, "pl": 8},
+    "LongMod": {"sf": 11, "bw": 250, "cr": 6, "pl": 8},
+    "VLongSlow": {"sf": 12, "bw": 125, "cr": 5, "pl": 8},
 }
 
 
