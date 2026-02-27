@@ -90,6 +90,17 @@
       - [Command Help](#command-help-2)
       - [LoRa Configuration Presets](#lora-configuration-presets)
       - [Basic Live Capture](#basic-live-capture)
+      - [Multi-Key Decryption](#multi-key-decryption)
+    - [Command 3: Chat Dashboard (TUI)](#command-3-chat-dashboard-tui)
+      - [Command help:](#command-help-3)
+      - [Starting the Dashboard](#starting-the-dashboard)
+      - [Dashboard Features](#dashboard-features)
+      - [Keyboard Controls](#keyboard-controls)
+    - [Troubleshooting Meshtastic Tools](#troubleshooting-meshtastic-tools)
+  - [Wireshark Integration](#wireshark-integration-1)
+    - [What is Extcap?](#what-is-extcap)
+    - [Extcap Plugin Installation](#extcap-plugin-installation)
+      - [On Unix-like Systems (Linux, macOS)](#on-unix-like-systems-linux-macos)
     - [Integrated Capture Workflow](#integrated-capture-workflow)
     - [Current Limitations](#current-limitations)
   - [Common Problem Solving](#common-problem-solving)
@@ -1795,25 +1806,174 @@ Meshtastic uses specific LoRa radio configurations. The tool supports all standa
 python catsniffer.py meshtastic live --device 1 --frequency 906.875 --preset LongFast
 ```
 
-**Output Expected:**
+**Expected output:**
 ```bash
 ℹ Using device: CatSniffer #1
 ℹ Configuring radio: 906.875 MHz (906875000 Hz), preset: LongFast
 [*] Configuring radio via shell port /dev/ttyACM2
+[*] Preset: LongFast, Freq: 906875000 Hz
   > lora_freq 906875000
   > lora_sf 11
-  > lora_bw 250
+  > lora_bw 8
   > lora_cr 5
   > lora_preamble 8
-  > lora_syncword public
+  > lora_syncword 0x2B
   > lora_apply
+  > lora_mode stream
 [*] Current LoRa configuration:
+LoRa Configuration:
+  Frequency: 906875000 Hz
+  Spreading Factor: SF11
+  Bandwidth: 250 kHz
+  Coding Rate: 4/5
+  TX Power: 20 dBm
+  Preamble Length: 8
+  IQ: Normal
+  Sync Word: 0x2B (reg 0x24B4)
+  Mode: Stream
 [✓] Radio configured successfully
 ℹ Starting capture... Press Ctrl+C to stop
+[*] Capture started. Press Ctrl+C to stop.
+
+============================================================
+   Packet from 6c982bd0 to ffffffff
+   Packet ID: b9850a47
+   Channel: 8
+   Flags: 0x63
+     ├─ Hop limit: 3
+     ├─ Want ACK:  0
+     ├─ Via MQTT:  0
+     └─ Hop Start: 3
+      Decrypted with key #0
+
+   Decrypted payload (hex):
+   08 01 12 0A 48 65 6C 6C 6F 20 4D 65 73 68 48 00
+[TEXT] d02b986c -> ffffffff: Hello Mesh
 ```
 
-**Live Decoding Output:**
+#### Multi-Key Decryption
+The live decoder automatically tries multiple known Meshtastic keys, making it effective for monitoring networks even without prior knowledge of the specific key.
+
+**What happens internally:**
+- Packet is captured from the LoRa radio
+- Frame is extracted and fields are parsed
+- Each known key is tried for decryption
+- First successful decryption is displayed
+- Protobuf is decoded based on port number
+
+### Command 3: Chat Dashboard (TUI)
+The dashboard provides a beautiful terminal user interface (TUI) for monitoring Meshtastic networks in real-time, with features like channel filtering, message search, and automatic node name resolution.
+
+#### Command help:
+
 ```bash
+python catsniffer.py meshtastic dashboard --help
+
+Usage: catsniffer.py meshtastic dashboard [OPTIONS]
+
+  Meshtastic Chat TUI - Beautiful terminal dashboard for Meshtastic
+
+Options:
+  -d, --device INTEGER      Device ID (for multiple CatSniffers)
+  -baud, --baudrate INTEGER  Baudrate (default: 115200)
+  -f, --frequency FLOAT      Frequency in MHz (default: 902.0)
+  -ps, --preset [defcon33|ShortTurbo|ShortSlow|ShortFast|MediumSlow|MediumFast|LongSlow|LongFast|LongMod|VLongSlow]
+                            Channel preset (default: LongFast)
+  -h, --help                Show this message and exit.
+```
+
+#### Starting the Dashboard
+
+**Command:**
+```bash
+python catsniffer.py meshtastic dashboard -d 1 -f 906.875 -ps LongFast
+```
+
+**Initial screen:**
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Meshtastic Chat TUI  Port: /dev/ttyACM1  Preset: LongFast  Freq: 906.875 MHz│
+│                              — Press Q to quit, A for All, 0-7 for channel  │
+├───────────────┬─────────────────────────────────────────────────────────────┤
+│ Channels      │ Time     Ch  From                 Message                   │
+├───────────────┼─────────────────────────────────────────────────────────────┤
+│ All        1  │ 14:32:05 1   !49ca27              Hello mesh network!       │
+│ Ch 0       1  │                                                             │
+│ Ch 1       0  │                                                             │
+│ Ch 2       0  │                                                             │
+│ Ch 3       0  │                                                             │
+│ Ch 4       0  │                                                             │
+│ Ch 5       0  │                                                             │
+│ Ch 6       0  │                                                             │
+│ Ch 7       0  │                                                             │
+└───────────────┴─────────────────────────────────────────────────────────────┘
+```
+
+#### Dashboard Features
+
+1. Channel Sidebar (Left)
+   1. Shows all channels (0-7) with message counts
+   2. "All" shows total messages across all channels
+   3. Actively updates as new messages arrive
+   4. Selected channel is highlighted
+
+2. Message Table (Right)
+   1. Time: Timestamp of the message
+   2. Ch: Channel number (0-7)
+   3. From: Sender (node ID or resolved name)
+   4. Message: Decoded message content
+
+3. Node Name Resolution
+When node information packets are received, the dashboard automatically:
+  1. Stores node IDs and their friendly names
+  2. Updates the display to show names instead of hex IDs
+  3. Maintains a persistent registry during the session
+
+#### Keyboard Controls
+
+| Key | Action | Description |
+|-----|--------|-------------|
+| Q   | Quit   | Exit the dashboard |
+| A	  | All Channels | Show messages from all channels |
+| 0-7 | Channel N | Filter to show only channel N |
+| F   | Filter | Text	Search messages by text |
+| C   | Clear  | Filter	Remove text filter |
+| ↑/↓ |Navigate | Scroll through messages |
+| PgUp/PgDn |Page Scroll | Jump by page |
+
+### Troubleshooting Meshtastic Tools
+
+**Problem: "No packets received"**
+
+**Symptoms: Live decoder or dashboard shows no activity**
+
+**Diagnostic steps:**
+
+1. Verify radio configuration
+
+```bash
+# Check current settings
+python catsniffer.py verify --device 1
+# Look for LoRa configuration section
+```
+
+2. Test with known good settings
+
+```bash
+# Use standard Meshtastic configuration
+python catsniffer.py meshtastic live --device 1 -f 906.875 -ps LongFast
+```
+
+3. Check device proximity
+- Ensure CatSniffer is within range of active Meshtastic nodes
+- Try moving closer to known devices
+
+4. Verify firmware
+
+```bash
+python catsniffer.py verify --test-all --device 1
+# Confirm LoRa communication tests pass
+```
 
 ## Wireshark Integration
 
