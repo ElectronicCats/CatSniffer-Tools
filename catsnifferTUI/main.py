@@ -201,7 +201,7 @@ class CatSnifferTestbenchApp(App):
 
     .term-title {
         width: 1fr;
-        text-wrap: nowrap;
+
     }
 
     .term-clear-btn {
