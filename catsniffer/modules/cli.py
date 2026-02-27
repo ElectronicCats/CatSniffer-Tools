@@ -1486,7 +1486,7 @@ def meshtastic_dashboard(device, baudrate, frequency, preset):
     # Configure radio using shell port securely
     print_info("Configuring radio...")
     freq_hz = int(frequency * 1_000_000)
-    
+
     if not configure_meshtastic_radio(shell_port, freq_hz, preset):
         print_error("Failed to configure radio")
         mon.stop()

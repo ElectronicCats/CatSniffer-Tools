@@ -25,7 +25,7 @@ from .core import (
     msb2lsb,
     extract_frame,
     extract_fields,
-    decrypt
+    decrypt,
 )
 
 # Third-party
@@ -55,7 +55,7 @@ from .core import (
     msb2lsb,
     extract_frame,
     extract_fields,
-    decrypt
+    decrypt,
 )
 
 
@@ -331,14 +331,14 @@ class MeshtasticChatApp(App):
             raw = extract_frame(frame)
             if not raw or len(raw) < 16:
                 return
-                
+
             fields = extract_fields(raw)
             if not fields or len(fields.get("payload", b"")) == 0:
                 return
-                
+
         except Exception as e:
             return
-            
+
         # Try with all keys
         decrypted_success = False
         for key in self.keys:
@@ -358,7 +358,7 @@ class MeshtasticChatApp(App):
             # Intentar interpretar como texto plano (canales abiertos)
             try:
                 raw_payload = fields["payload"]
-                plain_text = raw_payload.decode('utf-8', errors='ignore')
+                plain_text = raw_payload.decode("utf-8", errors="ignore")
                 if plain_text.isprintable() and len(plain_text) > 0:
                     # Crear mensaje emulado
                     ch = fields.get("channel", b"\x00")[0]
@@ -386,7 +386,7 @@ class MeshtasticChatApp(App):
             pb.ParseFromString(decrypted)
         except Exception:
             return None
-            
+
         src_hex = fields["sender"].hex().upper()
         dst_hex = fields["dest"].hex().upper()
         channel = fields.get("channel", b"\x00")[0]
@@ -421,13 +421,13 @@ class MeshtasticChatApp(App):
             user: mesh_pb2.User = data["user"]
             self.node_registry.set_from_user_pb(user)
             return
-            
+
         if kind == "text":
             ch = data["channel"]
             src_hex = data["src_hex"]
             text = data["text"]
             name = self.node_registry.resolve(src_hex)
-            
+
             msg = ChatMessage(
                 ts=time.time(),
                 channel=ch,
@@ -435,13 +435,13 @@ class MeshtasticChatApp(App):
                 sender_name=name,
                 text=text,
             )
-            
+
             self.packet_count += 1
-            
+
             # Filter logic
             if self._passes_filter(msg):
                 self.table.add_message(msg)
-                
+
             # Always increment counts
             self.sidebar.increment(ch)
 
@@ -517,9 +517,9 @@ async def run_app(args) -> None:
         f"lora_preamble {CHANNELS_PRESET[args.preset]['pl']}",
         f"lora_syncword 0x{SYNC_WORD_MESHTASTIC:02X}",  # CORRECTED: 0x2B
         "lora_apply",
-        "lora_mode stream"
+        "lora_mode stream",
     ]
-    
+
     for cmd in commands:
         print(f"  > {cmd}")
         mon.write(f"{cmd}\r\n".encode())

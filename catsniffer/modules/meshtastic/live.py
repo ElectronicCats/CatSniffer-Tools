@@ -21,7 +21,7 @@ from .core import (
     decrypt,
     decode_protobuf,
     decode_nodeinfo,
-    configure_meshtastic_radio
+    configure_meshtastic_radio,
 )
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
@@ -29,23 +29,26 @@ from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
 from modules.catsniffer import LoRaConnection, ShellConnection
 from protocol.sniffer_sx import SnifferSx
 
+
 def print_packet_info(fields, decrypted, key_index=None):
     """Print packet information"""
-    print("\n" + "="*60)
-    print(f"   Packet from {msb2lsb(fields['sender'].hex())} to {msb2lsb(fields['dest'].hex())}")
+    print("\n" + "=" * 60)
+    print(
+        f"   Packet from {msb2lsb(fields['sender'].hex())} to {msb2lsb(fields['dest'].hex())}"
+    )
     print(f"   Packet ID: {msb2lsb(fields['packet_id'].hex())}")
     print(f"   Channel: {fields['channel'][0] if 'channel' in fields else 0}")
-    
-    flags = fields['flags'][0]
+
+    flags = fields["flags"][0]
     print(f"   Flags: 0x{flags:02X}")
     print(f"     ├─ Hop limit: {(flags >> 5) & 0b111}")
     print(f"     ├─ Want ACK:  {(flags >> 4) & 1}")
     print(f"     ├─ Via MQTT:  {(flags >> 3) & 1}")
     print(f"     └─ Hop Start: {flags & 0b111}")
-    
+
     if key_index is not None:
         print(f"      Decrypted with key #{key_index}")
-    
+
     print("\n   Decrypted payload (hex):")
     print("   " + " ".join(f"{b:02X}" for b in decrypted[:32]))
     if len(decrypted) > 32:
@@ -98,7 +101,7 @@ class MeshtasticLiveDecoder:
                 f"lora_preamble {preset_config['pl']}",
                 f"lora_syncword 0x{SYNC_WORD_MESHTASTIC:02X}",  # CORREGIDO
                 "lora_apply",
-                "lora_mode stream"
+                "lora_mode stream",
             ]
 
             for cmd in commands:
@@ -176,16 +179,16 @@ class MeshtasticLiveDecoder:
                 if not self.rx_queue.empty():
                     frame = self.rx_queue.get_nowait()
                     self.stats["total"] += 1
-                    
+
                     try:
                         raw = extract_frame(frame)
                         if not raw or len(raw) < 16:
                             continue
-                            
+
                         fields = extract_fields(raw)
                         if not fields or len(fields.get("payload", b"")) == 0:
                             continue
-                            
+
                         decrypted_success = False
                         for idx, key in enumerate(self.keys):
                             try:
@@ -208,30 +211,38 @@ class MeshtasticLiveDecoder:
                                     break
                             except Exception:
                                 continue
-                                
+
                         if not decrypted_success:
                             # Intentar interpretar como texto plano (canales abiertos)
                             try:
                                 raw_payload = fields["payload"]
-                                plain_text = raw_payload.decode('utf-8', errors='ignore')
+                                plain_text = raw_payload.decode(
+                                    "utf-8", errors="ignore"
+                                )
                                 if plain_text.isprintable() and len(plain_text) > 0:
-                                    print(f"[PLAIN] {fields['sender'].hex()}: {plain_text}")
+                                    print(
+                                        f"[PLAIN] {fields['sender'].hex()}: {plain_text}"
+                                    )
                                     self.stats["decrypted"] += 1
                             except:
                                 pass
-                                
+
                     except Exception as e:
                         self.stats["errors"] += 1
-                        
+
                 else:
                     time.sleep(0.01)
-                    
+
                 # Mostrar estadísticas cada 100 paquetes
                 if self.stats["total"] % 100 == 0 and self.stats["total"] > 0:
-                    print(f"\r[*] Stats: {self.stats['total']} packets, "
-                          f"{self.stats['decrypted']} decrypted, "
-                          f"{self.stats['errors']} errors", end="", flush=True)
-                          
+                    print(
+                        f"\r[*] Stats: {self.stats['total']} packets, "
+                        f"{self.stats['decrypted']} decrypted, "
+                        f"{self.stats['errors']} errors",
+                        end="",
+                        flush=True,
+                    )
+
             except KeyboardInterrupt:
                 break
 

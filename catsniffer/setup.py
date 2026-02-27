@@ -20,7 +20,7 @@ setup(
         "console_scripts": ["catsniffer=catsniffer:main_cli"],
     },
     url="https://github.com/ElectronicCats/CatSniffer-Tools/",
-    author="JahazielLem, Electronic Cats",
+    author="Electronic Cats",
     python_requires=">=3",
     classifiers=[
         "Development Status :: 2 - Beta",
