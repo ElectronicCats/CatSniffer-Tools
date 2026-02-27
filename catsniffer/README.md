@@ -36,6 +36,7 @@
       - [1. Using Aliases (Recommended)](#1-using-aliases-recommended)
       - [2. Using Partial Names](#2-using-partial-names)
       - [3. Using Full Names](#3-using-full-names)
+      - [4. Using own firmware files (Advanced)](#4-using-own-firmware-files-advanced)
     - [Flashing Process](#flashing-process)
     - [Troubleshooting Flashing Issues](#troubleshooting-flashing-issues)
       - [Common Errors and Solutions](#common-errors-and-solutions)
@@ -76,10 +77,19 @@
       - [Example 3: Deep Channel Analysis](#example-3-deep-channel-analysis)
       - [Example 4: Multi-Device Configuration](#example-4-multi-device-configuration)
     - [Troubleshooting](#troubleshooting-1)
-  - [Wireshark Integration](#wireshark-integration-1)
-    - [What is Extcap?](#what-is-extcap)
-    - [Extcap Plugin Installation](#extcap-plugin-installation)
-      - [On Unix-like Systems (Linux, macOS)](#on-unix-like-systems-linux-macos)
+  - [Meshtastic Protocol Tools](#meshtastic-protocol-tools)
+    - [What is Mehstastic](#what-is-mehstastic)
+    - [Command Overview](#command-overview)
+    - [Meshtastic Packet Structure](#meshtastic-packet-structure)
+    - [Command 1: Packet Decoder (Offline)](#command-1-packet-decoder-offline)
+      - [Command Help](#command-help-1)
+      - [Default Encryption Keys](#default-encryption-keys)
+      - [Practical Examples](#practical-examples-1)
+      - [Message Type Detection](#message-type-detection)
+    - [Command 2: Live Decoder](#command-2-live-decoder)
+      - [Command Help](#command-help-2)
+      - [LoRa Configuration Presets](#lora-configuration-presets)
+      - [Basic Live Capture](#basic-live-capture)
     - [Integrated Capture Workflow](#integrated-capture-workflow)
     - [Current Limitations](#current-limitations)
   - [Common Problem Solving](#common-problem-solving)
@@ -123,28 +133,45 @@ This tool is aimed at:
 ```text
 CatSniffer-Tools/
 ├── catsniffer.py               # Main entry point
+├── compile.sh                  # Firmware compilation script
 ├── lora_extcap.py              # Wireshark extcap plugin (LoRa)
 ├── requirements.txt            # Python dependencies
 ├── setup.py                    # Installation configuration
 ├── modules/                    # Core application modules
-│   ├── cli.py                  # CLI command definitions
+│   ├── __init__.py
+│   ├── bridge.py               # Serial communication bridge
 │   ├── catnip.py               # Firmware management and flashing
 │   ├── catsniffer.py           # Hardware detection and communication
-│   ├── bridge.py               # Serial communication bridge
 │   ├── cc2538.py               # CC2538 chip controller
-│   ├── pipes.py                # PCAP pipe management for Wireshark
-│   ├── verify.py               # Hardware diagnostic tests
+│   ├── cli.py                  # CLI command definitions
 │   ├── fw_aliases.py           # Firmware aliases
 │   ├── fw_metadata.py          # Firmware metadata
-│   └── cativity/               # IQ Activity Monitor
-│       ├── graphs.py           # Graph visualization
-│       ├── network.py          # Network topology analysis
-│       ├── packets.py          # Packet processing
-│       └── runner.py           # Cativity main orchestrator
-└── protocol/                   # Radio protocol drivers
-    ├── common.py               # Shared functionality
-    ├── sniffer_ti.py           # Texas Instruments chip support
-    └── sniffer_sx.py           # Semtech chip support (LoRa)
+│   ├── pipes.py                # PCAP pipe management for Wireshark
+│   ├── verify.py               # Hardware diagnostic tests
+│   ├── cativity/               # IQ Activity Monitor
+│   │   ├── __init__.py
+│   │   ├── graphs.py           # Graph visualization
+│   │   ├── network.py          # Network topology analysis
+│   │   ├── packets.py          # Packet processing
+│   │   └── runner.py           # Cativity main orchestrator
+│   ├── meshtastic/             # Meshtastic integration
+│   │   ├── __init__.py
+│   │   ├── config.py           # Meshtastic configuration
+│   │   ├── dashboard.py        # Meshtastic dashboard
+│   │   ├── decoder.py          # Meshtastic packet decoder
+│   │   └── live.py             # Live Meshtastic capture
+│   └── sx1262/                 # SX1262 radio module
+│       ├── __init__.py
+│       └── spectrum.py         # Spectrum analyzer
+├── protocol/                   # Radio protocol drivers
+│   ├── __init__.py
+│   ├── common.py               # Shared functionality
+│   ├── sniffer_sx.py           # Semtech chip support (LoRa)
+│   └── sniffer_ti.py           # Texas Instruments chip support
+└── release_board-v3.x-vX.X.X/  # Firmware directory (auto-generated)
+    ├── *.hex                   # TI CC1352 firmware files
+    ├── *.uf2                   # RP2040 firmware files
+    └── releases.json           # Firmware metadata
 ```
 
 ### Main Components
@@ -162,6 +189,8 @@ Main script providing access to all system functionalities through structured co
 - **pipes.py**: Creates data pipes that transmit captured packets in PCAP format to Wireshark
 - **verify.py**: Runs self-diagnostic tests to validate hardware operation
 - **cativity/**: Submodule dedicated to monitoring activity on 802.15.4 channels (Zigbee/Thread)
+- **meshtastic/**: Submodule for Meshtastic protocol integration and capture
+- **sx1262/**: Submodule for SX1262 radio spectrum analysis
 
 #### 3. **`protocol`/ Module** (Radio Drivers)
 
@@ -206,18 +235,31 @@ This directory stores downloaded firmware files (.hex, .uf2) from the official G
    - **Zigbee**: IEEE 802.15.4 protocol for sensor networks
    - **Thread**: Mesh protocol for residential IoT
    - **BLE**: Bluetooth Low Energy via Sniffle firmware
+   - **Meshtastic**: Open source long-range communication protocol
+   - **AirTag**: Apple Find My network detection and tracking
 
-5. **Automatic On-Demand Flashing**
+5. **Spectrum Analysis**
+   - SX1262-based spectrum analyzer for LoRa frequencies
+   - Real-time frequency scanning and visualization
+   - Channel activity detection
+
+6. **IQ Activity Monitor (Cativity)**
+   - Real-time visualization of 802.15.4 channel activity
+   - Network topology discovery for Zigbee/Thread networks
+   - Protocol filtering (Zigbee/Thread)
+   - Channel hopping analysis
+
+7. **Automatic On-Demand Flashing**
    - Detects if required firmware is present
    - Automatically flashes before starting capture sessions
    - Minimizes manual user intervention
 
-6. **Native Wireshark Integration**
+8. **Native Wireshark Integration**
    - Extcap support for real-time captures
    - Custom dissectors for specialized protocols
    - Integrated workflow without manual configuration
 
-7. **Cross-Platform Compatibility**
+9. **Cross-Platform Compatibility**
    - Full support for Linux
    - Functionality on macOS
    - Windows compatibility
@@ -337,24 +379,53 @@ Options:
   -h, --help     Show this message and exit.
 
 Commands:
-  cativity       IQ Activity Monitor
-  devices        List connected CatSniffer devices
-  flash          Flash CC1352 Firmware or list available firmware images
-  sniff          Sniffer protocol control
-  verify         Verify CatSniffer device functionality
+  cativity    IQ Activity Monitor
+  devices     List connected CatSniffer devices
+  flash       Flash CC1352 Firmware or list available firmware images
+  identify    Send identification command to CatSniffer device
+  lora        LoRa SX1262 tools
+  meshtastic  Meshtastic protocol tools
+  sniff       Sniffer protocol control
+  verify      Verify CatSniffer device functionality
 ```
 
 **Command description:**
 
 | Command | Purpose |
 |---------|-----------|
-| `cativity` | 	IQ activity monitor for 802.15.4 networks |
-| `devices` | Lists connected CatSniffer devices
-flash	 |
+| `cativity` | IQ Activity Monitor for 802.15.4 networks (Zigbee/Thread) |
+| `devices` | Lists connected CatSniffer devices |
 | `flash` | Manages and flashes firmware on the CC1352 chip |
-| `help-firmware` | Shows detailed information about available firmware |
-| `sniff` | 	Starts wireless protocol captures |
+| `identify` | Sends an identification command to the device for visual identification |
+| `sniff` | Starts wireless protocol captures |
 | `verify` | Runs hardware functionality diagnostics |
+| `meshtastic` | Meshtastic protocol tools (group command) |
+| `lora` | LoRa SX1262 tools (group command) |
+
+**Sniff subcommands:**
+
+| Command | Purpose |
+|---------|-----------|
+| `sniff ble` | Sniffing BLE with Sniffle firmware |
+| `sniff zigbee` | Sniffing Zigbee with Sniffer TI firmware |
+| `sniff thread` | Sniffing Thread with Sniffer TI firmware |
+| `sniff lora` | Sniffing LoRa with Sniffer SX1262 firmware |
+| `sniff airtag_scanner` | Apple AirTag Scanner firmware |
+
+**Meshtastic subcommands:**
+
+| Command | Purpose |
+|---------|-----------|
+| `meshtastic decode` | Decrypt and decode a hex-encoded Meshtastic packet |
+| `meshtastic live` | Live Meshtastic decoder - Capture and decode packets in real-time |
+| `meshtastic dashboard` | Meshtastic Chat TUI - Beautiful terminal dashboard for Meshtastic |
+| `meshtastic config` | Extract PSKs and config info from a Meshtastic JSONC config file |
+
+**LoRa subcommands:**
+
+| Command | Purpose |
+|---------|-----------|
+| `lora spectrum` | Live Spectrum Scanner for SX1262 - Real-time frequency spectrum analyzer |
 
 ### Verifying Connected Devices
 
@@ -445,15 +516,8 @@ Available Firmware Images:
 ╭─────────────────────────┬───────────────────────────────────┬────────────────┬────────────────────┬────────────────────────────────────────────────────╮
 │ Alias                   │ Firmware Name                     │ Type           │ Protocols          │ Description                                        │
 ├─────────────────────────┼───────────────────────────────────┼────────────────┼────────────────────┼────────────────────────────────────────────────────┤
-│ lora                    │ LoRa-CAD.uf2                      │ LoRa CAD       │ LoRa               │ Channel activity detector v1.0.0                   │
-│ lora_1                  │ LoRa-CLI.uf2                      │ LoRa CLI       │ LoRa               │ LoRa Command Line Interface v1.0                   │
-│ lora_2                  │ LoRa-Freq.uf2                     │ LoRa Freq      │ LoRa               │ Frequency Spectrum analyzer v1.0.0                 │
-│ ti_sniffer              │ LoraSniffer.uf2                   │ LoRa Sniffer   │ LoRa               │ CLI LoRa for connection with pycatsniffer as sn... │
-│ serialpassth...         │ SerialPassthroughwithboot.uf2     │ Serial         │ Serial             │ No description available                           │
 │ airtag_scanner_cc1352p7 │ airtag_scanner_CC1352P_7_v1.0.hex │ Airtag Scanner │ BLE                │ Apple Airtag Scanner firmware (Windows/Linux/Mac)  │
 │ airtag_spoofer_cc1352p7 │ airtag_spoofer_CC1352P_7_v1.0.hex │ Airtag Spoofer │ BLE                │ Apple Airtag Spoofer firmware (Windows/Linux/Mac)  │
-│ firmware                │ firmware.uf2                      │ Other          │ Various            │ Meshtastic port for Catsniffer                     │
-│ ti_sniffer              │ free_dap_catsniffer.uf2           │ Debugger       │ Debug              │ Debugger firmware for CC1352                       │
 │ justworks               │ justworks_scanner_CC1352P7_1.hex  │ JustWorks      │ BLE                │ Justworks scanner for scanner vulnerable devices   │
 │ ti_sniffer              │ sniffer_fw_CC1352P_7_v1.10.hex    │ TI Sniffer     │ Zigbee/Thread/15.4 │ Multiprotocol sniffer from Texas Instrument (Wi... │
 │ sniffle                 │ sniffle_cc1352p7_1M.hex           │ BLE            │ BLE                │ BLE sniffer for Bluetooth 5 and 4.x (LE) from N... │
@@ -498,7 +562,7 @@ Usage Examples:
 
 ### Firmware Selection Methods
 
-The system accepts three methods to specify which firmware to flash, ordered by convenience:
+The system accepts four methods to specify which firmware to flash, ordered by convenience:
 
 #### 1. Using Aliases (Recommended)
 Aliases are short, memorable names assigned to each firmware. This is the most convenient method for frequent users.
@@ -541,6 +605,14 @@ python catsniffer.py flash sniffer_ti_CC1352P_7_v1.0.hex
 - No possible ambiguity
 - Useful in automated scripts
 
+#### 4. Using own firmware files (Advanced)
+The system also allows flashing custom firmware files that are not in the official repository, as long as they are placed in the release directory and follow the expected format or write the path where the custom firmware is located.
+
+**Example:**
+```bash
+python catsniffer.py flash --device 1 ~/PersonalProject/workspace/custom_firmware_v1.0.hex
+```
+
 ### Flashing Process
 
 Firmware flashing follows a predictable and transparent flow:
@@ -553,24 +625,33 @@ python catsniffer.py flash --device 1 sniffle
 **Step-by-step output:**
 
 ```bash
-[10:25:15] [*] Selected device: CatSniffer #1
-           [*] Device port: /dev/ttyACM3
-           [*] Resolving firmware alias 'sniffle'...
-           [*] Matched firmware: CC1352_sniffle_CC1352P_7_v1.9.1.hex
-           [*] Verifying firmware integrity...
-           [*] SHA256 checksum: VERIFIED
-           [*] Initiating flash sequence...
-           [*] Entering bootloader mode...
-           [*] Erasing flash memory...
-           [*] Writing firmware (0%)
-           [*] Writing firmware (25%)
-           [*] Writing firmware (50%)
-           [*] Writing firmware (75%)
-           [*] Writing firmware (100%)
-           [*] Verifying written data...
-           [*] Resetting device...
-           [✓] Flash completed successfully!
-           [*] Device ready for use
+ℹ Flashing firmware: sniffle to device: CatSniffer #1
+Resolved 'sniffle' to sniffle -> sniffle_cc1352p7_1M.hex
+[*] Opening bridge port /dev/ttyACM0 at baud: 500000
+[*] Sending boot command via shell port: /dev/ttyACM2
+[*] Boot command sent successfully
+[*] Chip ID: 0xF000 (CatSniffer CC1352 (Bootloader Mode))
+[*] Chip details:
+        Package: CC1350 PG2.0 - 704 KB Flash - 20KB SRAM - CCFG.BL_CONFIG at 0x000AFFD8
+        Primary IEEE Address: 00:12:4B:00:29:B6:82:2E
+[*] Performing mass erase
+[*] Erase done
+[*] Write done
+[*] Verifying by comparing CRC32 calculations.
+[*] Verified match: 0x6d6c64a5
+[*] Sending exit command via shell port
+[*] Exit command sent successfully
+[*] Waiting for device to initialize after reset...
+[*] Metadata update attempt 1/5...
+  ├─ Testing shell responsiveness...
+  ├─ Shell responsive, updating metadata...
+  └─ ✓ Metadata updated successfully
+[*] Firmware metadata updated successfully
+ℹ Waiting for device to restart...
+✓ Device restart complete. Firmware is ready to use!
+ℹ Sending identification command to CatSniffer #1...
+ℹ Device response: identifyIdentifying board...
+✓ Identification command sent to device #1!
 ```
 
 **Flashing workflow:**
@@ -582,7 +663,8 @@ python catsniffer.py flash --device 1 sniffle
 5. **Flash erasure**: Clears existing flash memory
 6. **Writing**: Transfers the new firmware with progress indicator
 7. **Post-write verification**: Confirms data was written correctly
-8. **Reset**: Returns device to normal operating mode
+8. **Identification**: Sends a command to confirm visual identification of the device
+9. **Reset**: Returns device to normal operating mode
 
 ### Troubleshooting Flashing Issues
 
@@ -716,7 +798,12 @@ Testing CatSniffer #1
   ✓ PASS
   Response: lora_mode streamLoRa mode set to STREAM (slow blink)
 
-Summary: 4/4 tests passed
+[IDENTIFY] Identify command...
+  ✓ PASS
+  Response: identifyIdentifying board...
+
+Summary: 5/5 tests passed
+
 ╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │                                                                                                                                                                                │
 │  Verification Summary                                                                                                                                                          │
@@ -783,7 +870,11 @@ ti_sniffer (official)
   ✓ PASS
   Response: lora_mode streamLoRa mode set to STREAM (slow blink)
 
-Summary: 4/4 tests passed
+[IDENTIFY] Identify command...
+  ✓ PASS
+  Response: identifyIdentifying board...
+
+Summary: 5/5 tests passed
 ╭──────────────────────────────────────────────────────────────────────────────────────╮
 │ Testing CatSniffer #1 - LoRa Configuration                                           │
 ╰──────────────────────────────────────────────────────────────────────────────────────╯
@@ -883,7 +974,7 @@ python catsniffer.py verify --quiet
 │ Testing CatSniffer #1 - Basic Commands                                               │
 ╰──────────────────────────────────────────────────────────────────────────────────────╯
 
-Summary: 4/4 tests passed
+Summary: 5/5 tests passed
 Device #1: PASS
 ✓ Verification completed successfully!
 
@@ -1509,6 +1600,220 @@ python catsniffer.py cativity
 ```
 
 ---
+
+## Meshtastic Protocol Tools
+
+Meshtastic is an open-source, long-range communication protocol that uses LoRa radio technology to create decentralized mesh networks. CatSniffer V3 Tools provides a comprehensive suite of tools for decoding, analyzing, and interacting with Meshtastic networks.
+
+### What is Mehstastic
+
+Meshtastic enables devices to communicate over long distances (kilometers) without cellular or Wi-Fi connectivity. It's commonly used for:
+- Emergency communication and disaster reponse
+- Outdoor adventures and hiking
+- Community mesh networks
+- IoT sensor data collection
+- Off-grid messaging
+
+The protocol uses LoRa modulation with AES-256 encryption and operates primarily in the 868-915 MHz ISM bands
+
+### Command Overview
+
+```bash
+python catsniffer.py meshtastic --help
+
+Usage: catsniffer.py meshtastic [OPTIONS] COMMAND [ARGS]...
+
+  Meshtastic protocol tools
+
+Options:
+  -h, --help  Show this message and exit.
+
+Commands:
+  config     Extract PSKs and config info from a Meshtastic JSONC config...
+  dashboard  Meshtastic Chat TUI - Beautiful terminal dashboard for...
+  decode     Decrypt and decode a hex-encoded Meshtastic packet
+  live       Live Meshtastic decoder - Capture and decode packets in...
+```
+
+### Meshtastic Packet Structure
+
+Understanding the packet structure is essential for working with Meshtastic:
+
+```text
+┌──────────┬──────────┬────────────┬───────┬─────────┬──────────┬─────────────┐
+│ Dest     │ Sender   │ Packet ID  │ Flags │ Channel │ Reserved │ Payload     │
+│ (4 bytes)│ (4 bytes)│ (4 bytes)  │ (1)   │ (1)     │ (2)      │ (Variable)  │
+└──────────┴──────────┴────────────┴───────┴─────────┴──────────┴─────────────┘
+```
+
+- **Dest**: Destination node ID (FFFFFFFF for broadcast)
+- **Sender**: Source node ID
+- **Packet** ID: Unique packet identifier
+- **Flags**: Contains hop limit, ACK requests, and routing information
+- **Channel**: Mesh channel number (0-7)
+- **Payload**: Encrypted protobuf message
+
+### Command 1: Packet Decoder (Offline)
+The decoder allows you to decrypt and decode previously captured Meshtastic packets, perfect for analyzing captured traffic or troubleshooting.
+
+#### Command Help
+
+```bash
+python catsniffer.py meshtastic decode --help
+
+Usage: catsniffer.py meshtastic decode [OPTIONS]
+
+  Decrypt and decode a hex-encoded Meshtastic packet
+
+Options:
+  -i, --input TEXT  Hex-encoded payload (raw packet data starting with dest,
+                    sender, etc.)  [required]
+  -k, --key TEXT    Base64-encoded AES key. Use 'ham' or 'nokey' for open
+                    channels
+  -h, --help        Show this message and exit.
+```
+
+#### Default Encryption Keys
+
+Meshtastic uses several standard keys that the decoder automatically tries:
+
+|Key Name | Base64 | Value | Purpose |
+|---------|--------|-------|---------|
+|Default LongFast	| 1PG7OiApB1nwvP+rz05pAQ== | Primary channel key |
+| Secondary	| OEu8wB3AItGBvza4YSHh+5a3LlW/dCJ+nWr7SNZMsaE= | Alternate channel |
+| Tertiary | 6IzsaoVhx1ETWeWuu0dUWMLqItvYJLbRzwgTAKCfvtY= | Test networks |
+| Quaternary | TiIdi8MJG+IRnIkS8iUZXRU+MHuGtuzEasOWXp4QndU= | Legacy networks |
+
+#### Practical Examples
+
+**Example 1: Decode a captured packet**
+```bash
+python catsniffer.py meshtastic decode \
+  --input "fffffffff449ca27440287026300000048656c6c6f2065766572796f6e65"
+```
+
+**Expected Output**
+```bash
+Decrypted raw (hex): 48656c6c6f2065766572796f6e65
+[TEXT - UNENCRYPTED] f449ca27 -> ffffffff: Hello everyone
+```
+
+**Example 2: Decode with custom key**
+```bash
+python catsniffer.py meshtastic decode \
+  --input "fffffffff449ca27440287026300000041406aa0a81ef722d3a4598dc66326ace68cc3" \
+  --key "1PG7OiApB1nwvP+rz05pAQ=="
+```
+
+**Expected Output**
+```bash
+Decrypted raw (hex): 0801120f48656c6c6f20656e63727970746564
+[TEXT] f449ca27 -> ffffffff: Hello encrypted
+```
+
+**Example 2.1 Position with custom key**
+```bash
+python catsniffer.py meshtastic decode \
+  --input "fffffffff449ca27440287026300000041426aa5ed3f7503aa913c259ea6" \
+  --key "1PG7OiApB1nwvP+rz05pAQ=="
+```
+
+**Expected Output**
+```bash
+Decrypted raw (hex): 0803120a0d44ee4d161500c63bb7
+[POSITION] f449ca27 -> ffffffff: 37.420601999999995, -122.0819456
+```
+
+**Example 3: Decode open channel (no encryption)**
+```bash
+python catsniffer.py meshtastic decode \
+  --input "fffffffff449ca27440287026300000048656c6c6f2065766572796f6e65" \
+  --key ham
+```
+
+**Expected Output**
+```bash
+Decrypted raw (hex): 48656c6c6f2065766572796f6e65
+[TEXT - UNENCRYPTED] f449ca27 -> ffffffff: Hello everyone
+```
+
+#### Message Type Detection
+The decoder automatically identifies different Meshtastic message types:
+
+**Text Messages**
+```bash
+[TEXT] !49ca27 -> ffffffff: Hello mesh network!
+```
+
+**Position Updates:**
+```text
+[POSITION] !49ca27 -> ffffffff: 37.7749, -122.4194
+```
+
+### Command 2: Live Decoder
+
+The live decoder captures Meshtastic packets in real-time using the CatSniffer's LoRa port, automatically decrypting and displaying messages as they arrive.
+
+#### Command Help
+
+```bash
+python catsniffer.py meshtastic live --help
+
+Usage: catsniffer.py meshtastic live [OPTIONS]
+
+  Live Meshtastic decoder - Capture and decode packets in real-time
+
+Options:
+  -d, --device INTEGER      Device ID (for multiple CatSniffers)
+  -baud, --baudrate INTEGER  Baudrate (default: 115200)
+  -f, --frequency FLOAT      Frequency in MHz (default: 902.0)
+  -ps, --preset [defcon33|ShortTurbo|ShortSlow|ShortFast|MediumSlow|MediumFast|LongSlow|LongFast|LongMod|VLongSlow]
+                            Channel preset (default: LongFast)
+  -h, --help                Show this message and exit.
+```
+
+#### LoRa Configuration Presets
+
+Meshtastic uses specific LoRa radio configurations. The tool supports all standard presets:
+
+| Preset | Spreading Factor | Bandwidth | Coding Rate | Description |
+|--------|------------------|-----------|-------------|-------------|
+| defcon33 | SF7 | 500 kHz | 4/5 | Short range, fastest speed, long preamble |
+| ShortTurbo | SF7 | 500 kHz | 4/5 | Short range, fastest speed |
+| ShortSlow | SF8 | 250 kHz | 4/5 | Short range, lower speed |
+| ShortFast | SF7 | 250 kHz | 4/5 | Short range, fastest speed |
+| MediumSlow | SF10 | 250 kHz | 4/5 | Medium range, moderate speed |
+| MediumFast | SF9 | 250 kHz | 4/5 | Medium range, good speed |
+| LongSlow | SF12 | 125 kHz | 4/5 | Maximum range, slowest speed |
+| LongFast | SF11 | 250 kHz | 4/5 | Default - Best range/speed balance |
+| LongMod | SF11 | 125 kHz | 4/8 | Long range, moderate speed, robust coding |
+| VLongSlow | SF11 | 125 kHz | 4/8 | Very long range, robust coding |
+
+#### Basic Live Capture
+**Command:**
+```bash
+python catsniffer.py meshtastic live --device 1 --frequency 906.875 --preset LongFast
+```
+
+**Output Expected:**
+```bash
+ℹ Using device: CatSniffer #1
+ℹ Configuring radio: 906.875 MHz (906875000 Hz), preset: LongFast
+[*] Configuring radio via shell port /dev/ttyACM2
+  > lora_freq 906875000
+  > lora_sf 11
+  > lora_bw 250
+  > lora_cr 5
+  > lora_preamble 8
+  > lora_syncword public
+  > lora_apply
+[*] Current LoRa configuration:
+[✓] Radio configured successfully
+ℹ Starting capture... Press Ctrl+C to stop
+```
+
+**Live Decoding Output:**
+```bash
 
 ## Wireshark Integration
 
