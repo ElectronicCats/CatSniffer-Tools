@@ -1458,7 +1458,8 @@ def meshtastic_live(device, baudrate, frequency, preset):
 def meshtastic_dashboard(device, baudrate, frequency, preset):
     """Meshtastic Chat TUI - Beautiful terminal dashboard for Meshtastic"""
     import asyncio
-    from .meshtastic import MeshtasticChatApp, Monitor, CHANNELS_PRESET, SYNC_WORLD
+    from .meshtastic.core import configure_meshtastic_radio
+    from .meshtastic import MeshtasticChatApp, Monitor
 
     # Get device or exit with error
     dev = get_device_or_exit(device)
@@ -1482,46 +1483,14 @@ def meshtastic_dashboard(device, baudrate, frequency, preset):
     mon = Monitor(port, baudrate, rx_queue)
     mon.start()
 
-    # Configure radio via shell port with correct commands
-    from .catsniffer import ShellConnection
-
+    # Configure radio using shell port securely
     print_info("Configuring radio...")
-    shell = ShellConnection(shell_port)
-    shell.connect()
-
-    preset_config = CHANNELS_PRESET.get(preset, CHANNELS_PRESET["LongFast"])
-
-    # Convert bandwidth index to actual kHz value
-    bw_map = {7: 125, 8: 250, 9: 500}
-    bw_khz = bw_map.get(preset_config["bw"], 250)
-
     freq_hz = int(frequency * 1_000_000)
-
-    # Send configuration commands using the correct syntax
-    commands = [
-        f"lora_freq {freq_hz}",
-        f"lora_sf {preset_config['sf']}",
-        f"lora_bw {bw_khz}",
-        f"lora_cr {preset_config['cr']}",
-        f"lora_preamble {preset_config['pl']}",
-        "lora_syncword public",
-        "lora_apply",
-    ]
-
-    for cmd in commands:
-        print(f"  > {cmd}")
-        shell.send_command(cmd)
-        time.sleep(0.1)
-
-    # Verify configuration
-    print_info("Current LoRa configuration:")
-    shell.send_command("lora_config")
-    time.sleep(0.5)
-
-    # Switch to stream mode
-    shell.send_command("lora_mode stream")
-    shell.disconnect()
-    print_success("Radio configured successfully")
+    
+    if not configure_meshtastic_radio(shell_port, freq_hz, preset):
+        print_error("Failed to configure radio")
+        mon.stop()
+        return
 
     try:
         app = MeshtasticChatApp(monitor=mon, preset=preset, freq=str(frequency))

@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """
 Meshtastic Chat TUI Dashboard
-A beautiful, scrollable terminal app for Meshtastic chat
-
-Daniel Ruiz @ Electronic Cats
+Updated for Catsniffer FW with FSK support
 """
 
 from __future__ import annotations
@@ -12,12 +10,23 @@ import asyncio
 import base64
 import os
 import queue
+import re
 import sys
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
+
+from .core import (
+    DEFAULT_KEYS,
+    SYNC_WORD_MESHTASTIC,
+    CHANNELS_PRESET,
+    msb2lsb,
+    extract_frame,
+    extract_fields,
+    decrypt
+)
 
 # Third-party
 from cryptography.hazmat.backends import default_backend
@@ -36,66 +45,21 @@ from textual.widgets import DataTable, Static, Input, Footer
 from modules.catsniffer import LoRaConnection
 from protocol.sniffer_sx import SnifferSx
 from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
+from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
 
 # -------------------------- Radio / decoding helpers -------------------------
-DEFAULT_KEYS = [
-    "1PG7OiApB1nwvP+rz05pAQ==",  # Default LongFast key
-    "OEu8wB3AItGBvza4YSHh+5a3LlW/dCJ+nWr7SNZMsaE=",
-    "6IzsaoVhx1ETWeWuu0dUWMLqItvYJLbRzwgTAKCfvtY=",
-    "TiIdi8MJG+IRnIkS8iUZXRU+MHuGtuzEasOWXp4QndU=",
-]
-
-SYNC_WORLD = 0x2B
-
-CHANNELS_PRESET = {
-    "defcon33": {"sf": 7, "bw": 9, "cr": 5, "pl": 16},
-    "ShortTurbo": {"sf": 7, "bw": 9, "cr": 5, "pl": 8},
-    "ShortSlow": {"sf": 8, "bw": 8, "cr": 5, "pl": 8},
-    "ShortFast": {"sf": 7, "bw": 8, "cr": 5, "pl": 8},
-    "MediumSlow": {"sf": 10, "bw": 8, "cr": 5, "pl": 8},
-    "MediumFast": {"sf": 9, "bw": 8, "cr": 5, "pl": 8},
-    "LongSlow": {"sf": 12, "bw": 7, "cr": 5, "pl": 8},
-    "LongFast": {"sf": 11, "bw": 8, "cr": 5, "pl": 8},
-    "LongMod": {"sf": 11, "bw": 7, "cr": 8, "pl": 8},
-    "VLongSlow": {"sf": 11, "bw": 7, "cr": 8, "pl": 8},
-}
+from .core import (
+    DEFAULT_KEYS,
+    SYNC_WORD_MESHTASTIC,
+    CHANNELS_PRESET,
+    msb2lsb,
+    extract_frame,
+    extract_fields,
+    decrypt
+)
 
 
-def msb2lsb(hexstr: str) -> str:
-    return hexstr[6:8] + hexstr[4:6] + hexstr[2:4] + hexstr[0:2]
-
-
-def extract_frame(raw: bytes) -> bytes:
-    # ASCII text format fallback (RX: <HEX> or LORA RX: <HEX>)
-    as_str = raw.decode("ascii", errors="ignore").strip()
-    if "RX:" in as_str or "LORA RX:" in as_str:
-        try:
-            pkt = SnifferSx.Packet(as_str)
-            # Match the return format of extract_frame (raw bytes)
-            return pkt.payload
-        except Exception:
-            pass
-
-    if not raw.startswith(b"@S") or not raw.endswith(b"@E\r\n"):
-        raise ValueError("Invalid frame")
-    length = int.from_bytes(raw[2:4], byteorder="big")
-    return raw[4 : 4 + length]
-
-
-def extract_fields(data: bytes) -> Dict[str, bytes]:
-    return {
-        "dest": data[0:4],
-        "sender": data[4:8],
-        "packet_id": data[8:12],
-        "flags": data[12:13],
-        "payload": data[16:],
-    }
-
-
-def decrypt(payload: bytes, key: bytes, sender: bytes, packet_id: bytes) -> bytes:
-    nonce = packet_id + b"\x00\x00\x00\x00" + sender + b"\x00\x00\x00\x00"
-    cipher = Cipher(algorithms.AES(key), modes.CTR(nonce), backend=default_backend())
-    return cipher.decryptor().update(payload)
+# ------------------------------- Data models --------------------------------
 
 
 # ------------------------------- Data models --------------------------------
@@ -125,8 +89,11 @@ class NodeRegistry:
         self._by_id[node_id] = sanitize_text(name)
 
     def resolve(self, node_id_hex: str) -> str:
-        # node_id in protobuf is typically a string; sender bytes are numeric. We map by hex as fallback.
-        return self._by_id.get(node_id_hex, node_id_hex)
+        # Try to map by full ID
+        for node_id, name in self._by_id.items():
+            if node_id.endswith(node_id_hex) or node_id_hex in node_id:
+                return name
+        return node_id_hex
 
 
 # --------------------------- Text sanitation ---------------------------------
@@ -134,7 +101,7 @@ CONTROL_REPLACEMENT = "�"
 
 
 def sanitize_text(s: str) -> str:
-    """Escape Rich markup and replace control chars except newlines and tabs."""
+    """Cleans the text for display in terminal"""
     s = s.replace("\r\n", "\n").replace("\r", "\n")
     s = "".join(
         (
@@ -155,6 +122,7 @@ class Monitor(LoRaConnection):
         self.rx_queue = rx_queue
         self.running = True
         self.thread = None
+        self.last_keepalive = 0
 
     def start(self) -> None:
         self.connect()
@@ -164,8 +132,17 @@ class Monitor(LoRaConnection):
     def _recv_worker(self) -> None:
         while self.running:
             try:
-                # Use readline to ensure we get a full ASCII line for the text formats
-                # Binary frames (@S...@E\r\n) also end with \r\n, so this is generally safe
+                # Keepalive to keep the firmware semaphore active
+                now = time.time()
+                if now - self.last_keepalive > 2.0:
+                    try:
+                        self.connection.write(b"\x00")
+                        self.connection.flush()
+                        self.last_keepalive = now
+                    except Exception:
+                        pass
+
+                # Read line from serial port
                 data = self.readline()
                 if data:
                     self.rx_queue.put(data)
@@ -250,9 +227,7 @@ class ChannelSidebar(Static):
             t.append(f"{count:>5}\n", style="dim")
 
         line("All", None)
-        for ch in sorted(k for k in self._counts.keys() if isinstance(k, int)) or list(
-            range(0, 8)
-        ):
+        for ch in range(8):
             if ch not in self._counts:
                 self._counts[ch] = 0
             line(f"Ch {ch}", ch)
@@ -273,8 +248,6 @@ class ChatTable(DataTable):
         # Auto-scroll to bottom if currently at bottom
         if self.row_count > 0 and self.cursor_row == self.row_count - 2:
             self.move_cursor(row=self.row_count - 1)
-        # Keep selection at latest
-        self.cursor_type = "row"
 
 
 class StatusBar(Static):
@@ -308,7 +281,6 @@ class MeshtasticChatApp(App):
         Binding("a", "filter_all", "All"),
         Binding("f", "filter_text", "Find"),
         Binding("c", "clear_filter", "Clear"),
-        # numeric channels 0-7
         *[Binding(str(d), f"filter_channel({d})", f"Ch {d}") for d in range(0, 8)],
     ]
 
@@ -326,6 +298,7 @@ class MeshtasticChatApp(App):
         self.status = StatusBar()
         self.filter_text: Optional[str] = None
         self.active_channel: Optional[int] = None
+        self.packet_count = 0
 
     # ---------------------- Compose UI ----------------------
     def compose(self) -> ComposeResult:
@@ -337,9 +310,7 @@ class MeshtasticChatApp(App):
 
     # ---------------------- Lifecycle -----------------------
     async def on_mount(self) -> None:
-        # Start a background task to ferry data from thread queue -> asyncio queue
         self.set_interval(0.05, self._pump_thread_queue)
-        # periodic status refresh
         self.set_interval(1.0, lambda: self.header.set_status())
 
     def _pump_thread_queue(self) -> None:
@@ -350,45 +321,75 @@ class MeshtasticChatApp(App):
             except queue.Empty:
                 break
             else:
-                # we're already on the app's thread; use put_nowait
                 self.async_rx_queue.put_nowait(frame)
                 moved += 1
         if moved:
-            # schedule the coroutine to handle the frames
             asyncio.create_task(self._process_available())
 
     async def _process_frame(self, frame: bytes) -> None:
         try:
             raw = extract_frame(frame)
+            if not raw or len(raw) < 16:
+                return
+                
             fields = extract_fields(raw)
-        except Exception:
+            if not fields or len(fields.get("payload", b"")) == 0:
+                return
+                
+        except Exception as e:
             return
-        # try keys
+            
+        # Try with all keys
+        decrypted_success = False
         for key in self.keys:
             try:
                 decrypted = decrypt(
                     fields["payload"], key, fields["sender"], fields["packet_id"]
                 )
+                msg = self._decode_any(decrypted, fields)
+                if msg is not None:
+                    await self._handle_decoded(msg)
+                    decrypted_success = True
+                    break
             except Exception:
                 continue
-            msg = self._decode_any(decrypted, fields)
-            if msg is not None:
-                await self._handle_decoded(msg)
-                break
+
+        if not decrypted_success:
+            # Intentar interpretar como texto plano (canales abiertos)
+            try:
+                raw_payload = fields["payload"]
+                plain_text = raw_payload.decode('utf-8', errors='ignore')
+                if plain_text.isprintable() and len(plain_text) > 0:
+                    # Crear mensaje emulado
+                    ch = fields.get("channel", b"\x00")[0]
+                    src_hex = fields["sender"].hex().upper()
+                    name = self.node_registry.resolve(src_hex)
+                    msg_obj = ChatMessage(
+                        ts=time.time(),
+                        channel=ch,
+                        sender_id_hex=src_hex,
+                        sender_name=name,
+                        text=f"[PLAIN] {plain_text}",
+                    )
+                    self.packet_count += 1
+                    if self._passes_filter(msg_obj):
+                        self.table.add_message(msg_obj)
+                    self.sidebar.increment(ch)
+            except:
+                pass
 
     def _decode_any(
         self, decrypted: bytes, fields: Dict[str, bytes]
     ) -> Optional[Tuple[str, Dict]]:
-        # return (type, data)
         pb = mesh_pb2.Data()
         try:
             pb.ParseFromString(decrypted)
         except Exception:
             return None
-        # Common meta
+            
         src_hex = fields["sender"].hex().upper()
         dst_hex = fields["dest"].hex().upper()
-        channel = getattr(pb, "channel", 0)  # default 0 if missing
+        channel = fields.get("channel", b"\x00")[0]
 
         if pb.portnum == 1:  # TEXT
             try:
@@ -420,11 +421,13 @@ class MeshtasticChatApp(App):
             user: mesh_pb2.User = data["user"]
             self.node_registry.set_from_user_pb(user)
             return
+            
         if kind == "text":
             ch = data["channel"]
             src_hex = data["src_hex"]
             text = data["text"]
             name = self.node_registry.resolve(src_hex)
+            
             msg = ChatMessage(
                 ts=time.time(),
                 channel=ch,
@@ -432,9 +435,13 @@ class MeshtasticChatApp(App):
                 sender_name=name,
                 text=text,
             )
+            
+            self.packet_count += 1
+            
             # Filter logic
             if self._passes_filter(msg):
                 self.table.add_message(msg)
+                
             # Always increment counts
             self.sidebar.increment(ch)
 
@@ -447,7 +454,6 @@ class MeshtasticChatApp(App):
                 return False
         return True
 
-    # Process frames queued for asyncio
     async def _process_available(self) -> None:
         while not self.async_rx_queue.empty():
             frame = await self.async_rx_queue.get()
@@ -477,9 +483,10 @@ class MeshtasticChatApp(App):
             self._refresh_table()
             self.pop_screen()
 
-        # lightweight inline prompt
-        prompt = InlinePrompt("Filter (name/message): ", on_submit)
-        self.push_screen(prompt)
+        # Use Input directly
+        input_widget = Input(placeholder="Enter filter text...")
+        input_widget.on_submit = on_submit
+        self.push_screen(input_widget)
 
     def _refresh_table(self) -> None:
         self.table.clear(columns=False)
@@ -493,46 +500,30 @@ class MeshtasticChatApp(App):
         self.status.set_text(status)
 
 
-class InlinePrompt(App):
-    """Minimal inline prompt screen to capture a single line of input."""
-
-    CSS = """
-    Screen { align: center middle; }
-    #panel { width: 80%; border: round green; padding: 1 2; }
-    """
-
-    def __init__(self, label: str, on_submit) -> None:
-        super().__init__()
-        self.label = label
-        self.on_submit = on_submit
-        self.input = Input(placeholder="type and press Enter…")
-
-    def compose(self) -> ComposeResult:
-        yield Container(self.input)
-
-    async def on_mount(self) -> None:
-        await self.input.focus()
-
-    async def on_input_submitted(self, event: Input.Submitted) -> None:
-        self.on_submit(event.value)
-
-
 # ------------------------------- Entrypoint ----------------------------------
 async def run_app(args) -> None:
     rx_queue: queue.Queue = queue.Queue()
     mon = Monitor(args.port, args.baudrate, rx_queue)
     mon.start()
 
-    # Configure radio (ensure correct shell commands are used)
-    # The CatSniffer Shell uses lora_ prefix for configuration
-    mon.write(f"lora_bw {CHANNELS_PRESET[args.preset]['bw']}\r\n".encode())
-    mon.write(f"lora_sf {CHANNELS_PRESET[args.preset]['sf']}\r\n".encode())
-    mon.write(f"lora_cr {CHANNELS_PRESET[args.preset]['cr']}\r\n".encode())
-    mon.write(f"lora_preamble {CHANNELS_PRESET[args.preset]['pl']}\r\n".encode())
-    mon.write(f"lora_syncword {SYNC_WORLD}\r\n".encode())
-    freq_hz = int(args.frequency * 1_000_000)
-    mon.write(f"lora_freq {freq_hz}\r\n".encode())
-    mon.write(b"lora_apply\r\n")
+    # Configure radio using commands from the new firmware
+    print(f"[*] Configuring radio on {args.port}...")
+    # Use specific commands from the updated firmware
+    commands = [
+        f"lora_freq {int(args.frequency * 1_000_000)}",
+        f"lora_sf {CHANNELS_PRESET[args.preset]['sf']}",
+        f"lora_bw {CHANNELS_PRESET[args.preset]['bw']}",  # Note: uses index, not kHz
+        f"lora_cr {CHANNELS_PRESET[args.preset]['cr']}",
+        f"lora_preamble {CHANNELS_PRESET[args.preset]['pl']}",
+        f"lora_syncword 0x{SYNC_WORD_MESHTASTIC:02X}",  # CORRECTED: 0x2B
+        "lora_apply",
+        "lora_mode stream"
+    ]
+    
+    for cmd in commands:
+        print(f"  > {cmd}")
+        mon.write(f"{cmd}\r\n".encode())
+        await asyncio.sleep(0.1)
 
     try:
         app = MeshtasticChatApp(
@@ -546,11 +537,11 @@ async def run_app(args) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Meshtastic Chat TUI - Beautiful terminal dashboard for Meshtastic",
+        description="Meshtastic Chat TUI - Updated for Catsniffer FW",
         epilog="""
 Examples:
-  catsniffer meshtastic dashboard -p /dev/ttyUSB1
-  catsniffer meshtastic dashboard -p COM3 -f 902 -ps LongFast
+  python dashboard.py -p /dev/ttyUSB1
+  python dashboard.py -p COM3 -f 902 -ps LongFast
         """,
     )
     parser.add_argument(
@@ -570,8 +561,8 @@ Examples:
         "-f",
         "--frequency",
         type=float,
-        default=902.0,
-        help="Frequency in MHz (default: 902.0)",
+        default=906.875,
+        help="Frequency in MHz (default: 906.875)",
     )
     parser.add_argument(
         "-ps",
