@@ -1,170 +1,59 @@
 #!/usr/bin/env python3
 """
-Meshtastic Live Decoder
-Live decoder for Meshtastic packets from CatSniffer LoRa port
+Meshtastic Live Decoder - Updated for Catsniffer FW with FSK support
 """
 
 import argparse
 import base64
 import queue
-import struct
 import sys
 import threading
 import time
+import re
 
+from .core import (
+    DEFAULT_KEYS,
+    SYNC_WORD_MESHTASTIC,
+    CHANNELS_PRESET,
+    msb2lsb,
+    extract_frame,
+    extract_fields,
+    decrypt,
+    decode_protobuf,
+    decode_nodeinfo,
+    configure_meshtastic_radio
+)
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
-
-from modules.catsniffer import LoRaConnection
+from modules.catsniffer import LoRaConnection, ShellConnection
 from protocol.sniffer_sx import SnifferSx
 
-DEFAULT_KEYS = [
-    "1PG7OiApB1nwvP+rz05pAQ==",  # Default LongFast key
-    "OEu8wB3AItGBvza4YSHh+5a3LlW/dCJ+nWr7SNZMsaE=",
-    "6IzsaoVhx1ETWeWuu0dUWMLqItvYJLbRzwgTAKCfvtY=",
-    "TiIdi8MJG+IRnIkS8iUZXRU+MHuGtuzEasOWXp4QndU=",
-]
-
-SYNC_WORLD = 0x2B
-
-CHANNELS_PRESET = {
-    "defcon33": {"sf": 7, "bw": 9, "cr": 5, "pl": 16},
-    "ShortTurbo": {"sf": 7, "bw": 9, "cr": 5, "pl": 8},
-    "ShortSlow": {"sf": 8, "bw": 8, "cr": 5, "pl": 8},
-    "ShortFast": {"sf": 7, "bw": 8, "cr": 5, "pl": 8},
-    "MediumSlow": {"sf": 10, "bw": 8, "cr": 5, "pl": 8},
-    "MediumFast": {"sf": 9, "bw": 8, "cr": 5, "pl": 8},
-    "LongSlow": {"sf": 12, "bw": 7, "cr": 5, "pl": 8},
-    "LongFast": {"sf": 11, "bw": 8, "cr": 5, "pl": 8},
-    "LongMod": {"sf": 11, "bw": 7, "cr": 8, "pl": 8},
-    "VLongSlow": {"sf": 11, "bw": 7, "cr": 8, "pl": 8},
-}
-
-
-def msb2lsb(hexstr):
-    """Convert MSB to LSB hex string"""
-    return hexstr[6:8] + hexstr[4:6] + hexstr[2:4] + hexstr[0:2]
-
-
-def extract_frame(raw):
-    """Extract frame from raw data"""
-    # ASCII text format fallback (RX: <HEX> or LORA RX: <HEX>)
-    as_str = raw.decode("ascii", errors="ignore").strip()
-    if "RX:" in as_str or "LORA RX:" in as_str:
-        try:
-            pkt = SnifferSx.Packet(as_str)
-            # Match the return format of extract_frame (raw bytes)
-            return pkt.payload
-        except Exception:
-            pass
-
-    if not raw.startswith(b"@S") or not raw.endswith(b"@E\r\n"):
-        raise ValueError("Invalid frame")
-    length = int.from_bytes(raw[2:4], byteorder="big")
-    return raw[4 : 4 + length]
-
-
-def extract_fields(data):
-    """Extract fields from frame data"""
-    fields = {
-        "dest": data[0:4],
-        "sender": data[4:8],
-        "packet_id": data[8:12],
-        "flags": data[12:13],
-        "channel": data[13:14],
-        "reserved": data[14:16],
-        "payload": data[16:],
-    }
-    # print(f"[DEBUG] Extracted fields: { {k: v.hex() for k, v in fields.items()} }")
-    return fields
-
-
-def decrypt(payload, key, sender, packet_id):
-    """Decrypt payload with given key"""
-    # Meshtastic interleaved nonce: ID(4) + 0000 + SENDER(4) + 0000
-    nonce = packet_id + b"\x00\x00\x00\x00" + sender + b"\x00\x00\x00\x00"
-    cipher = Cipher(algorithms.AES(key), modes.CTR(nonce), backend=default_backend())
-    return cipher.decryptor().update(payload)
-
-
-def format_mac(mac_bytes):
-    """Format MAC address"""
-    return ":".join(f"{b:02x}" for b in mac_bytes)
-
-
-def decode_nodeinfo(data):
-    """Decode NODEINFO protobuf"""
-    info = mesh_pb2.User()
-    info.ParseFromString(data)
-    output = "[NODEINFO]\n"
-    output += f"  ID         : {info.id}\n"
-    output += f"  Long Name  : {info.long_name}\n"
-    output += f"  Short Name : {info.short_name}\n"
-    if info.macaddr:
-        output += f"  MAC Addr   : {format_mac(info.macaddr)}\n"
-    output += f"  HW Model   : {info.hw_model}\n"
-    if info.public_key:
-        output += f"  Public Key : {info.public_key.hex()}\n"
-    output += f"  Messaging  : {'Disabled' if info.is_unmessagable else 'Enabled'}"
-    return output
-
-
-def decode_protobuf(data, src, dst):
-    """Decode protobuf message"""
-    pb = mesh_pb2.Data()
-    try:
-        pb.ParseFromString(data)
-        if pb.portnum == 1:  # TEXT
-            text = pb.payload.decode(errors="ignore")
-            return f"[TEXT] {src} -> {dst}: {text}"
-        elif pb.portnum == 3:  # POSITION
-            pos = mesh_pb2.Position()
-            pos.ParseFromString(pb.payload)
-            return f"[POSITION] {src} -> {dst}: {pos.latitude_i * 1e-7}, {pos.longitude_i * 1e-7}"
-        elif pb.portnum == 4:  # NODEINFO
-            return decode_nodeinfo(pb.payload)
-        elif pb.portnum == 5:  # ROUTING
-            r = mesh_pb2.Routing()
-            r.ParseFromString(pb.payload)
-            return f"[ROUTING]\n{r}"
-        elif pb.portnum == 6:  # ADMIN
-            a = admin_pb2.AdminMessage()
-            a.ParseFromString(pb.payload)
-            if a.HasField("peerSessionInitiation"):
-                pk = a.peerSessionInitiation.pub_key
-                return f"[KEY EXCHANGE DETECTED] Ephemeral pubkey: {pk.hex()}"
-            return f"[ADMIN]\n{a}"
-        elif pb.portnum == 67:  # TELEMETRY
-            t = telemetry_pb2.Telemetry()
-            t.ParseFromString(pb.payload)
-            return f"[TELEMETRY]\n{t}"
-        else:
-            return f"[PORT {pb.portnum}] Raw: {pb.payload.hex()}"
-    except:
-        return None
-
-
-def print_packet_info(fields, decrypted):
+def print_packet_info(fields, decrypted, key_index=None):
     """Print packet information"""
-    print("\n========================= Packet Info =========================")
-    print(
-        f"Sender: {msb2lsb(fields['sender'].hex())} -> Destination: {msb2lsb(fields['dest'].hex())} PacketID: {msb2lsb(fields['packet_id'].hex())}"
-    )
-    flags = fields["flags"][0]
-    print(f"Flags:   {chr(flags)}")
-    print(f"╰──▶ Hop limit: {(flags >> 5) & 0b111}")
-    print(f"╰──▶ Want ACK:  {(flags >> 4) & 1}")
-    print(f"╰──▶ Via MQTT:  {(flags >> 3) & 1}")
-    print(f"╰──▶ Hop Start: {flags & 0b111}")
-    print("\n--- Raw Payload (Encrypted) ---")
-    print(" ".join(f"{b:02X}" for b in fields["payload"]))
-    print("\n--- First Valid Decrypted Protobuf (Hex) ---")
-    print(" ".join(f"{b:02X}" for b in decrypted))
+    print("\n" + "="*60)
+    print(f"   Packet from {msb2lsb(fields['sender'].hex())} to {msb2lsb(fields['dest'].hex())}")
+    print(f"   Packet ID: {msb2lsb(fields['packet_id'].hex())}")
+    print(f"   Channel: {fields['channel'][0] if 'channel' in fields else 0}")
+    
+    flags = fields['flags'][0]
+    print(f"   Flags: 0x{flags:02X}")
+    print(f"     ├─ Hop limit: {(flags >> 5) & 0b111}")
+    print(f"     ├─ Want ACK:  {(flags >> 4) & 1}")
+    print(f"     ├─ Via MQTT:  {(flags >> 3) & 1}")
+    print(f"     └─ Hop Start: {flags & 0b111}")
+    
+    if key_index is not None:
+        print(f"      Decrypted with key #{key_index}")
+    
+    print("\n   Decrypted payload (hex):")
+    print("   " + " ".join(f"{b:02X}" for b in decrypted[:32]))
+    if len(decrypted) > 32:
+        print("   ...")
 
 
 class MeshtasticLiveDecoder:
-    """Live Meshtastic decoder using CatSniffer"""
+    """Live Meshtastic decoder using CatSniffer (updated for FW with FSK)"""
 
     def __init__(self, port, baudrate=115200, keys=None):
         """
@@ -183,50 +72,45 @@ class MeshtasticLiveDecoder:
         self.lora = None
         self.thread = None
         self.shell = None
+        self.stats = {"total": 0, "decrypted": 0, "errors": 0}
 
     def configure_radio(self, frequency, preset="LongFast", shell_port=None):
-        """Configure radio parameters using the shell port with correct commands"""
-        from ..catsniffer import ShellConnection
-
+        """Configure radio parameters using the shell port"""
         if shell_port is None:
             print("[ERROR] Shell port required for configuration")
             return False
 
         preset_config = CHANNELS_PRESET.get(preset, CHANNELS_PRESET["LongFast"])
 
-        # Convert bandwidth index to actual kHz value
-        bw_map = {7: 125, 8: 250, 9: 500}
-        bw_khz = bw_map.get(preset_config["bw"], 250)
-
         print(f"[*] Configuring radio via shell port {shell_port}")
+        print(f"[*] Preset: {preset}, Freq: {frequency} Hz")
 
         try:
             self.shell = ShellConnection(shell_port)
             self.shell.connect()
 
-            # Send configuration commands using the correct syntax
+            # Send configuration commands for new firmware
             commands = [
-                f"lora_freq {frequency}",  # Frequency in Hz
-                f"lora_sf {preset_config['sf']}",  # Spreading factor
-                f"lora_bw {bw_khz}",  # Bandwidth in kHz
-                f"lora_cr {preset_config['cr']}",  # Coding rate
-                f"lora_preamble {preset_config['pl']}",  # Preamble length
-                f"lora_syncword public",  # Syncword (public for Meshtastic)
-                "lora_apply",  # Apply configuration
+                f"lora_freq {frequency}",
+                f"lora_sf {preset_config['sf']}",
+                f"lora_bw {preset_config['bw']}",
+                f"lora_cr {preset_config['cr']}",
+                f"lora_preamble {preset_config['pl']}",
+                f"lora_syncword 0x{SYNC_WORD_MESHTASTIC:02X}",  # CORREGIDO
+                "lora_apply",
+                "lora_mode stream"
             ]
 
             for cmd in commands:
                 print(f"  > {cmd}")
                 self.shell.send_command(cmd)
-                time.sleep(0.1)  # Small delay between commands
+                time.sleep(0.1)
 
             # Verify configuration
             print("[*] Current LoRa configuration:")
-            self.shell.send_command("lora_config")
-            time.sleep(0.5)
-
-            # Switch to stream mode
-            self.shell.send_command("lora_mode stream")
+            response = self.shell.send_command("lora_config")
+            if response:
+                print(response)
 
             self.shell.disconnect()
             print("[✓] Radio configured successfully")
@@ -250,13 +134,14 @@ class MeshtasticLiveDecoder:
         self.running = True
         self.thread = threading.Thread(target=self._recv_worker, daemon=True)
         self.thread.start()
+        print("[*] Capture started. Press Ctrl+C to stop.")
 
     def _recv_worker(self):
         """Worker thread for receiving data"""
         last_ka = 0.0
         while self.running:
             try:
-                # Keepalive: send a null byte every 2 seconds to keep the radio semaphore active
+                # Keepalive to maintain radio semaphore
                 now = time.time()
                 if now - last_ka > 2.0:
                     try:
@@ -266,7 +151,6 @@ class MeshtasticLiveDecoder:
                     except Exception:
                         pass
 
-                # Use readline to ensure we get a full ASCII line for the text formats
                 data = self.lora.readline()
                 if data:
                     self.rx_queue.put(data)
@@ -291,10 +175,19 @@ class MeshtasticLiveDecoder:
             try:
                 if not self.rx_queue.empty():
                     frame = self.rx_queue.get_nowait()
+                    self.stats["total"] += 1
+                    
                     try:
                         raw = extract_frame(frame)
+                        if not raw or len(raw) < 16:
+                            continue
+                            
                         fields = extract_fields(raw)
-                        for key in self.keys:
+                        if not fields or len(fields.get("payload", b"")) == 0:
+                            continue
+                            
+                        decrypted_success = False
+                        for idx, key in enumerate(self.keys):
                             try:
                                 decrypted = decrypt(
                                     fields["payload"],
@@ -307,21 +200,38 @@ class MeshtasticLiveDecoder:
                                     fields["sender"].hex(),
                                     fields["dest"].hex(),
                                 )
-                                # Add channel info to decoded output if possible
-                                if decoded and "channel" in fields:
-                                    ch_num = fields["channel"][0]
-                                    decoded = decoded.replace("]", f" CH:{ch_num}]", 1)
                                 if decoded:
-                                    print_packet_info(fields, decrypted)
-                                    print(f"[INFO] Decryption successful")
+                                    print_packet_info(fields, decrypted, idx)
                                     print(decoded)
+                                    self.stats["decrypted"] += 1
+                                    decrypted_success = True
                                     break
                             except Exception:
                                 continue
+                                
+                        if not decrypted_success:
+                            # Intentar interpretar como texto plano (canales abiertos)
+                            try:
+                                raw_payload = fields["payload"]
+                                plain_text = raw_payload.decode('utf-8', errors='ignore')
+                                if plain_text.isprintable() and len(plain_text) > 0:
+                                    print(f"[PLAIN] {fields['sender'].hex()}: {plain_text}")
+                                    self.stats["decrypted"] += 1
+                            except:
+                                pass
+                                
                     except Exception as e:
-                        pass  # Not a valid frame
+                        self.stats["errors"] += 1
+                        
                 else:
-                    time.sleep(0.1)
+                    time.sleep(0.01)
+                    
+                # Mostrar estadísticas cada 100 paquetes
+                if self.stats["total"] % 100 == 0 and self.stats["total"] > 0:
+                    print(f"\r[*] Stats: {self.stats['total']} packets, "
+                          f"{self.stats['decrypted']} decrypted, "
+                          f"{self.stats['errors']} errors", end="", flush=True)
+                          
             except KeyboardInterrupt:
                 break
 
@@ -329,11 +239,11 @@ class MeshtasticLiveDecoder:
 def main():
     """CLI entry point"""
     parser = argparse.ArgumentParser(
-        description="Live Meshtastic decoder - Capture and decode Meshtastic packets in real-time",
+        description="Live Meshtastic decoder - Updated for Catsniffer FW",
         epilog="""
 Examples:
-  catsniffer meshtastic live -p /dev/ttyUSB1
-  catsniffer meshtastic live -p COM3 -f 902 -ps LongFast
+  python live.py -p /dev/ttyUSB1
+  python live.py -p COM3 -f 902 -ps LongFast -s /dev/ttyUSB2
         """,
     )
     parser.add_argument(
@@ -374,20 +284,14 @@ Examples:
     decoder = MeshtasticLiveDecoder(args.port, args.baudrate)
 
     freq_hz = int(args.frequency * 1_000_000)
-    print(
-        f"[*] Configuring radio: {args.frequency} MHz ({freq_hz} Hz), preset: {args.preset}"
-    )
+    print(f"[*] Frequency: {args.frequency} MHz ({freq_hz} Hz), preset: {args.preset}")
 
-    # You'll need to pass the shell port here - this would come from the CLI in cli.py
-    # For now, we'll assume it's provided
+    # Configurar radio si se proporciona puerto shell
     if args.shell_port:
         decoder.configure_radio(freq_hz, args.preset, args.shell_port)
     else:
-        print(
-            "[WARNING] No shell port provided. Radio may not be configured correctly."
-        )
+        print("[WARNING] No shell port provided. Radio may need manual configuration.")
 
-    print("[*] Starting capture... Press Ctrl+C to stop")
     decoder.start()
 
     try:
@@ -396,6 +300,7 @@ Examples:
         print("\n[*] Shutting down...")
     finally:
         decoder.stop()
+        print(f"\n[*] Final stats: {decoder.stats}")
 
 
 if __name__ == "__main__":
