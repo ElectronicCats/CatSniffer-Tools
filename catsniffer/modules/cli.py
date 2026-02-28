@@ -1585,4 +1585,113 @@ def main_cli() -> None:
     cli.add_command(meshtastic)
     cli.add_command(lora)
     cli.add_command(verify)
+    cli.add_command(vhci)
     cli()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# VHCI Bridge Commands
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+def vhci():
+    """Virtual HCI Bridge - Make CatSniffer appear as a standard Bluetooth controller"""
+    pass
+
+
+@vhci.command("start")
+@click.option("-d", "--device", type=int, default=None, help="CatSniffer device ID")
+@click.option("-p", "--port", default=None, help="Serial port (auto-detect if not specified)")
+@click.option("-a", "--addr", default=None, help="BD_ADDR to present (e.g., C0:FF:EE:C0:FF:EE)")
+@click.option("-v", "--verbose", is_flag=True, help="Enable verbose logging")
+def vhci_start(device, port, addr, verbose):
+    """Start the virtual HCI bridge daemon.
+    
+    This makes CatSniffer appear as /dev/hciX to BlueZ, enabling use with
+    btmon, gatttool, bleak, bettercap, and all standard Linux BLE tools.
+    
+    Examples:
+        sudo catsniffer vhci start
+        sudo catsniffer vhci start -d 1
+        sudo catsniffer vhci start -p /dev/ttyUSB0 -a C0:FF:EE:C0:FF:EE
+    """
+    # Check for root
+    if os.geteuid() != 0:
+        print_error("This command requires root. Run with sudo.")
+        console.print("    sudo catsniffer vhci start")
+        return
+
+    # Get serial port
+    if port:
+        serial_port = port
+    else:
+        dev = get_device_or_exit(device)
+        serial_port = dev.bridge_port
+        print_info(f"Using CatSniffer: {serial_port}")
+
+    # Import and run the vhci bridge
+    from .vhci_bridge import VHCIBridge
+
+    # Parse BD_ADDR
+    bd_addr = None
+    if addr:
+        bd_addr = bytes(int(x, 16) for x in addr.split(':'))
+
+    # Start bridge
+    bridge = VHCIBridge(serial_port, bd_addr)
+
+    def signal_handler(sig, frame):
+        print_warning("\nShutting down...")
+        bridge.stop()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    bridge.start()
+
+    console.print("\n[green]Bridge running![/green]")
+    console.print("  Check: [cyan]hciconfig -a[/cyan]")
+    console.print("  Use:   [cyan]btmon -i hci1[/cyan]")
+    console.print("  Use:   [cyan]gatttool -i hci1 -b TARGET -I[/cyan]")
+    console.print("  Use:   [cyan]bettercap -iface hci1[/cyan]")
+    console.print("\n[yellow]Press Ctrl+C to stop[/yellow]\n")
+
+    # Keep running
+    while bridge.running:
+        time.sleep(1)
+
+
+@vhci.command("check")
+def vhci_check():
+    """Check if vhci module is loaded and available."""
+    import subprocess
+
+    # Check if vhci module is loaded
+    result = subprocess.run(['lsmod'], capture_output=True, text=True)
+    if 'hci_vhci' in result.stdout:
+        print_success("hci_vhci kernel module is loaded")
+    else:
+        print_warning("hci_vhci kernel module is not loaded")
+        console.print("    Load with: [cyan]sudo modprobe hci_vhci[/cyan]")
+
+    # Check if /dev/vhci exists
+    if os.path.exists('/dev/vhci'):
+        print_success("/dev/vhci exists")
+        # Check permissions
+        if os.geteuid() == 0:
+            print_success("Running as root - can access /dev/vhci")
+        else:
+            print_warning("Not running as root - need sudo to access /dev/vhci")
+    else:
+        print_error("/dev/vhci not found")
+        console.print("    Load the module: [cyan]sudo modprobe hci_vhci[/cyan]")
+
+    # List current HCI devices
+    result = subprocess.run(['hciconfig'], capture_output=True, text=True)
+    if result.returncode == 0 and result.stdout:
+        console.print("\n[cyan]Current HCI devices:[/cyan]")
+        console.print(result.stdout)
+    else:
+        console.print("\n[yellow]No HCI devices found[/yellow]")
