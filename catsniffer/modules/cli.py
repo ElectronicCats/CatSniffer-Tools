@@ -12,6 +12,7 @@ import os
 import tempfile
 import sys
 import queue
+import signal
 
 # Internal
 from .catnip import Catnip
@@ -1689,9 +1690,12 @@ def vhci_check():
         console.print("    Load the module: [cyan]sudo modprobe hci_vhci[/cyan]")
 
     # List current HCI devices
-    result = subprocess.run(['hciconfig'], capture_output=True, text=True)
-    if result.returncode == 0 and result.stdout:
-        console.print("\n[cyan]Current HCI devices:[/cyan]")
-        console.print(result.stdout)
-    else:
-        console.print("\n[yellow]No HCI devices found[/yellow]")
+    try:
+        result = subprocess.run(['hciconfig'], capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout:
+            console.print("\n[cyan]Current HCI devices:[/cyan]")
+            console.print(result.stdout)
+        else:
+            console.print("\n[yellow]No HCI devices found[/yellow]")
+    except FileNotFoundError:
+        console.print("\n[yellow]hciconfig not found - install bluez-utils[/yellow]")
