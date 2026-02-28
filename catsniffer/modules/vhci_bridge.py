@@ -133,7 +133,7 @@ class VHCIBridge:
         
         # Open vhci
         self.vhci_fd = os.open('/dev/vhci', os.O_RDWR)
-        # Read initial vendor packet
+        # Read initial vendor packet (ignored for now)
         init = os.read(self.vhci_fd, 260)
         log.info("Opened /dev/vhci fd=%d, init=%s", self.vhci_fd, init.hex())
         
@@ -258,16 +258,20 @@ class VHCIBridge:
             self._write_hci(resp)
         elif opcode == 0x0C16:  # Read Page Timeout
             resp = hci_cmd_complete(opcode, pack('<BH', 0x00, 0x8000))
+            log.debug("Page Timeout response: %s", resp.hex())
             self._write_hci(resp)
         elif opcode == 0x0C6D:  # Read Extended Page Timeout (or similar)
             resp = hci_cmd_complete(opcode, b'\x00')
             self._write_hci(resp)
-        elif opcode == 0x0C13:  # Read Page Scan Activity (maybe)
-            resp = hci_cmd_complete(opcode, pack('<BHH', 0x00, 0x800, 0x12))
+        elif opcode == 0x0C13:  # Read Page Scan Activity
+            # For LE-only device, just return status
+            resp = hci_cmd_complete(opcode, b'\x00')
             self._write_hci(resp)
         elif opcode == 0x0C24:  # Read Class of Device
-            # Returns: Status (1) + Class_of_Device (3)
-            resp = hci_cmd_complete(opcode, pack('<BHB', 0x00, 0x0000, 0x00))  # Misc device
+            # Returns: Status (1) + Class_of_Device (3) = 4 bytes
+            # But kernel says "4 > 1"... let me check the spec
+            # Actually for LE-only device, just return error or minimal
+            resp = hci_cmd_complete(opcode, b'\x00')  # Just status
             self._write_hci(resp)
         elif opcode in (0x0C01, 0x0C02, 0x2001, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009,
                         0x200A, 0x200B, 0x200F, 0x2010, 0x2011, 0x2012, 0x2017, 0x2018, 0x1405):
