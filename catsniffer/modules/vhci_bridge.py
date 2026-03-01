@@ -35,6 +35,26 @@ ATT_OP_WRITE_REQ, ATT_OP_WRITE_RSP, ATT_OP_WRITE_CMD = 0x12, 0x13, 0x52
 ATT_OP_ERROR, ATT_OP_HANDLE_NTF = 0x01, 0x1B
 GATT_UUID_PRIMARY_SERVICE, GATT_UUID_CHARACTERISTIC = 0x2800, 0x2803
 
+# LL Control opcodes
+LL_CONNECTION_UPDATE_IND = 0x00
+LL_CHANNEL_MAP_IND = 0x02
+LL_TERMINATE_IND = 0x04
+LL_UNKNOWN_RSP = 0x07
+LL_FEATURE_REQ = 0x08
+LL_FEATURE_RSP = 0x09
+LL_VERSION_IND = 0x0C
+LL_REJECT_IND = 0x0D
+LL_SLAVE_FEATURE_REQ = 0x16
+LL_CONNECTION_PARAM_REQ = 0x18
+LL_CONNECTION_PARAM_RSP = 0x19
+LL_REJECT_EXT_IND = 0x1B
+LL_PING_REQ = 0x14
+LL_PING_RSP = 0x15
+LL_LENGTH_REQ = 0x14
+LL_LENGTH_RSP = 0x15
+LL_PHY_REQ = 0x16
+LL_PHY_RSP = 0x17
+
 def hci_cc(op, data=b''): return bytes([HCI_EVT, EVT_CMD_COMPLETE, 4+len(data), 1]) + struct.pack('<H', op) + data
 def hci_cs(op, st=0): return bytes([HCI_EVT, EVT_CMD_STATUS, 4, st, 1]) + struct.pack('<H', op)
 
@@ -423,7 +443,16 @@ class Bridge:
             if pkt_len < 2: return
             llid, dlen = body[0] & 3, body[1]
             log.debug("Data: chan=%d llid=%d dlen=%d body=%s", chan, llid, dlen, body[:min(20,len(body))].hex())
-            if llid == 3: return
+            if llid == 3:
+                # LL Control PDU - respond as needed
+                if dlen >= 1:
+                    opcode = body[2]
+                    if opcode == LL_LENGTH_REQ and dlen >= 17:
+                        # Respond with LL_LENGTH_RSP (echo back their params)
+                        params = body[3:17]
+                        self._send_cmd([0x19, 0, 0, 3, 15, LL_LENGTH_RSP] + list(params))
+                        log.debug("Sent LL_LENGTH_RSP")
+                return
             lldata = body[2:2+dlen]
             if len(lldata) >= 4:
                 l2len, cid = struct.unpack('<HH', lldata[:4])
