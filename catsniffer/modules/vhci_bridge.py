@@ -51,18 +51,33 @@ class GATTClient:
         if len(addr) != 6: return {"error": "Invalid address"}
         self.bridge.peer_addr = addr
         self.bridge.peer_addr_type = addr_type
+        
+        # Stop any ongoing operation
         if self.bridge.scanning:
             self.bridge._send_cmd([0x11, 0])
             self.bridge.scanning = False
-        
-        # Set our own random static address first (required for initiating)
-        our_addr = [randrange(256) for _ in range(6)]
-        our_addr[5] |= 0xC0  # Make it static random
-        self.bridge._send_cmd([0x1B, 1] + our_addr)
         time.sleep(0.1)
         
+        # Set advertising channel 37 with advertising AA (like Sniffle initiator)
+        self.bridge._send_cmd([0x10, 37] + list(struct.pack("<L", 0x8E89BED6)) + [0] + list(struct.pack("<L", 0x555555)))
+        time.sleep(0.05)
+        
+        # Pause after done
+        self.bridge._send_cmd([0x11, 1])
+        time.sleep(0.05)
+        
+        # Set MAC filter for target
+        self.bridge._send_cmd([0x13] + list(addr) + [1 if addr_type else 0])
+        time.sleep(0.05)
+        
+        # Set our own random static address
+        our_addr = [randrange(256) for _ in range(6)]
+        our_addr[5] |= 0xC0
+        self.bridge._send_cmd([0x1B, 1] + our_addr)
+        time.sleep(0.05)
+        
         # LLData: accessAddr[4], crcInit[3], winSize, winOffset[2], interval[2], latency[2], timeout[2], chanMap[5], hop
-        lldata = [randrange(256) for _ in range(7)] + [3] + list(struct.pack('<H', randint(5,15))) + list(struct.pack('<HHH', 24, 1, 50)) + [0xFF,0xFF,0xFF,0xFF,0x1F, randint(5,16)]
+        lldata = [randrange(256) for _ in range(4)] + [randrange(256) for _ in range(3)] + [3] + list(struct.pack('<H', randint(5,15))) + list(struct.pack('<HHH', 24, 1, 50)) + [0xFF,0xFF,0xFF,0xFF,0x1F, randint(5,16)]
         self.bridge._send_cmd([0x1A, addr_type] + list(addr) + lldata)
         return {"status": "connecting", "address": addr_str, "addr_type": addr_type}
         
@@ -403,9 +418,11 @@ class Bridge:
         if len(raw) < 10: return
         ts, ln, ev, rssi, cp = struct.unpack("<LHHbB", raw[:10])
         body, pkt_len, chan = raw[10:], ln & 0x7FFF, cp & 0x3F
+        log.debug("Packet: chan=%d len=%d rssi=%d", chan, pkt_len, rssi)
         if chan < 37:
             if pkt_len < 2: return
             llid, dlen = body[0] & 3, body[1]
+            log.debug("Data: chan=%d llid=%d dlen=%d body=%s", chan, llid, dlen, body[:min(20,len(body))].hex())
             if llid == 3: return
             lldata = body[2:2+dlen]
             if len(lldata) >= 4:
