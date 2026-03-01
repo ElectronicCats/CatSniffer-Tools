@@ -88,12 +88,13 @@ class Bridge:
         self.peer_addr_type = 0
         self.vhci_flags = 0
         
-        # Advertising state for MAC emulation
+        # Advertising state
         self.adv_addr = None
-        self.adv_data = b'\x02\x01\x06'  # Default: LE General Discoverable
+        self.adv_data = b'\x02\x01\x06'
         self.scan_rsp_data = b''
         self.adv_params = {}
         self.advertising = False
+        self.scanning = False
         
     def start(self):
         self.ser = Serial(self.port, 2000000, timeout=1.0)
@@ -211,11 +212,11 @@ class Bridge:
         elif op == 0x2003:  # LE Read Local Supported Features
             os.write(self.vhci, hci_cc(op, b'\x00' + bytes([0x03] + [0]*7)))
             
-        elif op == 0x2005:  # LE Set Random Address (for advertising)
+        elif op == 0x2005:  # LE Set Random Address
             if plen >= 6:
                 self.adv_addr = params[:6]
                 self._send_cmd([0x1B, 1] + list(params[:6]))
-                log.info("Set advertising address: %s", params[:6].hex())
+                log.info("Set advertising address: %s", params[:6][::-1].hex())
             os.write(self.vhci, hci_cc(op, b'\x00'))
             
         elif op == 0x200B:  # LE Set Scan Parameters
@@ -225,7 +226,13 @@ class Bridge:
             enable = params[0] if plen > 0 else 0
             log.info("Scan enable: %d", enable)
             os.write(self.vhci, hci_cc(op, b'\x00'))
-            if enable:
+            
+            # Stop advertising if scanning
+            if enable and self.advertising:
+                self._send_cmd([0x11, 0])
+                self.advertising = False
+                
+            if enable and not self.scanning:
                 cmd = [0x10, 37]
                 cmd.extend(struct.pack('<L', BLE_ADV_AA))
                 cmd.append(0)
@@ -233,8 +240,10 @@ class Bridge:
                 self._send_cmd(cmd)
                 time.sleep(0.05)
                 self._send_cmd([0x22])
-            else:
+                self.scanning = True
+            elif not enable and self.scanning:
                 self._send_cmd([0x11, 0])
+                self.scanning = False
                 
         elif op == 0x2007:  # LE Read Adv TX Power
             os.write(self.vhci, hci_cc(op, b'\x00\x05'))
@@ -246,12 +255,12 @@ class Bridge:
                     'max_interval': struct.unpack('<H', params[2:4])[0],
                     'type': params[4],
                     'own_addr_type': params[5],
-                    'peer_addr_type': params[6],
-                    'peer_addr': params[7:13],
                     'channel_map': params[13],
-                    'filter_policy': params[14]
                 }
-                log.debug("Adv params: %s", self.adv_params)
+                # Set advertising interval
+                interval_ms = (self.adv_params['min_interval'] + self.adv_params['max_interval']) // 2 * 5 // 8
+                if 20 < interval_ms < 0xFFFF:
+                    self._send_cmd([0x1D, interval_ms & 0xFF, interval_ms >> 8])
             os.write(self.vhci, hci_cc(op, b'\x00'))
             
         elif op == 0x2008:  # LE Set Advertising Data
@@ -274,27 +283,41 @@ class Bridge:
             os.write(self.vhci, hci_cc(op, b'\x00'))
             
             if enable and not self.advertising:
+                # Stop scanning if active
+                if self.scanning:
+                    self._send_cmd([0x11, 0])
+                    self.scanning = False
+                    
                 # Set address if specified
                 if self.adv_addr:
                     self._send_cmd([0x1B, 1] + list(self.adv_addr))
                     time.sleep(0.05)
                 
-                # Build advertising command
-                # cmd_advertise: 0x1C, mode, advData[32], scanRspData[32]
-                adv_mode = 0  # ADV_IND (connectable)
-                if self.adv_params.get('type') in (2, 3):
-                    adv_mode = self.adv_params['type']
+                # Build advertising command with CORRECT format:
+                # [0x1C, mode, len, advData[31], len, scanRspData[31]]
+                # Mode: 0=ADV_IND, 2=ADV_NONCONN_IND, 3=ADV_SCAN_IND
+                adv_type = self.adv_params.get('type', 0)
+                if adv_type == 0:  # ADV_IND
+                    mode = 0
+                elif adv_type == 2:  # ADV_NONCONN_IND
+                    mode = 0
+                elif adv_type == 3:  # ADV_SCAN_IND
+                    mode = 0
+                else:
+                    mode = 0
                     
-                padded_adv = list(self.adv_data) + [0] * (31 - len(self.adv_data))
-                padded_scan = list(self.scan_rsp_data) + [0] * (31 - len(self.scan_rsp_data))
+                # Build padded data WITH length prefix
+                padded_adv = [len(self.adv_data)] + list(self.adv_data) + [0] * (31 - len(self.adv_data))
+                padded_scan = [len(self.scan_rsp_data)] + list(self.scan_rsp_data) + [0] * (31 - len(self.scan_rsp_data))
                 
-                self._send_cmd([0x1C, adv_mode] + padded_adv + padded_scan)
+                cmd = [0x1C, mode] + padded_adv + padded_scan
+                self._send_cmd(cmd)
                 self.advertising = True
                 log.info("Advertising started with MAC: %s", 
                         (self.adv_addr or self.bdaddr)[::-1].hex())
                 
             elif not enable and self.advertising:
-                self._send_cmd([0x11, 0])  # cmd_pause_done
+                self._send_cmd([0x11, 0])
                 self.advertising = False
                 log.info("Advertising stopped")
                 
@@ -305,18 +328,34 @@ class Bridge:
                 self.peer_addr = bytes(reversed(peer_addr))
                 self.peer_addr_type = peer_addr_type
                 is_random = (peer_addr_type in (1, 0x11))
+                
+                # Stop scanning/advertising first
+                if self.scanning or self.advertising:
+                    self._send_cmd([0x11, 0])
+                    self.scanning = False
+                    self.advertising = False
+                    
+                # Set our address
+                if self.adv_addr:
+                    self._send_cmd([0x1B, 1] + list(self.adv_addr))
+                    time.sleep(0.05)
+                
+                # Generate LLData for CONNECT_IND
                 lldata = []
-                lldata.extend([randrange(0x100) for _ in range(4)])
-                lldata.extend([randrange(0x100) for _ in range(3)])
-                lldata.append(3)
-                lldata.extend(struct.pack("<H", randint(5, 15)))
-                lldata.extend(struct.pack("<H", 24))
-                lldata.extend(struct.pack("<H", 1))
-                lldata.extend(struct.pack("<H", 50))
-                lldata.extend([0xFF, 0xFF, 0xFF, 0xFF, 0x1F])
-                lldata.append(randint(5, 16))
+                lldata.extend([randrange(0x100) for _ in range(4)])  # Access address
+                lldata.extend([randrange(0x100) for _ in range(3)])  # CRC init
+                lldata.append(3)  # WinSize
+                lldata.extend(struct.pack("<H", randint(5, 15)))  # WinOffset
+                lldata.extend(struct.pack("<H", 24))  # Interval
+                lldata.extend(struct.pack("<H", 1))  # Latency
+                lldata.extend(struct.pack("<H", 50))  # Timeout
+                lldata.extend([0xFF, 0xFF, 0xFF, 0xFF, 0x1F])  # Channel map
+                lldata.append(randint(5, 16))  # Hop, SCA=0
+                
+                # cmd_connect: 0x1A, addr_type, peer_addr[6], lldata[22]
                 self._send_cmd([0x1A, 1 if is_random else 0] + list(self.peer_addr) + lldata)
                 os.write(self.vhci, hci_cs(op, 0))
+                log.info("Connecting to %s", self.peer_addr.hex())
             else:
                 os.write(self.vhci, hci_cc(op, b'\x01'))
                 
@@ -389,7 +428,7 @@ class Bridge:
         log.info("State: %d", state)
         if state == SnifferState.CENTRAL:
             self.active_conn = True
-            self._send_conn_complete()
+            self._send_conn_complete(role=0)
         elif state == SnifferState.PERIPHERAL:
             self.active_conn = True
             self._send_conn_complete(role=1)
