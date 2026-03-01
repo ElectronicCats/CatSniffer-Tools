@@ -54,6 +54,14 @@ class GATTClient:
         if self.bridge.scanning:
             self.bridge._send_cmd([0x11, 0])
             self.bridge.scanning = False
+        
+        # Set our own random static address first (required for initiating)
+        our_addr = [randrange(256) for _ in range(6)]
+        our_addr[5] |= 0xC0  # Make it static random
+        self.bridge._send_cmd([0x1B, 1] + our_addr)
+        time.sleep(0.1)
+        
+        # LLData: accessAddr[4], crcInit[3], winSize, winOffset[2], interval[2], latency[2], timeout[2], chanMap[5], hop
         lldata = [randrange(256) for _ in range(7)] + [3] + list(struct.pack('<H', randint(5,15))) + list(struct.pack('<HHH', 24, 1, 50)) + [0xFF,0xFF,0xFF,0xFF,0x1F, randint(5,16)]
         self.bridge._send_cmd([0x1A, addr_type] + list(addr) + lldata)
         return {"status": "connecting", "address": addr_str, "addr_type": addr_type}
