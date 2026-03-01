@@ -67,12 +67,10 @@ class SnifferState:
 
 
 def hci_cc(op, data=b''):
-    """Build HCI Command Complete event."""
     return bytes([HCI_EVT, EVT_CMD_COMPLETE, 4 + len(data), 1]) + struct.pack('<H', op) + data
 
 
 def hci_cs(op, status=0):
-    """Build HCI Command Status event."""
     return bytes([HCI_EVT, EVT_CMD_STATUS, 4, status, 1]) + struct.pack('<H', op)
 
 
@@ -89,6 +87,13 @@ class Bridge:
         self.peer_addr = None
         self.peer_addr_type = 0
         self.vhci_flags = 0
+        
+        # Advertising state for MAC emulation
+        self.adv_addr = None
+        self.adv_data = b'\x02\x01\x06'  # Default: LE General Discoverable
+        self.scan_rsp_data = b''
+        self.adv_params = {}
+        self.advertising = False
         
     def start(self):
         self.ser = Serial(self.port, 2000000, timeout=1.0)
@@ -134,42 +139,29 @@ class Bridge:
         log.debug("TX cmd: %s", cmd.hex())
         
     def _recv_msg(self):
-        """Receive and decode a Sniffle message."""
         while True:
             if len(self.rx_buf) < 8:
                 return None, None
-                
             crlf_pos = self.rx_buf.find(b'\r\n')
             if crlf_pos < 0:
                 return None, None
-                
             line = self.rx_buf[:crlf_pos]
             self.rx_buf = self.rx_buf[crlf_pos + 2:]
-            
             if len(line) == 0 or line.startswith(b'@@'):
                 continue
-                
             if len(line) % 4 != 0:
                 continue
-                
             try:
                 data = b64decode(line)
             except BAError:
                 continue
-                
             if len(data) < 2:
                 continue
-                
-            # Don't validate word_cnt - just extract type and body
-            msg_type = data[1]
-            msg_body = data[2:]
-            
-            return msg_type, msg_body
+            return data[1], data[2:]
         
     def handle_hci(self, data):
         if len(data) < 3:
             return
-            
         op, plen = struct.unpack('<HB', data[:3])
         params = data[3:3+plen]
         log.info("HCI CMD: 0x%04X", op)
@@ -219,9 +211,11 @@ class Bridge:
         elif op == 0x2003:  # LE Read Local Supported Features
             os.write(self.vhci, hci_cc(op, b'\x00' + bytes([0x03] + [0]*7)))
             
-        elif op == 0x2005:  # LE Set Random Address
+        elif op == 0x2005:  # LE Set Random Address (for advertising)
             if plen >= 6:
+                self.adv_addr = params[:6]
                 self._send_cmd([0x1B, 1] + list(params[:6]))
+                log.info("Set advertising address: %s", params[:6].hex())
             os.write(self.vhci, hci_cc(op, b'\x00'))
             
         elif op == 0x200B:  # LE Set Scan Parameters
@@ -245,9 +239,65 @@ class Bridge:
         elif op == 0x2007:  # LE Read Adv TX Power
             os.write(self.vhci, hci_cc(op, b'\x00\x05'))
             
-        elif op in (0x2006, 0x2008, 0x2009, 0x200A):  # Adv params/data/enable
+        elif op == 0x2006:  # LE Set Advertising Parameters
+            if plen >= 15:
+                self.adv_params = {
+                    'min_interval': struct.unpack('<H', params[0:2])[0],
+                    'max_interval': struct.unpack('<H', params[2:4])[0],
+                    'type': params[4],
+                    'own_addr_type': params[5],
+                    'peer_addr_type': params[6],
+                    'peer_addr': params[7:13],
+                    'channel_map': params[13],
+                    'filter_policy': params[14]
+                }
+                log.debug("Adv params: %s", self.adv_params)
             os.write(self.vhci, hci_cc(op, b'\x00'))
             
+        elif op == 0x2008:  # LE Set Advertising Data
+            if plen >= 1:
+                data_len = params[0]
+                self.adv_data = params[1:1+data_len] if data_len > 0 else b''
+                log.info("Set adv data: %s", self.adv_data.hex())
+            os.write(self.vhci, hci_cc(op, b'\x00'))
+            
+        elif op == 0x2009:  # LE Set Scan Response Data
+            if plen >= 1:
+                data_len = params[0]
+                self.scan_rsp_data = params[1:1+data_len] if data_len > 0 else b''
+                log.info("Set scan rsp: %s", self.scan_rsp_data.hex())
+            os.write(self.vhci, hci_cc(op, b'\x00'))
+            
+        elif op == 0x200A:  # LE Set Advertise Enable
+            enable = params[0] if plen > 0 else 0
+            log.info("Advertise enable: %d", enable)
+            os.write(self.vhci, hci_cc(op, b'\x00'))
+            
+            if enable and not self.advertising:
+                # Set address if specified
+                if self.adv_addr:
+                    self._send_cmd([0x1B, 1] + list(self.adv_addr))
+                    time.sleep(0.05)
+                
+                # Build advertising command
+                # cmd_advertise: 0x1C, mode, advData[32], scanRspData[32]
+                adv_mode = 0  # ADV_IND (connectable)
+                if self.adv_params.get('type') in (2, 3):
+                    adv_mode = self.adv_params['type']
+                    
+                padded_adv = list(self.adv_data) + [0] * (31 - len(self.adv_data))
+                padded_scan = list(self.scan_rsp_data) + [0] * (31 - len(self.scan_rsp_data))
+                
+                self._send_cmd([0x1C, adv_mode] + padded_adv + padded_scan)
+                self.advertising = True
+                log.info("Advertising started with MAC: %s", 
+                        (self.adv_addr or self.bdaddr)[::-1].hex())
+                
+            elif not enable and self.advertising:
+                self._send_cmd([0x11, 0])  # cmd_pause_done
+                self.advertising = False
+                log.info("Advertising stopped")
+                
         elif op == 0x200D:  # LE Create Connection
             if plen >= 25:
                 peer_addr_type = params[4]
@@ -288,7 +338,6 @@ class Bridge:
             else:
                 os.write(self.vhci, hci_cc(op, b'\x02'))
                 
-        # Generic handlers
         elif op in (0x0C13, 0x0C24, 0x0C6D):
             os.write(self.vhci, hci_cc(op, b'\x00'))
         elif op == 0x0C16:
@@ -304,38 +353,28 @@ class Bridge:
             os.write(self.vhci, hci_cc(op, b'\x00'))
             
     def handle_packet(self, raw):
-        """Handle a Sniffle packet message (type 0x10)."""
         if len(raw) < 10:
             return
-            
         ts, length, event, rssi, chan_phy = struct.unpack("<LHHbB", raw[:10])
         body = raw[10:]
-        
         pkt_len = length & 0x7FFF
         chan = chan_phy & 0x3F
-        
-        if chan < 37:  # Only advertising channels
+        if chan < 37:
             return
-            
         if len(body) != pkt_len:
             return
-            
         if pkt_len < 6:
             return
-            
         pdu_type = body[0] & 0x0F
         tx_add = (body[0] >> 6) & 1
         adv_addr = body[2:8]
         adv_data = body[8:] if pkt_len > 8 else b''
-        
         type_map = {0: 0, 1: 1, 2: 2, 4: 3, 5: 4, 6: 0}
         evt_type = type_map.get(pdu_type, 0)
-        
         report = struct.pack('<BBBB', LE_ADV_REPORT, 1, evt_type, tx_add)
         report += adv_addr
         report += struct.pack('B', len(adv_data)) + adv_data
         report += struct.pack('b', rssi)
-        
         evt = bytes([HCI_EVT, EVT_LE_META, len(report)]) + report
         try:
             os.write(self.vhci, evt)
@@ -348,19 +387,21 @@ class Bridge:
             return
         state = raw[0]
         log.info("State: %d", state)
-        
         if state == SnifferState.CENTRAL:
             self.active_conn = True
             self._send_conn_complete()
+        elif state == SnifferState.PERIPHERAL:
+            self.active_conn = True
+            self._send_conn_complete(role=1)
         elif state == SnifferState.STATIC:
             if self.active_conn:
                 self.active_conn = False
                 self._send_disconn_complete(0x13)
                 
-    def _send_conn_complete(self):
+    def _send_conn_complete(self, role=0):
         payload = struct.pack('<BBBBB', LE_CONN_COMPLETE, 0x00,
                               self.conn_handle & 0xFF,
-                              (self.conn_handle >> 8) & 0x0F, 0x00)
+                              (self.conn_handle >> 8) & 0x0F, role)
         payload += bytes([self.peer_addr_type]) + (self.peer_addr or b'\x00'*6)
         payload += struct.pack('<HHH', 24, 0, 2000) + bytes([0x00])
         os.write(self.vhci, bytes([HCI_EVT, EVT_LE_META, len(payload)]) + payload)
@@ -374,7 +415,6 @@ class Bridge:
     def run(self):
         while self.running:
             fcntl.fcntl(self.vhci, fcntl.F_SETFL, self.vhci_flags | os.O_NONBLOCK)
-            
             try:
                 r, _, _ = select.select([self.vhci], [], [], 0.001)
                 while r:
@@ -388,13 +428,11 @@ class Bridge:
             except Exception as e:
                 if self.running:
                     log.error("VHCI error: %s", e)
-                    
             try:
                 if self.ser.in_waiting > 0:
                     self.rx_buf += self.ser.read(self.ser.in_waiting)
             except:
                 pass
-                
             while True:
                 mt, mb = self._recv_msg()
                 if mt is None:
@@ -417,12 +455,9 @@ def main():
     ap.add_argument('-p', '--port', required=True)
     ap.add_argument('-v', '--verbose', action='store_true')
     args = ap.parse_args()
-    
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, handlers=[RichHandler()])
-    
     if os.geteuid() != 0:
         console.print("[yellow]Warning: Need root for /dev/vhci[/yellow]")
-        
     b = Bridge(args.port)
     signal.signal(signal.SIGINT, lambda s,f: (b.stop(), sys.exit(0)))
     signal.signal(signal.SIGTERM, lambda s,f: (b.stop(), sys.exit(0)))
