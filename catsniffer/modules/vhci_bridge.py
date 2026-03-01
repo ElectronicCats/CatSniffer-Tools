@@ -424,6 +424,7 @@ class Bridge:
         body, pkt_len, chan = raw[10:], ln & 0x7FFF, cp & 0x3F
         log.debug("Packet: chan=%d len=%d rssi=%d", chan, pkt_len, rssi)
         if chan < 37:
+            log.debug("Data packet: chan=%d llid=%d dlen=%d", chan, body[0] & 3, body[1])
             if pkt_len < 2: return
             llid, dlen = body[0] & 3, body[1]
             log.debug("Data: chan=%d llid=%d dlen=%d body=%s", chan, llid, dlen, body[:min(20,len(body))].hex())
