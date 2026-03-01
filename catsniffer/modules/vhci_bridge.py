@@ -155,6 +155,7 @@ class GATTClient:
     def handle_att(self, pdu):
         if not pdu: return
         op = pdu[0]
+        log.info("ATT PDU received: op=0x%02X len=%d data=%s", op, len(pdu), pdu.hex())
         if op == ATT_OP_ERROR and len(pdu) >= 4:
             self.response = {"error": f"ATT error 0x{pdu[4]:02X}"}
         elif op == ATT_OP_MTU_RSP and len(pdu) >= 3:
@@ -370,6 +371,7 @@ class Bridge:
         log.debug("TX: %s", bytes([b0]+cmd).hex())
         
     def _send_tx_packet(self, llid, data, ev=0):
+        log.info("TX_PACKET: llid=%d ev=%d len=%d data=%s", llid, ev, len(data), data.hex())
         self._send_cmd([0x19, ev&0xFF, (ev>>8)&0xFF, llid, len(data)] + list(data))
         
     def _recv_msg(self):
