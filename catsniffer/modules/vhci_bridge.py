@@ -46,17 +46,17 @@ class GATTClient:
         self.characteristics = []
         self.response = None
         
-    def connect(self, addr_str):
+    def connect(self, addr_str, addr_type=0):
         addr = bytes.fromhex(addr_str.replace(':', ''))[::-1]
         if len(addr) != 6: return {"error": "Invalid address"}
         self.bridge.peer_addr = addr
-        self.bridge.peer_addr_type = 0
+        self.bridge.peer_addr_type = addr_type
         if self.bridge.scanning:
             self.bridge._send_cmd([0x11, 0])
             self.bridge.scanning = False
         lldata = [randrange(256) for _ in range(7)] + [3] + list(struct.pack('<H', randint(5,15))) + list(struct.pack('<HHH', 24, 1, 50)) + [0xFF,0xFF,0xFF,0xFF,0x1F, randint(5,16)]
-        self.bridge._send_cmd([0x1A, 0] + list(addr) + lldata)
-        return {"status": "connecting", "address": addr_str}
+        self.bridge._send_cmd([0x1A, addr_type] + list(addr) + lldata)
+        return {"status": "connecting", "address": addr_str, "addr_type": addr_type}
         
     def disconnect(self):
         if self.bridge.active_conn:
@@ -204,7 +204,10 @@ class CommandServer:
                                 "services", "characteristics [start] [end]", "read <handle>", 
                                 "write <handle> <hex>", "status"]}
         if op == 'connect': 
-            return self.bridge.gatt.connect(args[0]) if args else {"error": "Usage: connect <addr>"}
+            if not args: return {"error": "Usage: connect <addr> [addr_type]"}
+            addr = args[0]
+            addr_type = int(args[1]) if len(args) > 1 else 0
+            return self.bridge.gatt.connect(addr, addr_type)
         if op == 'disconnect': 
             return self.bridge.gatt.disconnect()
         if op == 'scan':
@@ -229,15 +232,60 @@ class CommandServer:
         return {"error": f"Unknown: {op}"}
         
     def _scan(self, timeout=5):
-        """Scan for BLE devices."""
-        # Enable scanning on hci1
-        proc = subprocess.Popen(['btmgmt', '--index', 'hci1', 'find'], 
-                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        time.sleep(timeout)
-        proc.terminate()
-        out, _ = proc.communicate()
-        addrs = re.findall(r'dev_found: ([0-9A-Fa-f:]{17})', out.decode())
-        return {"devices": addrs, "count": len(addrs)}
+        """Scan for BLE devices directly via firmware."""
+        from base64 import b64decode
+        
+        # Pause any ongoing operation
+        self.bridge._send_cmd([0x11, 0])
+        time.sleep(0.1)
+        
+        # Set channel 37 with advertising access address and CRC
+        self.bridge._send_cmd([0x10, 37] + list(struct.pack("<L", 0x8E89BED6)) + [0] + list(struct.pack("<L", 0x555555)))
+        time.sleep(0.05)
+        
+        # Start scan
+        self.bridge._send_cmd([0x22])
+        
+        devices = {}
+        rx_buf = b""
+        start = time.time()
+        
+        while time.time() - start < timeout:
+            if self.bridge.ser.in_waiting > 0:
+                rx_buf += self.bridge.ser.read(self.bridge.ser.in_waiting)
+            
+            while b"\r\n" in rx_buf:
+                pos = rx_buf.find(b"\r\n")
+                line = rx_buf[:pos]
+                rx_buf = rx_buf[pos+2:]
+                
+                if len(line) >= 4 and len(line) % 4 == 0:
+                    try:
+                        data = b64decode(line)
+                        if len(data) >= 2 and data[1] == 0x10:
+                            mb = data[2:]
+                            if len(mb) >= 10:
+                                body = mb[10:]
+                                pkt_len = (mb[4] | (mb[5] << 8)) & 0x7FFF
+                                chan = mb[9] & 0x3F
+                                if chan >= 37 and len(body) == pkt_len and pkt_len >= 6:
+                                    pdu_type = body[0] & 0x0F
+                                    # Only connectable: ADV_IND (0) or ADV_DIRECT_IND (1)
+                                    if pdu_type in (0, 1):
+                                        addr = body[2:8][::-1].hex()
+                                        addr_fmt = ":".join([addr[i:i+2] for i in range(0, 12, 2)])
+                                        rssi = mb[8] if mb[8] < 128 else mb[8] - 256
+                                        tx_type = (body[0] >> 6) & 0x01
+                                        if addr_fmt not in devices or devices[addr_fmt]["rssi"] < rssi:
+                                            devices[addr_fmt] = {"rssi": rssi, "addr_type": tx_type}
+                    except:
+                        pass
+            time.sleep(0.01)
+        
+        # Stop scan
+        self.bridge._send_cmd([0x11, 0])
+        
+        return {"devices": list(devices.keys()), "count": len(devices), "details": devices}
 
 class Bridge:
     def __init__(self, port, sock_path='/tmp/catsniffer.sock'):
@@ -375,12 +423,18 @@ class Bridge:
             self.active_conn = True
             role = 0 if st == 6 else 1
             pl = struct.pack('<BBBBB', LE_CONN_COMPLETE, 0, self.conn_handle&0xFF, (self.conn_handle>>8)&0x0F, role) + bytes([self.peer_addr_type or 0]) + (self.peer_addr or b'\x00'*6) + struct.pack('<HHH',24,0,2000) + b'\x00'
-            os.write(self.vhci, bytes([HCI_EVT, EVT_LE_META, len(pl)]) + pl)
+            try:
+                os.write(self.vhci, bytes([HCI_EVT, EVT_LE_META, len(pl)]) + pl)
+            except Exception as e:
+                log.warning("VHCI write failed: %s", e)
             log.info("Connected")
         elif st == 0 and self.active_conn:
             self.active_conn = False
             pl = struct.pack('<BHB', 0, self.conn_handle, 0x13)
-            os.write(self.vhci, bytes([HCI_EVT, EVT_DISCONN_COMPLETE, len(pl)]) + pl)
+            try:
+                os.write(self.vhci, bytes([HCI_EVT, EVT_DISCONN_COMPLETE, len(pl)]) + pl)
+            except:
+                pass
             log.info("Disconnected")
         
     def run(self):
