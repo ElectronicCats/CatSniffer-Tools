@@ -1,0 +1,68 @@
+name: CatSniffer Unit Tests
+
+on:
+  push:
+    branches: ["main", "develop"]
+    # Only trigger if there are changes in the catsniffer/ directory or the test workflow itself
+    paths:
+      - "catsniffer/**"
+      - ".github/workflows/tests.yml"
+  pull_request:
+    branches: ["main", "develop"]
+    paths:
+      - "catsniffer/**"
+      - ".github/workflows/tests.yml"
+
+jobs:
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    # ── All job actions occur within catsniffer  ─────────────
+    defaults:
+      run:
+        working-directory: catsniffer
+
+    steps:
+      # ── 1. Clone the repository ──────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Configure Python ──────────────────────────────────────────────
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+          # Point to the correct requirements.txt file within the monorepo
+          cache-dependency-path: catsniffer/requirements.txt
+
+      # ── 3. Install dependencies ──────────────────────────────────────────
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov
+          pip install -r requirements.txt || true
+
+      # ── 4. Run tests ─────────────────────────────────
+      - name: Run tests
+        run: |
+          pytest tests/ \
+            --cov=modules \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            -v
+
+      # ── 5. Upload coverage to Codecov ───────────────────────────
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: matrix.python-version == '3.12'
+        with:
+          files: catsniffer/coverage.xml
+          flags: catsniffer              # Label to distinguish in Codecov
+          fail_ci_if_error: false

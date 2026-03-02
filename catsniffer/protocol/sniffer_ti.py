@@ -20,11 +20,21 @@ def calculate_frequency(frequency) -> bytes:
     return frequency_int_bytes + frequency_frac_bytes
 
 
-def convert_channel_to_freq(channel) -> bytes:
+def convert_channel_to_freq(channel) -> float:
+    """Return the frequency in MHz for the given IEEE 802.15.4 channel.
+
+    If the channel is outside the standard range (11-26) the first channel's
+    frequency (2405 MHz) is returned as a safe fallback, matching the same
+    float type returned for valid channels so that callers can safely compute
+    frequency bytes without a double-conversion error.
+    """
     for _channel in CHANNEL_RANGE_IEEE802145:
         if _channel[0] == channel:
             return _channel[1]
-    return calculate_frequency(CHANNEL_RANGE_IEEE802145[0][1])
+    # Fallback: return the default frequency as MHz (float), NOT as bytes.
+    # Returning calculate_frequency() here would pass bytes into config_freq's
+    # subsequent calculate_frequency() call, causing a ValueError.
+    return CHANNEL_RANGE_IEEE802145[0][1]
 
 
 class TIBaseCommand:
