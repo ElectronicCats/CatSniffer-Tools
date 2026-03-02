@@ -788,8 +788,6 @@ def flash(firmware, device, list) -> None:
         try:
             # Get the list of local firmwares
             firmwares = catnip.get_local_firmware()
-            # Filter to only show .hex files
-            firmwares = [fw for fw in firmwares if fw.lower().endswith(".hex")]
 
             if not firmwares:
                 print_warning("No firmware images found locally.")
@@ -1576,6 +1574,69 @@ def lora_spectrum(device, baudrate, start_freq, end_freq, offset):
         scanner.run(start_freq=start_freq, end_freq=end_freq, rssi_offset=offset)
     except KeyboardInterrupt:
         scanner.stop_task()
+
+
+# ===================== Firmware Update Commands =====================
+
+
+@cli.command()
+@click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Force update even if firmware versions match",
+)
+def update(device, force):
+    """Check and update RP2040 firmware to match the latest release.
+
+    Verifies that the RP2040 firmware version is compatible with the tool
+    and the latest firmware release. If outdated, automatically updates
+    the device.
+
+    If the device is not detected, provides instructions to manually
+    enter Boot Mode for recovery.
+    """
+    from .fw_update import (
+        check_and_update_rp2040,
+        force_update_rp2040,
+        get_tool_version,
+    )
+
+    print_info(f"CatSniffer Firmware Update - Tool v{get_tool_version()}")
+    console.print("")
+
+    # Initialize Catnip for release management
+    catnip_inst = Catnip()
+
+    # Get device if specified
+    dev = None
+    if device is not None:
+        dev = catsniffer_get_device(device)
+        if dev is None:
+            print_warning(f"Device #{device} not found, will check for Boot Mode...")
+    else:
+        dev = catsniffer_get_device()
+
+    if force:
+        print_info("Force mode enabled — will update regardless of version")
+        result = force_update_rp2040(device=dev, catnip=catnip_inst)
+    else:
+        result = check_and_update_rp2040(device=dev, catnip=catnip_inst)
+
+    if result:
+        print_success("Firmware update check complete!")
+    else:
+        print_error("Firmware update could not be completed.")
+        console.print(
+            "\n[dim]Use 'catsniffer update --force' to force an update.[/dim]"
+        )
 
 
 def main_cli() -> None:
