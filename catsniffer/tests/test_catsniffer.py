@@ -1085,13 +1085,14 @@ class TestCLISubprocess:
         )
 
     def test_verify_no_device(self):
-        # FIX: This test expects that when no device is connected,
-        # the verify command will detect that and show a message
-        result = self._run("verify")
-        # The verify command found a device in the test environment
-        # So we check that it either returns 0 or shows success message
+        result = self._run("verify", "--device", "99")
+        # Check if command either:
+        # 1. Returns non-zero exit code, OR
+        # 2. Returns zero exit code but shows "No device found" message
         assert (
-            result.returncode == 0 or "No CatSniffer" in result.stdout + result.stderr
+            result.returncode != 0
+            or "No CatSniffer device found!" in result.stdout + result.stderr
+            or "not found" in result.stdout + result.stderr
         )
 
     def test_sniff_missing_required_args(self):

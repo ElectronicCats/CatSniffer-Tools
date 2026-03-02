@@ -265,7 +265,7 @@ class Catnip:
         )
 
     def __create_release_path(self):
-        tag = getattr(self, 'release_tag', 'unknown')
+        tag = getattr(self, "release_tag", "unknown")
         return f"{self.release_dir_path}_{tag}"
 
     def calculate_checksum(self, data) -> str:
@@ -276,7 +276,7 @@ class Catnip:
     def parse_descriptions(self) -> dict:
         if not self.release_description:
             return {}
-        
+
         description = self.release_description.strip().split("\n")
         descriptions_dict = {}
         for line in description:
@@ -300,7 +300,7 @@ class Catnip:
             if not os.path.exists(release_path):
                 logger.error(f"[X] Release path not found: {release_path}")
                 return []
-                
+
             dir_list = os.listdir(release_path)
             if RELEASE_METADATA_NAME in dir_list:
                 dir_list.remove(RELEASE_METADATA_NAME)
@@ -327,11 +327,17 @@ class Catnip:
             try:
                 if firmware.lower().endswith(".uf2"):
                     table.add_row(
-                        str(i), firmware, "RP2040", description.get(firmware.lower(), "Description not found")
+                        str(i),
+                        firmware,
+                        "RP2040",
+                        description.get(firmware.lower(), "Description not found"),
                     )
                 else:
                     table.add_row(
-                        str(i), firmware, "CC1352", description.get(firmware.lower(), "Description not found")
+                        str(i),
+                        firmware,
+                        "CC1352",
+                        description.get(firmware.lower(), "Description not found"),
                     )
             except Exception:
                 if firmware.lower().endswith(".uf2"):
@@ -351,7 +357,7 @@ class Catnip:
                     folder_path = os.path.join(
                         self.__create_release_path(), RELEASE_METADATA_NAME
                     )
-                    
+
                     # Verify that the metadata file exists
                     if not os.path.exists(folder_path):
                         logger.warning(f"[!] Metadata file not found: {folder_path}")
@@ -362,13 +368,15 @@ class Catnip:
                     try:
                         with open(folder_path, "r") as metadata:
                             content = metadata.read()
-                            
+
                             # Verify that the file is not empty
                             if not content.strip():
-                                logger.warning("[!] Metadata file is empty, creating new one")
+                                logger.warning(
+                                    "[!] Metadata file is empty, creating new one"
+                                )
                                 self.create_local_metadata()
                                 return
-                            
+
                             # Try to parse JSON
                             try:
                                 json_data = json.loads(content)
@@ -380,7 +388,7 @@ class Catnip:
                         logger.error(f"[!] Error reading metadata file: {e}")
                         self.create_local_metadata()
                         return
-                    
+
                     # Verify that the JSON data is a dictionary
                     if not isinstance(json_data, dict):
                         logger.error("[!] Metadata is not a dictionary")
@@ -392,19 +400,19 @@ class Catnip:
                     self.release_published_date = json_data.get("published_date", "")
                     self.release_description = json_data.get("description", "")
                     self.release_assets = json_data.get("assets", [])
-                    
+
                     # Handle last_date
                     if "last_date" not in json_data:
                         self.create_local_metadata()
                     else:
                         self.last_date = datetime.now().strftime("%d/%m/%Y")
-                    
+
                     logger.info("[*] Local metadata loaded successfully")
                     return
 
             logger.warning("[!] Release folder not found, creating new one")
             self.create_local_metadata()
-            
+
         except Exception as e:
             logger.error(f"[!] Error loading metadata: {e}")
             # Create default metadata in case of error
@@ -413,27 +421,30 @@ class Catnip:
     def create_local_metadata(self) -> None:
         """Create local metadata file with default values"""
         try:
-            folder_path = os.path.join(self.__create_release_path(), RELEASE_METADATA_NAME)
-            
+            folder_path = os.path.join(
+                self.__create_release_path(), RELEASE_METADATA_NAME
+            )
+
             # Ensure the directory exists
             os.makedirs(os.path.dirname(folder_path), exist_ok=True)
-            
+
             # Create metadata dictionary with fallbacks
             meta_dict = {
                 "tag": self.release_tag or "unknown",
-                "published_date": self.release_published_date or datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "published_date": self.release_published_date
+                or datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "description": self.release_description or "Local metadata",
                 "assets": self.release_assets or [],
                 "last_date": datetime.now().strftime("%d/%m/%Y"),
             }
-            
+
             # Write file
             with open(folder_path, "w") as metadata:
                 json.dump(meta_dict, metadata, indent=2)
-                
+
             self.last_date = meta_dict["last_date"]
             logger.info("[*] Local metadata created successfully")
-            
+
         except Exception as e:
             logger.error(f"[!] Error creating local metadata: {e}")
             # Values in memory as fallback
@@ -483,7 +494,7 @@ class Catnip:
         if not local_digest or not remote_digest:
             logger.warning(f"[!] {name} Checksum verification skipped (missing digest)")
             return
-            
+
         remote_checksum = remote_digest.replace("sha256:", "") if remote_digest else ""
         if local_digest == remote_checksum:
             logger.info(f"[*] {name} Checksum SHA256 verified")
@@ -506,7 +517,7 @@ class Catnip:
         if not self.release_assets:
             logger.warning("[!] No firmware assets to download")
             return
-            
+
         for asset in self.release_assets:
             if self.get_firmware_cc_uf2(asset):
                 fname = asset.get("name", "unknown.bin")
@@ -515,7 +526,7 @@ class Catnip:
                     if not download_url:
                         logger.warning(f"[!] No download URL for {fname}")
                         continue
-                        
+
                     request_content = requests.get(download_url, timeout=5)
                     request_content.raise_for_status()
                     local_checksum = self.save_firmware(fname, request_content.content)
@@ -558,7 +569,7 @@ class Catnip:
                         self.release_assets.append(asset)
             except Exception as e:
                 logger.warning(f"[!] Could not fetch Sniffle release: {e}")
-                
+
         except requests.exceptions.ConnectionError as e:
             logger.error("[X] Error: No internet connection.")
             exit(1)
