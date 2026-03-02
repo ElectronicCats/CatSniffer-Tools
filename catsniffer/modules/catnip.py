@@ -265,7 +265,8 @@ class Catnip:
         )
 
     def __create_release_path(self):
-        return f"{self.release_dir_path}_{self.release_tag}"
+        tag = getattr(self, 'release_tag', 'unknown')
+        return f"{self.release_dir_path}_{tag}"
 
     def calculate_checksum(self, data) -> str:
         h = hashlib.new("sha256")
@@ -273,6 +274,9 @@ class Catnip:
         return h.hexdigest()
 
     def parse_descriptions(self) -> dict:
+        if not self.release_description:
+            return {}
+        
         description = self.release_description.strip().split("\n")
         descriptions_dict = {}
         for line in description:
@@ -292,12 +296,18 @@ class Catnip:
 
     def get_local_firmware(self):
         try:
-            dir_list = os.listdir(self.get_releases_path())
-            dir_list.pop(dir_list.index(RELEASE_METADATA_NAME))
+            release_path = self.get_releases_path()
+            if not os.path.exists(release_path):
+                logger.error(f"[X] Release path not found: {release_path}")
+                return []
+                
+            dir_list = os.listdir(release_path)
+            if RELEASE_METADATA_NAME in dir_list:
+                dir_list.remove(RELEASE_METADATA_NAME)
             return dir_list
         except Exception as e:
-            logger.error(f"[X] Error. {e}")
-            exit(1)
+            logger.error(f"[X] Error getting local firmware: {e}")
+            return []
 
     def show_releases(self) -> None:
         table = Table(title=f"Releases {self.release_tag}")
@@ -308,15 +318,20 @@ class Catnip:
         table.add_column("Microcontroller")
         table.add_column("Description")
 
-        for i, firmware in enumerate(self.get_local_firmware()):
+        firmwares = self.get_local_firmware()
+        if not firmwares:
+            console.print("[yellow]No firmware files found[/yellow]")
+            return
+
+        for i, firmware in enumerate(firmwares):
             try:
                 if firmware.lower().endswith(".uf2"):
                     table.add_row(
-                        str(i), firmware, "RP2040", description[firmware.lower()]
+                        str(i), firmware, "RP2040", description.get(firmware.lower(), "Description not found")
                     )
                 else:
                     table.add_row(
-                        str(i), firmware, "CC1352", description[firmware.lower()]
+                        str(i), firmware, "CC1352", description.get(firmware.lower(), "Description not found")
                     )
             except Exception:
                 if firmware.lower().endswith(".uf2"):
@@ -327,42 +342,102 @@ class Catnip:
         console.print(table)
 
     def load_metadata(self):
-        dir_list = os.listdir(ROOT_DIR)
-        for f in dir_list:
-            if f.startswith(RELEASE_FOLDER_NAME):
-                self.release_tag = f.replace(f"{RELEASE_FOLDER_NAME}_", "")
-                folder_path = os.path.join(
-                    self.__create_release_path(), RELEASE_METADATA_NAME
-                )
-                metadata = open(folder_path, "r")
-                json_data = json.loads(metadata.readlines()[0])
+        """Load metadata from the releases.json file with proper error handling"""
+        try:
+            dir_list = os.listdir(ROOT_DIR)
+            for f in dir_list:
+                if f.startswith(RELEASE_FOLDER_NAME):
+                    self.release_tag = f.replace(f"{RELEASE_FOLDER_NAME}_", "")
+                    folder_path = os.path.join(
+                        self.__create_release_path(), RELEASE_METADATA_NAME
+                    )
+                    
+                    # Verify that the metadata file exists
+                    if not os.path.exists(folder_path):
+                        logger.warning(f"[!] Metadata file not found: {folder_path}")
+                        self.create_local_metadata()
+                        return
 
-                self.release_tag = json_data["tag"]
-                self.release_published_date = json_data["published_date"]
-                self.release_description = json_data["description"]
-                self.release_assets = json_data["assets"]
-                if not "last_date" in json_data:
-                    self.create_local_metadata()
-                else:
-                    self.last_date = datetime.now().strftime("%d/%m/%Y")
-                logger.info("[*] Local metadata loaded")
-                return
+                    # Read file with handling for empty file and invalid JSON
+                    try:
+                        with open(folder_path, "r") as metadata:
+                            content = metadata.read()
+                            
+                            # Verify that the file is not empty
+                            if not content.strip():
+                                logger.warning("[!] Metadata file is empty, creating new one")
+                                self.create_local_metadata()
+                                return
+                            
+                            # Try to parse JSON
+                            try:
+                                json_data = json.loads(content)
+                            except json.JSONDecodeError as e:
+                                logger.error(f"[!] Invalid JSON in metadata file: {e}")
+                                self.create_local_metadata()
+                                return
+                    except IOError as e:
+                        logger.error(f"[!] Error reading metadata file: {e}")
+                        self.create_local_metadata()
+                        return
+                    
+                    # Verify that the JSON data is a dictionary
+                    if not isinstance(json_data, dict):
+                        logger.error("[!] Metadata is not a dictionary")
+                        self.create_local_metadata()
+                        return
 
-        logger.error("[X] Error: Release folder not found")
+                    # Assign values with fallbacks
+                    self.release_tag = json_data.get("tag", self.release_tag)
+                    self.release_published_date = json_data.get("published_date", "")
+                    self.release_description = json_data.get("description", "")
+                    self.release_assets = json_data.get("assets", [])
+                    
+                    # Handle last_date
+                    if "last_date" not in json_data:
+                        self.create_local_metadata()
+                    else:
+                        self.last_date = datetime.now().strftime("%d/%m/%Y")
+                    
+                    logger.info("[*] Local metadata loaded successfully")
+                    return
+
+            logger.warning("[!] Release folder not found, creating new one")
+            self.create_local_metadata()
+            
+        except Exception as e:
+            logger.error(f"[!] Error loading metadata: {e}")
+            # Create default metadata in case of error
+            self.create_local_metadata()
 
     def create_local_metadata(self) -> None:
-        folder_path = os.path.join(self.__create_release_path(), RELEASE_METADATA_NAME)
-        metadata = open(folder_path, "w")
-        meta_dict = {
-            "tag": self.release_tag,
-            "published_date": self.release_published_date,
-            "description": self.release_description,
-            "assets": self.release_assets,
-            "last_date": datetime.now().strftime("%d/%m/%Y"),
-        }
-        metadata.write(json.dumps(meta_dict))
-        metadata.close()
-        logger.info("[*] Local metadata created")
+        """Create local metadata file with default values"""
+        try:
+            folder_path = os.path.join(self.__create_release_path(), RELEASE_METADATA_NAME)
+            
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(folder_path), exist_ok=True)
+            
+            # Create metadata dictionary with fallbacks
+            meta_dict = {
+                "tag": self.release_tag or "unknown",
+                "published_date": self.release_published_date or datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "description": self.release_description or "Local metadata",
+                "assets": self.release_assets or [],
+                "last_date": datetime.now().strftime("%d/%m/%Y"),
+            }
+            
+            # Write file
+            with open(folder_path, "w") as metadata:
+                json.dump(meta_dict, metadata, indent=2)
+                
+            self.last_date = meta_dict["last_date"]
+            logger.info("[*] Local metadata created successfully")
+            
+        except Exception as e:
+            logger.error(f"[!] Error creating local metadata: {e}")
+            # Values in memory as fallback
+            self.last_date = datetime.now().strftime("%d/%m/%Y")
 
     def create_release_dir(self) -> None:
         try:
@@ -371,38 +446,46 @@ class Catnip:
                 logger.info("[-] Local release folder already exists")
                 return
 
-            os.mkdir(folder_path)
+            os.makedirs(folder_path, exist_ok=True)
             logger.info(f"[*] Local release folder created: {folder_path}")
         except Exception as e:
-            logger.error(f"[X] Error: {e}")
+            logger.error(f"[X] Error creating release directory: {e}")
 
     def remove_release_dir(self) -> None:
         folder_path = self.__create_release_path()
         if os.path.exists(folder_path):
-            files = os.listdir(folder_path)
-            for f in files:
-                path = os.path.join(folder_path, f)
-                if os.path.isfile(path):
-                    os.remove(path)
-            os.removedirs(folder_path)
+            try:
+                files = os.listdir(folder_path)
+                for f in files:
+                    path = os.path.join(folder_path, f)
+                    if os.path.isfile(path):
+                        os.remove(path)
+                os.removedirs(folder_path)
+                logger.info(f"[*] Release directory removed: {folder_path}")
+            except Exception as e:
+                logger.error(f"[X] Error removing release directory: {e}")
 
     def get_firmware_cc_uf2(self, asset) -> bool:
-        name = asset["name"]
-        if name.endswith(".hex") or name.endswith(".uf2"):
-            return True
-        return False
+        name = asset.get("name", "")
+        return name.endswith(".hex") or name.endswith(".uf2")
 
     def save_firmware(self, name, content) -> str:
-        f_writer = open(os.path.join(self.__create_release_path(), name), "wb")
-        content_bytes = io.BytesIO(content)
-        f_writer.write(content_bytes.read())
-        content_bytes.close()
-        return self.calculate_checksum(content)
+        try:
+            file_path = os.path.join(self.__create_release_path(), name)
+            with open(file_path, "wb") as f_writer:
+                f_writer.write(content)
+            return self.calculate_checksum(content)
+        except Exception as e:
+            logger.error(f"[X] Error saving firmware {name}: {e}")
+            return ""
 
     def compare_checksum(self, name, local_digest, remote_digest):
-        local_checksum = local_digest
-        remote_checksum = remote_digest.replace("sha256:", "")
-        if local_checksum == remote_checksum:
+        if not local_digest or not remote_digest:
+            logger.warning(f"[!] {name} Checksum verification skipped (missing digest)")
+            return
+            
+        remote_checksum = remote_digest.replace("sha256:", "") if remote_digest else ""
+        if local_digest == remote_checksum:
             logger.info(f"[*] {name} Checksum SHA256 verified")
         else:
             logger.warning(f"[X] {name} Checksum SHA256 Failed")
@@ -414,27 +497,32 @@ class Catnip:
 
             data = fetch_releases.json()
             remote_tag = data.get("tag_name")
-            if remote_tag != self.release_tag:
-                return True
-            return False
+            return remote_tag != self.release_tag
         except Exception as e:
-            logger.error(f"[X] Error. {e}")
+            logger.error(f"[X] Error checking remote version: {e}")
             return False
 
     def download_remote_firmware(self) -> None:
+        if not self.release_assets:
+            logger.warning("[!] No firmware assets to download")
+            return
+            
         for asset in self.release_assets:
             if self.get_firmware_cc_uf2(asset):
-                fname = asset["name"]
+                fname = asset.get("name", "unknown.bin")
                 try:
-                    request_content = requests.get(
-                        asset["browser_download_url"], timeout=5
-                    )
+                    download_url = asset.get("browser_download_url")
+                    if not download_url:
+                        logger.warning(f"[!] No download URL for {fname}")
+                        continue
+                        
+                    request_content = requests.get(download_url, timeout=5)
                     request_content.raise_for_status()
                     local_checksum = self.save_firmware(fname, request_content.content)
 
                     logger.info(f"[*] Firmware [bold white]{fname}[/bold white] done.")
 
-                    self.compare_checksum(fname, local_checksum, asset["digest"])
+                    self.compare_checksum(fname, local_checksum, asset.get("digest"))
                     time.sleep(0.5)
                 except requests.exceptions.ConnectionError as e:
                     logger.error("[X] Error: No internet connection.")
@@ -443,11 +531,12 @@ class Catnip:
                     logger.error(f"[X] HTTP Error: {e}")
                     continue
                 except Exception as e:
-                    logger.error(f"[X] Error: {e}")
+                    logger.error(f"[X] Error downloading {fname}: {e}")
                     continue
 
     def get_remote_firmware(self) -> None:
         try:
+            # Fetch main firmware releases
             fetch_releases = requests.get(GITHUB_RELEASE_URL, timeout=1)
             fetch_releases.raise_for_status()
 
@@ -457,14 +546,19 @@ class Catnip:
             self.release_description = data.get("body", "")
             self.release_assets = data.get("assets", [])
 
-            # Sniffle release
-            fetch_releases = requests.get(GITHUB_RELEASE_URL_SNIFFLE, timeout=1)
-            fetch_releases.raise_for_status()
-            sniffle_assets = fetch_releases.json().get("assets", [])
+            # Fetch Sniffle release
+            try:
+                fetch_releases = requests.get(GITHUB_RELEASE_URL_SNIFFLE, timeout=1)
+                fetch_releases.raise_for_status()
+                sniffle_assets = fetch_releases.json().get("assets", [])
 
-            for asset in sniffle_assets:
-                if GITHUB_SNIFFLE_HEX.lower() in asset["name"].lower():
-                    self.release_assets.append(asset)
+                for asset in sniffle_assets:
+                    asset_name = asset.get("name", "").lower()
+                    if GITHUB_SNIFFLE_HEX.lower() in asset_name:
+                        self.release_assets.append(asset)
+            except Exception as e:
+                logger.warning(f"[!] Could not fetch Sniffle release: {e}")
+                
         except requests.exceptions.ConnectionError as e:
             logger.error("[X] Error: No internet connection.")
             exit(1)
@@ -472,14 +566,17 @@ class Catnip:
             logger.error(f"[X] HTTP Error: {e}")
             exit(1)
         except Exception as e:
-            logger.error(f"[X] Error: {e}")
+            logger.error(f"[X] Error fetching remote firmware: {e}")
             exit(1)
 
     def find_local_release(self) -> bool:
-        dir_files = os.listdir(ROOT_DIR)
-        for dir_name in dir_files:
-            if dir_name.startswith(RELEASE_FOLDER_NAME):
-                return True
+        try:
+            dir_files = os.listdir(ROOT_DIR)
+            for dir_name in dir_files:
+                if dir_name.startswith(RELEASE_FOLDER_NAME):
+                    return True
+        except Exception as e:
+            logger.error(f"[X] Error checking local releases: {e}")
         return False
 
     def find_flash_firmware(self, firmware_str, device: CatSnifferDevice = None):
