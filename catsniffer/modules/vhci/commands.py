@@ -43,6 +43,8 @@ class HCICommandDispatcher:
             OP_READ_LOCAL_SUPPORTED_FEATURES: self.handle_read_local_supported_features,
             OP_READ_BUFFER_SIZE: self.handle_read_buffer_size,
             OP_READ_BD_ADDR: self.handle_read_bd_addr,
+            OP_READ_LOCAL_EXT_FEATURES: self.handle_read_local_ext_features,
+            OP_READ_DATA_BLOCK_SIZE: self.handle_read_data_block_size,
 
             # Link Control
             OP_DISCONNECT: self.handle_disconnect,
@@ -75,6 +77,7 @@ class HCICommandDispatcher:
             OP_LE_WRITE_SUGGESTED_DEFAULT_DATA_LENGTH: self.handle_le_write_suggested_default_data_length,
             OP_LE_READ_MAXIMUM_DATA_LENGTH: self.handle_le_read_maximum_data_length,
             OP_LE_RAND: self.handle_le_rand,
+            OP_LE_ENCRYPT: self.handle_le_encrypt,
         }
 
     def dispatch(self, opcode, params):
@@ -104,7 +107,9 @@ class HCICommandDispatcher:
         return events.command_complete(opcode, bytes([0x00]))
 
     def handle_set_event_mask(self, opcode, params):
-        """Set event mask - just acknowledge"""
+        """Set event mask"""
+        if len(params) >= 8:
+            self.bridge.event_mask = params[:8]
         return events.command_complete(opcode, bytes([0x00]))
 
     def handle_read_local_name(self, opcode, params):
@@ -139,7 +144,9 @@ class HCICommandDispatcher:
         return events.command_complete(opcode, data)
 
     def handle_write_page_timeout(self, opcode, params):
-        """Write page timeout - just acknowledge"""
+        """Write page timeout"""
+        if len(params) >= 2:
+            self.bridge.page_timeout = struct.unpack('<H', params[:2])[0]
         return events.command_complete(opcode, bytes([0x00]))
 
     def handle_read_scan_enable(self, opcode, params):
@@ -148,7 +155,9 @@ class HCICommandDispatcher:
         return events.command_complete(opcode, data)
 
     def handle_write_scan_enable(self, opcode, params):
-        """Write scan enable - just acknowledge"""
+        """Write scan enable"""
+        if len(params) >= 1:
+            self.bridge.scan_enable = params[0]
         return events.command_complete(opcode, bytes([0x00]))
 
     def handle_read_class_of_device(self, opcode, params):
@@ -157,7 +166,9 @@ class HCICommandDispatcher:
         return events.command_complete(opcode, data)
 
     def handle_write_class_of_device(self, opcode, params):
-        """Write class of device - just acknowledge"""
+        """Write class of device"""
+        if len(params) >= 3:
+            self.bridge.class_of_device = params[:3]
         return events.command_complete(opcode, bytes([0x00]))
 
     def handle_read_num_supported_iac(self, opcode, params):
@@ -179,7 +190,9 @@ class HCICommandDispatcher:
 
     def handle_write_extended_inquiry_response(self, opcode, params):
         """Write Extended Inquiry Response"""
-        # Just acknowledge, params are fec_required(1) + eir_data(240)
+        if len(params) >= 1:
+            self.bridge.fec_required = params[0]
+            self.bridge.eir_data = params[1:241] if len(params) > 1 else bytes(240)
         return events.command_complete(opcode, bytes([0x00]))
 
     # ==================== Informational Commands ====================
@@ -204,6 +217,21 @@ class HCICommandDispatcher:
         """Read BD_ADDR"""
         return events.cc_read_bd_addr(opcode, self.bridge.bd_addr)
 
+    def handle_read_local_ext_features(self, opcode, params):
+        """Read Local Extended Features"""
+        page = params[0] if len(params) >= 1 else 0
+        if page == 0:
+            features = bytes([0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00])
+        else:
+            features = bytes(8)
+        data = bytes([0x00, 0x01]) + features
+        return events.command_complete(opcode, data)
+
+    def handle_read_data_block_size(self, opcode, params):
+        """Read Data Block Size"""
+        data = bytes([0x00]) + struct.pack("<HHH", 251, 1, 15)
+        return events.command_complete(opcode, data)
+
     # ==================== Link Control Commands ====================
 
     def handle_disconnect(self, opcode, params):
@@ -221,6 +249,8 @@ class HCICommandDispatcher:
 
     def handle_le_set_event_mask(self, opcode, params):
         """LE Set Event Mask"""
+        if len(params) >= 8:
+            self.bridge.le_event_mask = params[:8]
         return events.command_complete(opcode, bytes([0x00]))
 
     def handle_le_read_buffer_size(self, opcode, params):
@@ -341,10 +371,18 @@ class HCICommandDispatcher:
 
     def handle_le_clear_white_list(self, opcode, params):
         """LE Clear White List"""
+        self.bridge.white_list = []
         return events.command_complete(opcode, bytes([0x00]))
 
     def handle_le_add_device_to_white_list(self, opcode, params):
         """LE Add Device To White List"""
+        if len(params) >= 7:
+            addr_type = params[0]
+            addr = params[1:7]
+            if len(self.bridge.white_list) < self.bridge.white_list_max:
+                # Check if already in list
+                if (addr_type, addr) not in self.bridge.white_list:
+                    self.bridge.white_list.append((addr_type, addr))
         return events.command_complete(opcode, bytes([0x00]))
 
     def handle_le_remove_device_from_white_list(self, opcode, params):
@@ -392,6 +430,9 @@ class HCICommandDispatcher:
 
     def handle_le_write_suggested_default_data_length(self, opcode, params):
         """LE Write Suggested Default Data Length"""
+        if len(params) >= 4:
+            self.bridge.suggested_tx_octets = struct.unpack('<H', params[:2])[0]
+            self.bridge.suggested_tx_time = struct.unpack('<H', params[2:4])[0]
         return events.command_complete(opcode, bytes([0x00]))
 
     def handle_le_read_maximum_data_length(self, opcode, params):
@@ -403,3 +444,10 @@ class HCICommandDispatcher:
         rand_val = random.randint(0, 0xFFFFFFFFFFFFFFFF)
         data = bytes([0x00]) + struct.pack('<Q', rand_val)
         return events.command_complete(opcode, data)
+
+    def handle_le_encrypt(self, opcode, params):
+        """LE Encrypt - stub returning zeros"""
+        if len(params) >= 32:
+            encrypted = bytes(16)
+            return events.command_complete(opcode, bytes([0x00]) + encrypted)
+        return events.command_complete(opcode, bytes([0x02]))

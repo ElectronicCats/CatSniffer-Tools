@@ -82,6 +82,23 @@ class VHCIBridge:
         self.adv_data = b''
         self.scan_rsp_data = b''
 
+        # Event masks
+        self.event_mask = bytes([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x3F])
+        self.le_event_mask = bytes([0x1F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+
+        # BR/EDR state (not used for LE-only, but needed for BlueZ)
+        self.page_timeout = 0x2000
+        self.scan_enable = 0x00
+        self.class_of_device = bytes([0x1F, 0x00, 0x00])
+
+        # Extended Inquiry Response
+        self.eir_data = bytes(240)
+        self.fec_required = 0x00
+
+        # Suggested default data length
+        self.suggested_tx_octets = 27
+        self.suggested_tx_time = 328
+
         # Command dispatcher
         self.dispatcher = HCICommandDispatcher(self)
 
