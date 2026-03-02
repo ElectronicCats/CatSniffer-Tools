@@ -78,6 +78,51 @@ class HCICommandDispatcher:
             OP_LE_READ_MAXIMUM_DATA_LENGTH: self.handle_le_read_maximum_data_length,
             OP_LE_RAND: self.handle_le_rand,
             OP_LE_ENCRYPT: self.handle_le_encrypt,
+            
+            # Status Parameters
+            OP_READ_FAILED_CONTACT_COUNTER: self.handle_read_failed_contact_counter,
+            OP_RESET_FAILED_CONTACT_COUNTER: self.handle_reset_failed_contact_counter,
+            OP_READ_LINK_QUALITY: self.handle_read_link_quality,
+            OP_READ_AFH_CHANNEL_MAP: self.handle_read_afh_channel_map,
+            OP_READ_CLOCK: self.handle_read_clock,
+            
+            # LE Connection Management
+            OP_LE_CONNECTION_UPDATE: self.handle_le_connection_update,
+            OP_LE_SET_HOST_CHANNEL_CLASSIFICATION: self.handle_le_set_host_channel_classification,
+            OP_LE_READ_REMOTE_USED_FEATURES: self.handle_le_read_remote_used_features,
+            
+            # LE Encryption (stubs)
+            OP_LE_START_ENCRYPTION: self.handle_le_start_encryption,
+            OP_LE_LONG_TERM_KEY_REQUEST_REPLY: self.handle_le_long_term_key_request_reply,
+            OP_LE_LONG_TERM_KEY_REQUEST_NEGATIVE_REPLY: self.handle_le_long_term_key_request_negative_reply,
+            
+            # LE Direct Test Mode
+            OP_LE_RECEIVER_TEST: self.handle_le_receiver_test,
+            OP_LE_TRANSMITTER_TEST: self.handle_le_transmitter_test,
+            OP_LE_TEST_END: self.handle_le_test_end,
+            
+            # LE Connection Parameter Request
+            OP_LE_REMOTE_CONNECTION_PARAMETER_REQUEST_REPLY: self.handle_le_remote_conn_param_request_reply,
+            OP_LE_REMOTE_CONNECTION_PARAMETER_REQUEST_NEGATIVE_REPLY: self.handle_le_remote_conn_param_request_negative_reply,
+            
+            # LE Cryptographic (stubs)
+            OP_LE_READ_LOCAL_P256_PUBLIC_KEY: self.handle_le_read_local_p256_public_key,
+            OP_LE_GENERATE_DHKEY: self.handle_le_generate_dhkey,
+            
+            # LE Resolving List
+            OP_LE_ADD_DEVICE_TO_RESOLVING_LIST: self.handle_le_add_device_to_resolving_list,
+            OP_LE_REMOVE_DEVICE_FROM_RESOLVING_LIST: self.handle_le_remove_device_from_resolving_list,
+            OP_LE_CLEAR_RESOLVING_LIST: self.handle_le_clear_resolving_list,
+            OP_LE_READ_RESOLVING_LIST_SIZE: self.handle_le_read_resolving_list_size,
+            OP_LE_READ_PEER_RESOLVABLE_ADDRESS: self.handle_le_read_peer_resolvable_address,
+            OP_LE_READ_LOCAL_RESOLVABLE_ADDRESS: self.handle_le_read_local_resolvable_address,
+            OP_LE_SET_ADDRESS_RESOLUTION_ENABLE: self.handle_le_set_address_resolution_enable,
+            OP_LE_SET_RESOLVABLE_PRIVATE_ADDRESS_TIMEOUT: self.handle_le_set_resolvable_private_address_timeout,
+            
+            # LE PHY
+            OP_LE_READ_PHY: self.handle_le_read_phy,
+            OP_LE_SET_DEFAULT_PHY: self.handle_le_set_default_phy,
+            OP_LE_SET_PHY: self.handle_le_set_phy,
         }
 
     def dispatch(self, opcode, params):
@@ -461,4 +506,202 @@ class HCICommandDispatcher:
         if len(params) >= 32:
             encrypted = bytes(16)
             return events.command_complete(opcode, bytes([0x00]) + encrypted)
+        return events.command_complete(opcode, bytes([0x02]))
+
+    # ==================== Status Parameters ====================
+
+    def handle_read_failed_contact_counter(self, opcode, params):
+        """Read Failed Contact Counter - BR/EDR only"""
+        data = bytes([0x00]) + struct.pack('<HH', 0x0000, 0x0000)  # handle, counter
+        return events.command_complete(opcode, data)
+
+    def handle_reset_failed_contact_counter(self, opcode, params):
+        """Reset Failed Contact Counter - BR/EDR only"""
+        return events.command_complete(opcode, bytes([0x00]))
+
+    def handle_read_link_quality(self, opcode, params):
+        """Read Link Quality - BR/EDR only"""
+        data = bytes([0x00]) + struct.pack('<HB', 0x0000, 0xFF)  # handle, quality
+        return events.command_complete(opcode, data)
+
+    def handle_read_afh_channel_map(self, opcode, params):
+        """Read AFH Channel Map - BR/EDR only"""
+        data = bytes([0x00]) + struct.pack('<H', 0x0000) + bytes(10)  # handle, map
+        return events.command_complete(opcode, data)
+
+    def handle_read_clock(self, opcode, params):
+        """Read Clock - BR/EDR only"""
+        data = bytes([0x00]) + struct.pack('<HBI', 0x0000, 0x00, 0x00000000)
+        return events.command_complete(opcode, data)
+
+    # ==================== LE Connection Management ====================
+
+    def handle_le_connection_update(self, opcode, params):
+        """LE Connection Update"""
+        if len(params) >= 14:
+            handle = struct.unpack('<H', params[0:2])[0]
+            # Store new connection parameters
+            self.bridge.conn_interval = struct.unpack('<H', params[6:8])[0]
+            self.bridge.conn_latency = struct.unpack('<H', params[8:10])[0]
+            self.bridge.conn_timeout = struct.unpack('<H', params[10:12])[0]
+            self.bridge.log.debug("Connection update: handle=0x%04X interval=%d", 
+                                  handle, self.bridge.conn_interval)
+        return events.command_status(opcode, 0x00)
+
+    def handle_le_set_host_channel_classification(self, opcode, params):
+        """LE Set Host Channel Classification"""
+        if len(params) >= 5:
+            self.bridge.channel_map = params[:5]
+        return events.command_complete(opcode, bytes([0x00]))
+
+    def handle_le_read_remote_used_features(self, opcode, params):
+        """LE Read Remote Used Features - returns status, event comes later"""
+        if len(params) >= 2:
+            handle = struct.unpack('<H', params[:2])[0]
+            return events.command_status(opcode, 0x00)
+        return events.command_complete(opcode, bytes([0x02]))
+
+    # ==================== LE Encryption (Stubs) ====================
+
+    def handle_le_start_encryption(self, opcode, params):
+        """LE Start Encryption - not supported"""
+        return events.command_status(opcode, 0x00)
+
+    def handle_le_long_term_key_request_reply(self, opcode, params):
+        """LE Long Term Key Request Reply - not supported"""
+        if len(params) >= 18:
+            handle = struct.unpack('<H', params[:2])[0]
+            return events.command_complete(opcode, bytes([0x00]) + struct.pack('<H', handle))
+        return events.command_complete(opcode, bytes([0x02]))
+
+    def handle_le_long_term_key_request_negative_reply(self, opcode, params):
+        """LE Long Term Key Request Negative Reply"""
+        if len(params) >= 2:
+            handle = struct.unpack('<H', params[:2])[0]
+            return events.command_complete(opcode, bytes([0x00]) + struct.pack('<H', handle))
+        return events.command_complete(opcode, bytes([0x02]))
+
+    # ==================== LE Direct Test Mode ====================
+
+    def handle_le_receiver_test(self, opcode, params):
+        """LE Receiver Test"""
+        return events.command_complete(opcode, bytes([0x00]))
+
+    def handle_le_transmitter_test(self, opcode, params):
+        """LE Transmitter Test"""
+        return events.command_complete(opcode, bytes([0x00]))
+
+    def handle_le_test_end(self, opcode, params):
+        """LE Test End"""
+        data = bytes([0x00, 0x00, 0x00])  # status + packet count
+        return events.command_complete(opcode, data)
+
+    # ==================== LE Connection Parameter Request ====================
+
+    def handle_le_remote_conn_param_request_reply(self, opcode, params):
+        """LE Remote Connection Parameter Request Reply"""
+        if len(params) >= 14:
+            handle = struct.unpack('<H', params[:2])[0]
+            return events.command_complete(opcode, bytes([0x00]) + struct.pack('<H', handle))
+        return events.command_complete(opcode, bytes([0x02]))
+
+    def handle_le_remote_conn_param_request_negative_reply(self, opcode, params):
+        """LE Remote Connection Parameter Request Negative Reply"""
+        if len(params) >= 3:
+            handle = struct.unpack('<H', params[:2])[0]
+            reason = params[2]
+            return events.command_complete(opcode, bytes([0x00]) + struct.pack('<H', handle))
+        return events.command_complete(opcode, bytes([0x02]))
+
+    # ==================== LE Cryptographic (Stubs) ====================
+
+    def handle_le_read_local_p256_public_key(self, opcode, params):
+        """LE Read Local P256 Public Key - generates event later"""
+        return events.command_status(opcode, 0x00)
+
+    def handle_le_generate_dhkey(self, opcode, params):
+        """LE Generate DHKey - generates event later"""
+        return events.command_status(opcode, 0x00)
+
+    # ==================== LE Resolving List ====================
+
+    def handle_le_add_device_to_resolving_list(self, opcode, params):
+        """LE Add Device To Resolving List"""
+        if len(params) >= 39:  # addr_type(1) + addr(6) + peer_irk(16) + local_irk(16)
+            addr_type = params[0]
+            addr = params[1:7]
+            peer_irk = params[7:23]
+            local_irk = params[23:39]
+            if len(self.bridge.resolving_list) < self.bridge.resolving_list_max:
+                entry = (peer_irk, addr_type, addr, local_irk)
+                if entry not in self.bridge.resolving_list:
+                    self.bridge.resolving_list.append(entry)
+        return events.command_complete(opcode, bytes([0x00]))
+
+    def handle_le_remove_device_from_resolving_list(self, opcode, params):
+        """LE Remove Device From Resolving List"""
+        if len(params) >= 7:
+            addr_type = params[0]
+            addr = params[1:7]
+            for entry in self.bridge.resolving_list[:]:
+                if entry[1] == addr_type and entry[2] == addr:
+                    self.bridge.resolving_list.remove(entry)
+                    break
+        return events.command_complete(opcode, bytes([0x00]))
+
+    def handle_le_clear_resolving_list(self, opcode, params):
+        """LE Clear Resolving List"""
+        self.bridge.resolving_list = []
+        return events.command_complete(opcode, bytes([0x00]))
+
+    def handle_le_read_resolving_list_size(self, opcode, params):
+        """LE Read Resolving List Size"""
+        data = bytes([0x00, self.bridge.resolving_list_max])
+        return events.command_complete(opcode, data)
+
+    def handle_le_read_peer_resolvable_address(self, opcode, params):
+        """LE Read Peer Resolvable Address"""
+        if len(params) >= 7:
+            # Return empty address (RPA resolution not implemented)
+            data = bytes([0x00]) + bytes(6)
+            return events.command_complete(opcode, data)
+        return events.command_complete(opcode, bytes([0x02]))
+
+    def handle_le_read_local_resolvable_address(self, opcode, params):
+        """LE Read Local Resolvable Address"""
+        if len(params) >= 7:
+            data = bytes([0x00]) + bytes(6)
+            return events.command_complete(opcode, data)
+        return events.command_complete(opcode, bytes([0x02]))
+
+    def handle_le_set_address_resolution_enable(self, opcode, params):
+        """LE Set Address Resolution Enable"""
+        if len(params) >= 1:
+            self.bridge.address_resolution_enabled = params[0] != 0
+        return events.command_complete(opcode, bytes([0x00]))
+
+    def handle_le_set_resolvable_private_address_timeout(self, opcode, params):
+        """LE Set Resolvable Private Address Timeout"""
+        return events.command_complete(opcode, bytes([0x00]))
+
+    # ==================== LE PHY ====================
+
+    def handle_le_read_phy(self, opcode, params):
+        """LE Read PHY"""
+        if len(params) >= 2:
+            handle = struct.unpack('<H', params[:2])[0]
+            # tx_phy(1) + rx_phy(1) - 1 = LE 1M
+            data = bytes([0x00]) + struct.pack('<H', handle) + bytes([0x01, 0x01])
+            return events.command_complete(opcode, data)
+        return events.command_complete(opcode, bytes([0x02]))
+
+    def handle_le_set_default_phy(self, opcode, params):
+        """LE Set Default PHY"""
+        return events.command_complete(opcode, bytes([0x00]))
+
+    def handle_le_set_phy(self, opcode, params):
+        """LE Set PHY"""
+        if len(params) >= 7:
+            handle = struct.unpack('<H', params[:2])[0]
+            return events.command_status(opcode, 0x00)
         return events.command_complete(opcode, bytes([0x02]))
