@@ -26,7 +26,7 @@ from modules.catsniffer import (
 )
 from modules.pipes import UnixPipe, WindowsPipe, DEFAULT_UNIX_PATH
 from protocol.sniffer_sx import SnifferSx
-from protocol.common import START_OF_FRAME, get_global_header
+from protocol.common import get_global_header
 
 scriptName = os.path.basename(sys.argv[0])
 
@@ -485,32 +485,71 @@ class MinimalExtcap:
             CTRL_CMD_SET, CTRL_NUM_FREQUENCY, str(self.args.frequency)
         )
 
+        lora_context = {
+            "frequency": self.args.frequency,
+            "bandwidth": self.args.bandwidth,
+            "spread_factor": self.args.spread_factor,
+            "coding_rate": self.args.coding_rate,
+        }
+
+        # Lines that carry actual packet data from the RP2040 firmware.
+        # The regex in SnifferSx.Packet also handles "LORA RX:" and "FSK RX:".
+        _LORA_LINE_PREFIX = (b"RX:", b"LORA RX:", b"FSK RX:")
+        # Banner lines printed by the firmware on connect — silently ignored.
+        _IGNORE_PREFIXES = (b"LoRa Control Port", b"LoRa mode set")
+
+        # The RP2040 lora_thread only starts an RX cycle when the host writes
+        # bytes to CDC1.  Send a null byte every 2 s so the radio stays in RX.
+        _keepalive_stop = threading.Event()
+
+        def _keepalive():
+            while not _keepalive_stop.is_set():
+                try:
+                    self.lora_connection.connection.write(b"\x00")
+                    self.lora_connection.connection.flush()
+                except Exception:
+                    pass
+                _keepalive_stop.wait(timeout=2.0)
+
+        ka_thread = threading.Thread(target=_keepalive, daemon=True)
+        ka_thread.start()
+
         # Capture packets and write to the capture output until signaled to stop
         while not self.captureStopped:
             try:
                 data = self.lora_connection.readline()
-                if data:
-                    self.logger.debug(f"Recv: {data}")
-                    if data.startswith(START_OF_FRAME):
-                        packet = snifferSx.Packet(
-                            (START_OF_FRAME + data),
-                            context={
-                                "frequency": self.args.frequency,
-                                "bandwidth": self.args.bandwidth,
-                                "spread_factor": self.args.spread_factor,
-                                "coding_rate": self.args.coding_rate,
-                            },
-                        )
-                        if not header_flag:
-                            header_flag = True
-                            pipe.write_packet(get_global_header(148))
-                        pipe.write_packet(packet.pcap)
+                if not data:
+                    continue
 
-                time.sleep(0.1)
+                stripped = data.strip()
+                if not stripped:
+                    continue
+
+                self.logger.debug(f"Recv: {data!r}")
+
+                if not any(stripped.startswith(p) for p in _LORA_LINE_PREFIX):
+                    if not any(stripped.startswith(p) for p in _IGNORE_PREFIXES):
+                        self.logger.debug(
+                            f"Device: {stripped.decode('ascii', errors='replace')}"
+                        )
+                    continue
+
+                try:
+                    packet = snifferSx.Packet(data, context=lora_context)
+                    if not header_flag:
+                        header_flag = True
+                        pipe.write_packet(get_global_header(148))
+                    pipe.write_packet(packet.pcap)
+                except ValueError as exc:
+                    self.logger.warning(f"Parse error: {exc} — raw: {data[:80]!r}")
+                except Exception as exc:
+                    self.logger.warning(f"Unexpected error: {exc}")
+
             except KeyboardInterrupt:
                 break
 
         # Cleanup
+        _keepalive_stop.set()
         self.logger.info("Stopping capture...")
         if self.shell_connection:
             self.shell_connection.send_command(snifferSxCmd.start_command())
