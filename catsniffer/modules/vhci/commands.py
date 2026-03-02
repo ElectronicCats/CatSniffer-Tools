@@ -232,6 +232,17 @@ class HCICommandDispatcher:
         data = bytes([0x00]) + struct.pack("<HHH", 251, 1, 15)
         return events.command_complete(opcode, data)
 
+
+    def handle_read_rssi(self, opcode, params):
+        """Read RSSI of current connection"""
+        if len(params) >= 2:
+            handle = struct.unpack("<H", params[:2])[0]
+            rssi = self.bridge.last_rssi
+            # RSSI is signed, convert to byte
+            rssi_byte = rssi if rssi >= 0 else (256 + rssi)
+            data = bytes([0x00]) + struct.pack("<H", handle) + bytes([rssi_byte])
+            return events.command_complete(opcode, data)
+        return events.command_complete(opcode, bytes([0x02]))
     # ==================== Link Control Commands ====================
 
     def handle_disconnect(self, opcode, params):
