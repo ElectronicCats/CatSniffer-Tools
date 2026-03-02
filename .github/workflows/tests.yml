@@ -65,6 +65,10 @@ jobs:
               --cov-report=term-missing \
               --cov-report=xml \
               -v
+          else
+            echo "Directory 'tests/' not found"
+            exit 1
+          fi
 
       # ── 5. Upload coverage to Codecov ───────────────────────────
       - name: Upload coverage to Codecov
