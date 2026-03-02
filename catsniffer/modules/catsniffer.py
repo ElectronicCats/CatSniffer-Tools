@@ -25,6 +25,10 @@ DEFAULT_COMPORT = "/dev/ttyUSB0"
 SHELL_CMD_BOOT = "boot"
 SHELL_CMD_EXIT = "exit"
 
+# Shell commands for firmware update
+SHELL_CMD_FW_VERSION = "fw_version"
+SHELL_CMD_REBOOT = "reboot"
+
 
 # Supported Sniffer protocols
 class SniffingFirmware(enum.Enum):
