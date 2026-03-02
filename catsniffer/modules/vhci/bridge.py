@@ -225,7 +225,7 @@ class VHCIBridge:
         param_len = data[2]
         params = data[3:3+param_len] if param_len > 0 else b''
 
-        self.log.debug("HCI CMD: opcode=0x%04X len=%d", opcode, param_len)
+        self.log.info("HCI CMD: opcode=0x%04X len=%d params=%s", opcode, param_len, params.hex())
 
         # Dispatch to handler
         response = self.dispatcher.dispatch(opcode, params)
@@ -491,10 +491,8 @@ class VHCIBridge:
         self.scanning = True
 
         # Set channel 37 with advertising access address
-        self._send_sniffle_cmd([SNIFFLE_SET_CHAN_AA_PHY, 37] +
-                               list(struct.pack("<L", BLE_ADV_AA)) +
-                               [PHY_1M, 0] +
-                               list(struct.pack("<L", BLE_ADV_CRCI)))
+        self._send_sniffle_cmd([SNIFFLE_SET_CHAN_AA_PHY] +
+                               list(struct.pack("<BLBL", 37, BLE_ADV_AA, PHY_1M, BLE_ADV_CRCI)))
 
         # Start scan
         self._send_sniffle_cmd([SNIFFLE_SCAN])
@@ -548,10 +546,8 @@ class VHCIBridge:
         self.sniffle_set_addr(self.bd_addr)
 
         # Set channel
-        self._send_sniffle_cmd([SNIFFLE_SET_CHAN_AA_PHY, 37] +
-                               list(struct.pack("<L", BLE_ADV_AA)) +
-                               [PHY_1M, 0] +
-                               list(struct.pack("<L", BLE_ADV_CRCI)))
+        self._send_sniffle_cmd([SNIFFLE_SET_CHAN_AA_PHY] +
+                               list(struct.pack("<BLBL", 37, BLE_ADV_AA, PHY_1M, BLE_ADV_CRCI)))
 
         # Build LLData
         lldata = []
