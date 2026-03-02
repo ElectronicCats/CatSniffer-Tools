@@ -63,7 +63,7 @@ def _configure_lora(
         ("spread factor", snifferSxCmd.set_sf(spread_factor)),
         ("coding rate", snifferSxCmd.set_cr(coding_rate)),
         ("TX power", snifferSxCmd.set_power(tx_power)),
-        ("apply", snifferSxCmd.apply()),
+        ("apply", snifferSxCmd.apply_config()),
     ]
 
     all_ok = True

@@ -54,6 +54,14 @@ class LoRaShellCommands:
         return "status"
 
     @staticmethod
+    def start_streaming() -> str:
+        return "lora_mode stream"
+
+    @staticmethod
+    def start_command() -> str:
+        return "lora_mode command"
+
+    @staticmethod
     def get_help() -> str:
         return "help"
 
