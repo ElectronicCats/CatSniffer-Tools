@@ -2,13 +2,13 @@ name: CatSniffer Unit Tests
 
 on:
   push:
-    branches: ["main", "develop"]
+    branches: ["main", "develop", "refactor"]
     # Only trigger if there are changes in the catsniffer/ directory or the test workflow itself
     paths:
       - "catsniffer/**"
       - ".github/workflows/tests.yml"
   pull_request:
-    branches: ["main", "develop"]
+    branches: ["main", "develop", "refactor"]
     paths:
       - "catsniffer/**"
       - ".github/workflows/tests.yml"
