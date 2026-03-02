@@ -1230,7 +1230,7 @@ def verify(test_all, device, quiet):
             console.print(
                 "\n[green]✓ Basic functionality verified. Use --test-all for comprehensive testing.[/green]"
             )
-        return 0
+        sys.exit(0)
     else:
         print_error("Verification failed!")
         console.print("\n[yellow]Troubleshooting tips:[/yellow]")
@@ -1240,7 +1240,7 @@ def verify(test_all, device, quiet):
         console.print("2. Try reconnecting the USB cable")
         console.print("3. Check if the correct firmware is flashed")
         console.print("4. Verify serial port permissions (Linux/Mac)")
-        return 1
+        sys.exit(1)
 
 
 @cli.command()

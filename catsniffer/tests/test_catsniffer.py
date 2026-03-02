@@ -1110,7 +1110,10 @@ class TestCLISubprocess:
 
     def test_verify_device_flag(self):
         result = self._run("verify", "--device", "99")
-        assert result.returncode != 0 or "not found" in result.stdout + result.stderr
+        assert (
+            result.returncode != 0
+            or "No CatSniffer device(s) found" in result.stdout + result.stderr
+        )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
