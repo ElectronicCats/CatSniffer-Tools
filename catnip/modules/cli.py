@@ -773,7 +773,12 @@ def send_identify_command(device):
     is_flag=True,
     help="List available firmware images to flash",
 )
-def flash(firmware, device, list) -> None:
+@click.option(
+    "--full",
+    is_flag=True,
+    help="Show full descriptions without truncation in the list",
+)
+def flash(firmware, device, list, full) -> None:
     """Flash CC1352 Firmware or list available firmware images"""
 
     from .fw_aliases import get_official_id
@@ -904,8 +909,8 @@ def flash(firmware, device, list) -> None:
                 # Get description
                 desc = descriptions.get(fw_lower, "No description available")
 
-                # Truncate description if it's too long
-                if len(desc) > 70:
+                # Truncate description if it's too long (unless --full is specified)
+                if not full and len(desc) > 70:
                     desc = desc[:67] + "..."
 
                 table.add_row(f"[green]{alias}[/green]", fw, desc)
