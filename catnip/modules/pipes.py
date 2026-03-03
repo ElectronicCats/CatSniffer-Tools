@@ -8,7 +8,7 @@ from pathlib import Path
 
 logger = logging.getLogger("rich")
 
-DEFAULT_PIPELINE_NAME = "fcatsniffer"
+DEFAULT_PIPELINE_NAME = "fcatnip"
 DEFAULT_UNIX_PATH = f"/tmp/{DEFAULT_PIPELINE_NAME}"
 DEFAULT_WINDOWS_PATH = f"\\\\.\\pipe\\{DEFAULT_PIPELINE_NAME}"
 

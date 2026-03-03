@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
 # Internal
-from modules.catsniffer import LoRaConnection
+from modules.catnip import LoRaConnection
 
 START_OF_FRAME = "SCAN"
 END_OF_FRAME = "END"
@@ -246,8 +246,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  catsniffer lora spectrum -p /dev/ttyUSB1
-  catsniffer lora spectrum -p COM3 --start-freq 400 --end-freq 500
+  catnip lora spectrum -p /dev/ttyUSB1
+  catnip lora spectrum -p COM3 --start-freq 400 --end-freq 500
         """,
     )
     parser.add_argument(

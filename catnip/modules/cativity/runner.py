@@ -3,7 +3,7 @@ import threading
 import queue
 import os
 import sys
-from ..catsniffer import Catsniffer, CatSnifferDevice
+from ..catnip import Catnip, CatSnifferDevice
 from protocol.sniffer_ti import SnifferTI, PacketCategory
 from protocol.common import START_OF_FRAME, END_OF_FRAME
 from .graphs import Graphs
@@ -16,7 +16,7 @@ class CativityRunner:
     def __init__(self, device: CatSnifferDevice, console=None):
         self.device = device
         self.console = console
-        self.catsniffer = Catsniffer(port=device.bridge_port)
+        self.catnip = Catnip(port=device.bridge_port)
         self.grapher = Graphs()
         self.network = Network()
         self.protocol_filters = ["all", "zigbee", "thread"]
@@ -52,11 +52,11 @@ class CativityRunner:
                         break
                     self.current_channel = channel
                     # Change channel using TI commands
-                    self.catsniffer.write(self.ti_cmd.stop())
+                    self.catnip.write(self.ti_cmd.stop())
                     time.sleep(0.05)
-                    self.catsniffer.write(self.ti_cmd.config_freq(channel))
+                    self.catnip.write(self.ti_cmd.config_freq(channel))
                     time.sleep(0.05)
-                    self.catsniffer.write(self.ti_cmd.start())
+                    self.catnip.write(self.ti_cmd.start())
 
                     self.grapher.update_channel(channel)
                     time.sleep(CHANNEL_HOPPING_INTERVAL)
@@ -73,7 +73,7 @@ class CativityRunner:
         self.protocol = protocol
         self.capture_started = True
 
-        if not self.catsniffer.connect():
+        if not self.catnip.connect():
             if self.console:
                 self.console.print(
                     f"[red]✗[/red] Failed to connect to {self.device.bridge_port}"
@@ -81,19 +81,19 @@ class CativityRunner:
             return
 
         # Prepare device
-        self.catsniffer.write(self.ti_cmd.ping())
-        self.catsniffer.write(self.ti_cmd.stop())
-        self.catsniffer.write(self.ti_cmd.config_phy())
+        self.catnip.write(self.ti_cmd.ping())
+        self.catnip.write(self.ti_cmd.stop())
+        self.catnip.write(self.ti_cmd.config_phy())
 
         if channel is not None:
             self.fixed_channel = True
             self.current_channel = channel
-            self.catsniffer.write(self.ti_cmd.config_freq(channel))
+            self.catnip.write(self.ti_cmd.config_freq(channel))
             self.grapher.update_channel(channel)
             # Reset activity for fixed channel to show live
             self.channel_activity = {channel: 0}
 
-        self.catsniffer.write(self.ti_cmd.start())
+        self.catnip.write(self.ti_cmd.start())
 
         if topology:
             graph_thread = threading.Thread(
@@ -114,7 +114,7 @@ class CativityRunner:
 
         try:
             while self.capture_started:
-                data = self.catsniffer.read_until((END_OF_FRAME + START_OF_FRAME))
+                data = self.catnip.read_until((END_OF_FRAME + START_OF_FRAME))
                 if data:
                     full_packet = START_OF_FRAME + data
 
@@ -150,9 +150,9 @@ class CativityRunner:
     def stop(self):
         self.capture_started = False
         self.grapher.stop()
-        if self.catsniffer:
+        if self.catnip:
             try:
-                self.catsniffer.write(self.ti_cmd.stop())
-                self.catsniffer.disconnect()
+                self.catnip.write(self.ti_cmd.stop())
+                self.catnip.disconnect()
             except:
                 pass

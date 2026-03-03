@@ -7,9 +7,9 @@ import logging
 from datetime import datetime
 
 # Internal
-from .catsniffer import (
-    catsniffer_get_port,
-    catsniffer_get_device,
+from .catnip import (
+    catnip_get_port,
+    catnip_get_device,
     CatSnifferDevice,
     ShellConnection,
 )
@@ -61,7 +61,7 @@ class CCLoader:
 
         # For backwards compatibility, accept port string
         if device is None:
-            self.bridge_port = catsniffer_get_port()
+            self.bridge_port = catnip_get_port()
             self.shell_port = None
         else:
             self.bridge_port = device.bridge_port
@@ -228,7 +228,7 @@ class CCLoader:
             self.close_exit()
 
 
-class Catnip:
+class Flasher:
     def __init__(self):
         self.release_assets = []
         self.release_tag = None
@@ -602,14 +602,14 @@ class Catnip:
         if os.path.exists(firmware_str):
             # Get device if not provided
             if device is None:
-                device = catsniffer_get_device()
+                device = catnip_get_device()
             return self.flash_firmware(firmware_str, device)
 
         firmwares = self.get_local_firmware()
 
         # Get device if not provided
         if device is None:
-            device = catsniffer_get_device()
+            device = catnip_get_device()
 
         from .fw_aliases import get_official_id, get_filename_pattern
 

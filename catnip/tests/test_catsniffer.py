@@ -1,19 +1,19 @@
 """
-test_catsniffer.py
+test_catnip.py
 ==================
 Test suite for the CatSniffer CLI.
 
 Covers:
-  - CLI (catsniffer.py): flash, sniff, devices, verify, cativity commands
+  - CLI (catnip.py): flash, sniff, devices, verify, cativity commands
   - modules/cli.py: helpers, find_wireshark_path, find_putty_path
-  - modules/catnip.py: CCLoader, Catnip.find_flash_firmware
+  - modules/flasher.py: CCLoader, Flasher.find_flash_firmware
   - modules/bridge.py: _configure_lora, run_sx_bridge, run_bridge
   - modules/verify.py: VerificationDevice, find_verification_devices,
                         test_basic_commands, run_verification
 
 Run with:
     pip install pytest pytest-mock
-    pytest tests/test_catsniffer.py -v
+    pytest tests/test_catnip.py -v
 
 Note: No physical hardware required. All serial/USB/network access
       is replaced with mocks.
@@ -425,7 +425,7 @@ class TestFindVerificationDevices:
         p.location = "1-1"
         return p
 
-    def test_no_catsniffer_ports(self):
+    def test_no_catnip_ports(self):
         from modules.verify import find_verification_devices
 
         with patch("serial.tools.list_ports.comports", return_value=[]):
@@ -473,7 +473,7 @@ class TestFindVerificationDevices:
             result = find_verification_devices()
         assert result == []
 
-    def test_non_catsniffer_ports_filtered(self):
+    def test_non_catnip_ports_filtered(self):
         from modules.verify import find_verification_devices
 
         ports = [
@@ -599,11 +599,11 @@ class TestCCLoader:
     """Tests for CCLoader."""
 
     def _loader(self, fake_device):
-        from modules.catnip import CCLoader
+        from modules.flasher import CCLoader
 
         # No longer need to patch FirmwareFile and CommandInterface
         # because they are in our fake module
-        with patch("modules.catnip.catsniffer_get_port", return_value="/dev/ttyACM0"):
+        with patch("modules.flasher.catnip_get_port", return_value="/dev/ttyACM0"):
             loader = CCLoader(firmware="/tmp/fw.hex", device=fake_device)
         return loader
 
@@ -613,9 +613,9 @@ class TestCCLoader:
         assert loader.shell_port == fake_device.shell_port
 
     def test_init_without_device(self):
-        from modules.catnip import CCLoader
+        from modules.flasher import CCLoader
 
-        with patch("modules.catnip.catsniffer_get_port", return_value="/dev/ttyACM0"):
+        with patch("modules.flasher.catnip_get_port", return_value="/dev/ttyACM0"):
             loader = CCLoader(firmware=None, device=None)
         assert loader.bridge_port == "/dev/ttyACM0"
 
@@ -628,7 +628,7 @@ class TestCCLoader:
         loader = self._loader(fake_device)
         mock_shell = MagicMock()
         mock_shell.connect.return_value = False
-        with patch("modules.catnip.ShellConnection", return_value=mock_shell):
+        with patch("modules.flasher.ShellConnection", return_value=mock_shell):
             loader.enter_bootloader()
         mock_shell.enter_bootloader.assert_not_called()
 
@@ -638,7 +638,7 @@ class TestCCLoader:
         mock_shell.connect.return_value = True
         mock_shell.enter_bootloader.return_value = True
         mock_shell.connection = MagicMock()
-        with patch("modules.catnip.ShellConnection", return_value=mock_shell):
+        with patch("modules.flasher.ShellConnection", return_value=mock_shell):
             loader.enter_bootloader()
         mock_shell.enter_bootloader.assert_called_once()
 
@@ -660,7 +660,7 @@ class TestCCLoader:
 
     def test_get_chip_info_special_id(self, fake_device):
         """chip ID 0xF000 is CatSniffer special -> should return a CC26xx instance."""
-        from modules.catnip import CCLoader
+        from modules.flasher import CCLoader
 
         loader = self._loader(fake_device)
         loader.cmd.cmdGetChipId.return_value = 0xF000
@@ -684,12 +684,12 @@ class TestCCLoader:
 
     def test_get_chip_info_known_id_uses_cc2538(self, fake_device):
         """chip ID recognized in CHIP_ID_STRS -> should return a CC2538 instance."""
-        from modules.catnip import CCLoader
+        from modules.flasher import CCLoader
 
         loader = self._loader(fake_device)
 
-        # Patch CHIP_ID_STRS directly in catnip
-        with patch("modules.catnip.CHIP_ID_STRS", {0xABCD: "TestChip"}):
+        # Patch CHIP_ID_STRS directly in flasher
+        with patch("modules.flasher.CHIP_ID_STRS", {0xABCD: "TestChip"}):
             loader.cmd.cmdGetChipId.return_value = 0xABCD
 
             chip = loader.get_chip_info()
@@ -705,82 +705,82 @@ class TestCCLoader:
         loader.shell.disconnect.assert_called_once()
 
 
-class TestCatnipFindFlash:
-    """Tests for Catnip.find_flash_firmware."""
+class TestFlasherFindFlash:
+    """Tests for Flasher.find_flash_firmware."""
 
-    def _catnip(self):
-        from modules.catnip import Catnip
+    def _flasher(self):
+        from modules.flasher import Flasher
 
         with patch(
-            "modules.catnip.catsniffer_get_port", return_value="/dev/ttyACM0"
+            "modules.flasher.catnip_get_port", return_value="/dev/ttyACM0"
         ), patch("os.path.exists", return_value=True):
-            c = Catnip()
+            c = Flasher()
         return c
 
     def test_absolute_path_existing_file(self, fake_device, tmp_path):
         fw = tmp_path / "firmware.hex"
         fw.write_bytes(b"\x00" * 16)
-        catnip = self._catnip()
-        with patch.object(catnip, "flash_firmware", return_value=True) as mock_flash:
-            result = catnip.find_flash_firmware(str(fw), fake_device)
+        flasher = self._flasher()
+        with patch.object(flasher, "flash_firmware", return_value=True) as mock_flash:
+            result = flasher.find_flash_firmware(str(fw), fake_device)
         mock_flash.assert_called_once_with(str(fw), fake_device)
         assert result is True
 
     def test_nonexistent_path_returns_false(self, fake_device):
-        catnip = self._catnip()
+        flasher = self._flasher()
         with patch("os.path.isfile", return_value=False), patch(
             "os.path.exists", return_value=False
         ):
-            result = catnip.find_flash_firmware("/no/existe.hex", fake_device)
+            result = flasher.find_flash_firmware("/no/existe.hex", fake_device)
         assert result is False
 
     def test_alias_resolved(self, fake_device):
-        catnip = self._catnip()
-        # FIX: Patch the correct module (fw_aliases) instead of catnip
+        flasher = self._flasher()
+        # FIX: Patch the correct module (fw_aliases) instead of flasher
         with patch(
             "modules.fw_aliases.get_official_id", return_value="sniffle_ble"
         ), patch(
             "modules.fw_aliases.get_filename_pattern", return_value="sniffle"
         ), patch.object(
-            catnip, "get_local_firmware", return_value=["sniffle_fw.hex"]
+            flasher, "get_local_firmware", return_value=["sniffle_fw.hex"]
         ), patch.object(
-            catnip, "get_releases_path", return_value="/fake/path"
+            flasher, "get_releases_path", return_value="/fake/path"
         ), patch.object(
-            catnip, "flash_firmware", return_value=True
+            flasher, "flash_firmware", return_value=True
         ) as mock_flash:
-            catnip.find_flash_firmware("ble", fake_device)
+            flasher.find_flash_firmware("ble", fake_device)
         mock_flash.assert_called_once()
 
     def test_no_match_returns_false(self, fake_device):
-        catnip = self._catnip()
-        # FIX: Patch the correct module (fw_aliases) instead of catnip
+        flasher = self._flasher()
+        # FIX: Patch the correct module (fw_aliases) instead of flasher
         with patch(
             "modules.fw_aliases.get_official_id", return_value=None
         ), patch.object(
-            catnip, "get_local_firmware", return_value=["other_fw.hex"]
+            flasher, "get_local_firmware", return_value=["other_fw.hex"]
         ), patch.object(
-            catnip, "get_releases_path", return_value="/fake/path"
+            flasher, "get_releases_path", return_value="/fake/path"
         ), patch(
             "os.path.isfile", return_value=False
         ):
-            result = catnip.find_flash_firmware("nofirmware", fake_device)
+            result = flasher.find_flash_firmware("nofirmware", fake_device)
         assert result is False
 
     def test_multiple_matches_returns_false(self, fake_device):
-        catnip = self._catnip()
-        # FIX: Patch the correct module (fw_aliases) instead of catnip
+        flasher = self._flasher()
+        # FIX: Patch the correct module (fw_aliases) instead of flasher
         with patch(
             "modules.fw_aliases.get_official_id", return_value=None
         ), patch.object(
-            catnip,
+            flasher,
             "get_local_firmware",
             return_value=["sniffer_ble_v1.hex", "sniffer_ble_v2.hex"],
         ), patch.object(
-            catnip, "get_releases_path", return_value="/fake/path"
+            flasher, "get_releases_path", return_value="/fake/path"
         ), patch(
             "os.path.isfile", return_value=False
         ):
-            result = catnip.find_flash_firmware("sniffer_ble", fake_device)
+            result = flasher.find_flash_firmware("sniffer_ble", fake_device)
         assert result is False
 
 
@@ -903,7 +903,7 @@ class TestRunBridge:
         mock_serial = MagicMock()
         mock_serial.read_until.side_effect = KeyboardInterrupt()
         mock_pipe = MagicMock()
-        with patch("modules.bridge.Catsniffer", return_value=mock_serial), patch(
+        with patch("modules.bridge.Catnip", return_value=mock_serial), patch(
             "modules.bridge.UnixPipe", return_value=mock_pipe
         ), patch("modules.bridge.WindowsPipe", return_value=mock_pipe), patch(
             "platform.system", return_value="Linux"
@@ -918,7 +918,7 @@ class TestRunBridge:
         mock_serial.read_until.side_effect = KeyboardInterrupt()
         mock_pipe = MagicMock()
         # channel=99 is invalid but bridge.py doesn't validate; we verify it doesn't crash
-        with patch("modules.bridge.Catsniffer", return_value=mock_serial), patch(
+        with patch("modules.bridge.Catnip", return_value=mock_serial), patch(
             "modules.bridge.UnixPipe", return_value=mock_pipe
         ), patch("platform.system", return_value="Linux"):
             run_bridge(fake_device, channel=99, wireshark=False)
@@ -1012,29 +1012,29 @@ class TestGetDeviceOrExit:
     def test_device_found_returns_device(self, fake_device):
         from modules.cli import get_device_or_exit
 
-        with patch("modules.cli.catsniffer_get_device", return_value=fake_device):
+        with patch("modules.cli.catnip_get_device", return_value=fake_device):
             dev = get_device_or_exit(device_id=1)
         assert dev is fake_device
 
     def test_no_device_exits(self):
         from modules.cli import get_device_or_exit
 
-        with patch(
-            "modules.cli.catsniffer_get_device", return_value=None
-        ), pytest.raises(SystemExit):
+        with patch("modules.cli.catnip_get_device", return_value=None), pytest.raises(
+            SystemExit
+        ):
             get_device_or_exit(device_id=1)
 
     def test_incomplete_device_warns_but_returns(self, fake_device):
         fake_device.is_valid.return_value = False
         from modules.cli import get_device_or_exit
 
-        with patch("modules.cli.catsniffer_get_device", return_value=fake_device):
+        with patch("modules.cli.catnip_get_device", return_value=fake_device):
             dev = get_device_or_exit(device_id=1)
         assert dev is fake_device
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  5.  High-level CLI: catsniffer.py (subprocess invocation)
+#  5.  High-level CLI: catnip.py (subprocess invocation)
 # ═════════════════════════════════════════════════════════════════════════════
 
 
@@ -1047,7 +1047,7 @@ class TestCLISubprocess:
     def _run(self, *args, timeout=10):
         import subprocess
 
-        cmd = [sys.executable, os.path.join(PROJECT_ROOT, "catsniffer.py")] + list(args)
+        cmd = [sys.executable, os.path.join(PROJECT_ROOT, "catnip.py")] + list(args)
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -1149,27 +1149,27 @@ class TestRobustness:
         )
         assert vd.is_complete() is False
 
-    # -- catnip.py -----------------------------------------------------------
+    # -- flasher.py -----------------------------------------------------------
 
     def test_ccloader_firmware_none(self, fake_device):
-        from modules.catnip import CCLoader
+        from modules.flasher import CCLoader
 
-        with patch("modules.catnip.FirmwareFile"), patch(
-            "modules.catnip.CommandInterface"
+        with patch("modules.flasher.FirmwareFile"), patch(
+            "modules.flasher.CommandInterface"
         ):
             loader = CCLoader(firmware=None, device=fake_device)
         assert loader is not None
 
     def test_find_flash_firmware_empty_string(self, fake_device):
-        from modules.catnip import Catnip
+        from modules.flasher import Flasher
 
-        with patch("modules.catnip.catsniffer_get_port", return_value="/dev/ttyACM0"):
-            catnip = Catnip()
+        with patch("modules.flasher.catnip_get_port", return_value="/dev/ttyACM0"):
+            flasher = Flasher()
         # FIX: Use correct method name: get_local_firmware, not get_firmwares
-        with patch.object(catnip, "get_local_firmware", return_value=[]), patch(
+        with patch.object(flasher, "get_local_firmware", return_value=[]), patch(
             "os.path.isfile", return_value=False
         ):
-            result = catnip.find_flash_firmware("", fake_device)
+            result = flasher.find_flash_firmware("", fake_device)
         assert result is False
 
     # -- bridge.py -----------------------------------------------------------
@@ -1212,9 +1212,9 @@ class TestRobustness:
     def test_get_device_or_exit_device_id_zero(self):
         from modules.cli import get_device_or_exit
 
-        with patch(
-            "modules.cli.catsniffer_get_device", return_value=None
-        ), pytest.raises(SystemExit):
+        with patch("modules.cli.catnip_get_device", return_value=None), pytest.raises(
+            SystemExit
+        ):
             get_device_or_exit(device_id=0)
 
 
@@ -1477,7 +1477,7 @@ class TestMeshtasticLiveDecoder:
 
     def test_configure_radio_with_shell_port(self):
         """Test configuration with shell port (mock)."""
-        from modules.catsniffer import ShellConnection
+        from modules.catnip import ShellConnection
 
         decoder = self._make_decoder()
 

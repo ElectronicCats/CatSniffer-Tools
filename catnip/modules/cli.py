@@ -14,17 +14,17 @@ import sys
 import queue
 
 # Internal
-from .catnip import Catnip
+from .flasher import Flasher
 from .verify import run_verification
 from .pipes import Wireshark
 from .bridge import run_bridge, run_sx_bridge
-from .catsniffer import (
+from .catnip import (
     SniffingFirmware,
     SniffingBaseFirmware,
-    Catsniffer,
+    Catnip,
     CatSnifferDevice,
-    catsniffer_get_device,
-    catsniffer_get_devices,
+    catnip_get_device,
+    catnip_get_devices,
 )
 
 # External
@@ -42,8 +42,8 @@ import time
 from pathlib import Path
 
 # APP Information
-CLI_NAME = "Catsniffer"
-VERSION_NUMBER = "3.0.0"
+CLI_NAME = "Flasher CLI"
+VERSION_NUMBER = "3.3.0.0"
 COMPANY = "Electronic Cats - PWNLAB"
 
 # Defining styles for reuse
@@ -60,12 +60,12 @@ STYLES = {
 # Prompt
 PROMPT_ICON = "🐱"
 PROMPT_DESCRIPTION = (
-    "PyCat-Sniffer CLI - For sniffing the TI CC1352 device communication interfaces."
+    "Flasher CLI - For sniffing the TI CC1352 device communication interfaces."
 )
 
-__version__ = "3.0"
+__version__ = "3.3.0.0"
 
-catnip = Catnip()
+flasher = Flasher()
 wireshark = Wireshark()
 console = Console()
 
@@ -125,7 +125,7 @@ def print_info(message):
 
 def get_device_or_exit(device_id=None):
     """Get CatSniffer device or exit with error."""
-    device = catsniffer_get_device(device_id)
+    device = catnip_get_device(device_id)
     if device is None:
         print_error("No CatSniffer device found!")
         console.print("    Make sure your CatSniffer is connected.")
@@ -357,7 +357,7 @@ def find_extcap_plugin(plugin_name):
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("-v", "--verbose", is_flag=True, help="Show Verbose mode")
 def cli(verbose):
-    """CatSniffer: All in one catsniffer tools environment."""
+    """CatSniffer: All in one catnip tools environment."""
     if verbose:
         logger.level = logging.INFO
     pass
@@ -405,7 +405,7 @@ def sniff_ble(device, wireshark, channel, mode):
     dev = get_device_or_exit(device)
 
     # Verify firmware
-    cat = Catsniffer(dev.bridge_port)
+    cat = Catnip(dev.bridge_port)
 
     # Notify user that we are checking for firmware
     print_info("Checking for Sniffle firmware...")
@@ -424,7 +424,7 @@ def sniff_ble(device, wireshark, channel, mode):
         print_warning("Sniffle firmware not found! - Flashing Sniffle")
 
         # Flash firmware
-        if not catnip.find_flash_firmware(SniffingBaseFirmware.BLE.value, dev):
+        if not flasher.find_flash_firmware(SniffingBaseFirmware.BLE.value, dev):
             print_error("Failed to flash Sniffle firmware")
             return
 
@@ -437,8 +437,8 @@ def sniff_ble(device, wireshark, channel, mode):
         for attempt in range(3):
             print_info(f"Verifying firmware (attempt {attempt + 1}/3)...")
 
-            # Create a new Catsniffer instance to avoid connection issues
-            cat = Catsniffer(dev.bridge_port)
+            # Create a new Catnip instance to avoid connection issues
+            cat = Catnip(dev.bridge_port)
 
             # Flush serial buffers before verification
             try:
@@ -467,7 +467,7 @@ def sniff_ble(device, wireshark, channel, mode):
             print_error("Firmware verification failed after multiple attempts!")
             print_info("The device may still work, but metadata is not set.")
             print_info(
-                "You can try running: catsniffer sniff ble -d 1 again in a few seconds."
+                "You can try running: catnip sniff ble -d 1 again in a few seconds."
             )
             # We don't return, allow to continue anyway
 
@@ -509,7 +509,7 @@ def sniff_ble(device, wireshark, channel, mode):
 def sniff_zigbee(ws, channel, device):
     """Sniffing Zigbee with Sniffer TI firmware"""
     dev = get_device_or_exit(device)
-    cat = Catsniffer(dev.bridge_port)
+    cat = Catnip(dev.bridge_port)
     # Verify firmware with metadata (preferred)
     print_info("Checking for Sniffer TI firmware...")
     if cat.check_firmware_by_metadata("ti_sniffer", dev.shell_port):
@@ -518,7 +518,7 @@ def sniff_zigbee(ws, channel, device):
         print_success("Sniffer TI firmware found (via direct communication)!")
     else:
         print_warning("Sniffer TI firmware not found! - Flashing Sniffer TI")
-        if not catnip.find_flash_firmware("ti_sniffer", dev):
+        if not flasher.find_flash_firmware("ti_sniffer", dev):
             return
 
         print_info("Waiting for device to initialize...")
@@ -546,7 +546,7 @@ def sniff_zigbee(ws, channel, device):
 def sniff_thread(ws, channel, device):
     """Sniffing Thread with Sniffer TI firmware"""
     dev = get_device_or_exit(device)
-    cat = Catsniffer(dev.bridge_port)
+    cat = Catnip(dev.bridge_port)
     # Verify firmware with metadata (preferred)
     print_info("Checking for Sniffer TI firmware...")
     if cat.check_firmware_by_metadata("ti_sniffer", dev.shell_port):
@@ -555,7 +555,7 @@ def sniff_thread(ws, channel, device):
         print_success("Sniffer TI firmware found (via direct communication)!")
     else:
         print_warning("Sniffer TI firmware not found! - Flashing Sniffer TI")
-        if not catnip.find_flash_firmware("ti_sniffer", dev):
+        if not flasher.find_flash_firmware("ti_sniffer", dev):
             return
 
         print_info("Waiting for device to initialize...")
@@ -662,7 +662,7 @@ def sniff_airtag_scanner(device, putty):
     dev = get_device_or_exit(device)
 
     # Verify firmware
-    cat = Catsniffer(dev.bridge_port)
+    cat = Catnip(dev.bridge_port)
 
     # Notify user that we are checking for firmware
     print_info("Checking for Airtag Scanner firmware...")
@@ -682,7 +682,7 @@ def sniff_airtag_scanner(device, putty):
         print_warning("Airtag Scanner firmware not found! - Flashing Airtag Scanner")
 
         # Flash firmware
-        if not catnip.find_flash_firmware(official_id, dev):
+        if not flasher.find_flash_firmware(official_id, dev):
             print_error("Failed to flash Airtag Scanner firmware")
             return
 
@@ -778,8 +778,8 @@ def flash(firmware, device, list) -> None:
 
     from .fw_aliases import get_official_id
 
-    # Initialize Catnip to manage firmware operations
-    catnip = Catnip()
+    # Initialize Flasher to manage firmware operations
+    flasher = Flasher()
 
     # If listing available firmwares is requested
     if list:
@@ -787,7 +787,7 @@ def flash(firmware, device, list) -> None:
 
         try:
             # Get the list of local firmwares
-            firmwares = catnip.get_local_firmware()
+            firmwares = flasher.get_local_firmware()
 
             if not firmwares:
                 print_warning("No firmware images found locally.")
@@ -805,7 +805,7 @@ def flash(firmware, device, list) -> None:
             table.add_column("Description", style="white", min_width=40)
 
             # Get descriptions
-            descriptions = catnip.parse_descriptions()
+            descriptions = flasher.parse_descriptions()
 
             # Map aliases to complete firmware
             firmware_to_alias = {}
@@ -998,38 +998,24 @@ def flash(firmware, device, list) -> None:
                 "    [green]multiprotocol[/green] → TI multiprotocol firmware"
             )
 
-            console.print("\n  [yellow]LoRa (RP2040):[/yellow]")
-            console.print(
-                "    [green]lora-sniffer[/green] → LoRa Sniffer for Wireshark"
-            )
-            console.print(
-                "    [green]lora-cli[/green]    → LoRa Command Line Interface"
-            )
-            console.print(
-                "    [green]lora-cad[/green]    → LoRa Channel Activity Detector"
-            )
-            console.print(
-                "    [green]lora-freq[/green]   → LoRa Frequency Spectrum analyzer"
-            )
-
             # Use Information
             console.print("\n[cyan bold]Usage Examples:[/cyan bold]")
             console.print(
-                "  [green]catsniffer flash zigbee[/green]          (TI multiprotocol sniffer)"
+                "  [green]catnip.py flash zigbee[/green]          (TI multiprotocol sniffer)"
             )
             console.print(
-                "  [green]catsniffer flash thread[/green]         (same TI firmware)"
+                "  [green]catnip.py flash thread[/green]         (same TI firmware)"
             )
             console.print(
-                "  [green]catsniffer flash ble[/green]            (Sniffle BLE)"
+                "  [green]catnip.py flash ble[/green]            (Sniffle BLE)"
             )
             console.print(
-                "  [green]catsniffer flash lora-sniffer[/green]   (LoRa Sniffer)"
+                "  [green]catnip.py flash lora-sniffer[/green]   (LoRa Sniffer)"
             )
             console.print(
-                "  [green]catsniffer flash airtag-scanner[/green] (Apple Airtag)"
+                "  [green]catnip.py flash airtag-scanner[/green] (Apple Airtag)"
             )
-            console.print("  [green]catsniffer flash --device 1 zigbee[/green]")
+            console.print("  [green]catnip.py flash --device 1 zigbee[/green]")
 
             return
 
@@ -1044,10 +1030,10 @@ def flash(firmware, device, list) -> None:
     if firmware is None:
         print_error("No firmware specified!")
         console.print(
-            "\nUse 'catsniffer flash --list' to see available firmware images and aliases."
+            "\nUse 'catnip flash --list' to see available firmware images and aliases."
         )
         console.print(
-            "Or specify a firmware name: catsniffer flash <firmware_name_or_alias>"
+            "Or specify a firmware name: catnip flash <firmware_name_or_alias>"
         )
         exit(1)
 
@@ -1062,7 +1048,7 @@ def flash(firmware, device, list) -> None:
 
     # If no device is specified, get all connected devices
     if device is None:
-        devs = catsniffer_get_devices()
+        devs = catnip_get_devices()
         if not devs:
             print_error("No CatSniffer devices found!")
             console.print("    Make sure your CatSniffer is connected.")
@@ -1073,7 +1059,7 @@ def flash(firmware, device, list) -> None:
         print_warning(f"No device specified. Using first device: {dev}")
     else:
         # If an ID is specified, get that specific device
-        dev = catsniffer_get_device(device)
+        dev = catnip_get_device(device)
         if dev is None:
             print_error(f"CatSniffer device with ID {device} not found!")
             console.print("    Use 'devices' command to list available devices.")
@@ -1088,13 +1074,13 @@ def flash(firmware, device, list) -> None:
 
     print_info(f"Flashing firmware: {firmware} to device: {dev}")
 
-    flash_result = catnip.find_flash_firmware(firmware, dev)
+    flash_result = flasher.find_flash_firmware(firmware, dev)
 
     if not flash_result:
         print_error(f"Error flashing: {firmware}")
         console.print(f"\n[yellow]Troubleshooting tips:[/yellow]")
         console.print(
-            f"1. Use [green]catsniffer flash --list[/green] to see all available firmwares"
+            f"1. Use [green]catnip flash --list[/green] to see all available firmwares"
         )
         console.print(
             f"2. Available aliases: ble, zigbee, thread, lora-sniffer, airtag-scanner"
@@ -1114,7 +1100,7 @@ def flash(firmware, device, list) -> None:
 @cli.command()
 def devices() -> None:
     """List connected CatSniffer devices"""
-    devs = catsniffer_get_devices()
+    devs = catnip_get_devices()
     if not devs:
         print_warning("No CatSniffer devices found.")
         return
@@ -1265,7 +1251,7 @@ def cativity(device, channel, topology, protocol):
     from .cativity.runner import CativityRunner
 
     dev = get_device_or_exit(device)
-    cat = Catsniffer(dev.bridge_port)
+    cat = Catnip(dev.bridge_port)
 
     # Verify firmware
     print_info("Checking for Sniffer TI firmware...")
@@ -1275,9 +1261,9 @@ def cativity(device, channel, topology, protocol):
         print_success("Sniffer TI firmware found (via direct communication)!")
     else:
         print_warning("Sniffer TI firmware not found! - Flashing Sniffer TI")
-        # Initialize Catnip for flashing
-        catnip_flash = Catnip()
-        if not catnip_flash.find_flash_firmware("ti_sniffer", dev):
+        # Initialize Flasher for flashing
+        flasher_flash = Flasher()
+        if not flasher_flash.find_flash_firmware("ti_sniffer", dev):
             print_error("Failed to flash Sniffer TI firmware")
             return
 
@@ -1612,31 +1598,29 @@ def update(device, force):
     print_info(f"CatSniffer Firmware Update - Tool v{get_tool_version()}")
     console.print("")
 
-    # Initialize Catnip for release management
-    catnip_inst = Catnip()
+    # Initialize Flasher for release management
+    flasher_inst = Flasher()
 
     # Get device if specified
     dev = None
     if device is not None:
-        dev = catsniffer_get_device(device)
+        dev = catnip_get_device(device)
         if dev is None:
             print_warning(f"Device #{device} not found, will check for Boot Mode...")
     else:
-        dev = catsniffer_get_device()
+        dev = catnip_get_device()
 
     if force:
         print_info("Force mode enabled — will update regardless of version")
-        result = force_update_rp2040(device=dev, catnip=catnip_inst)
+        result = force_update_rp2040(device=dev, flasher=flasher_inst)
     else:
-        result = check_and_update_rp2040(device=dev, catnip=catnip_inst)
+        result = check_and_update_rp2040(device=dev, flasher=flasher_inst)
 
     if result:
         print_success("Firmware update check complete!")
     else:
         print_error("Firmware update could not be completed.")
-        console.print(
-            "\n[dim]Use 'catsniffer update --force' to force an update.[/dim]"
-        )
+        console.print("\n[dim]Use 'catnip update --force' to force an update.[/dim]")
 
 
 def main_cli() -> None:

@@ -32,11 +32,11 @@ from typing import Optional, Dict, Tuple
 
 import requests
 
-from .catsniffer import (
+from .catnip import (
     ShellConnection,
     CatSnifferDevice,
-    catsniffer_get_devices,
-    catsniffer_get_device,
+    catnip_get_devices,
+    catnip_get_device,
     SHELL_CMD_FW_VERSION,
     SHELL_CMD_REBOOT,
     CATSNIFFER_VID,
@@ -49,7 +49,7 @@ logger = logging.getLogger("rich")
 console = Console()
 
 # Tool version — must match cli.py VERSION_NUMBER
-TOOL_VERSION = "3.0.0"
+TOOL_VERSION = "3.3.0.0"
 
 # GitHub API URL for the latest CatSniffer-Tools software release
 GITHUB_TOOLS_RELEASE_URL = (
@@ -198,17 +198,17 @@ def parse_fw_version_response(response: str) -> Optional[Dict[str, str]]:
     return result
 
 
-def get_expected_fw_tag(catnip) -> Optional[str]:
+def get_expected_fw_tag(flasher) -> Optional[str]:
     """
-    Get the expected firmware version tag from the Catnip release manager.
+    Get the expected firmware version tag from the Flasher release manager.
 
     Args:
-        catnip: Catnip instance with loaded release metadata
+        flasher: Flasher instance with loaded release metadata
 
     Returns:
         Release tag string (e.g., 'v3.1.0.0') or None
     """
-    tag = getattr(catnip, "release_tag", None)
+    tag = getattr(flasher, "release_tag", None)
     return tag
 
 
@@ -222,7 +222,7 @@ def is_fw_compatible(device_fw: Dict[str, str], expected_tag: str) -> bool:
     - Device FW: "dev-373e0cd-clean" is NOT compatible with tag "v3.1.0.0"
 
     Also checks the UF2 firmware naming convention:
-    - UF2 name: "catsniffer-v3.1.0.0.uf2" → tag "v3.1.0.0"
+    - UF2 name: "catnip-v3.1.0.0.uf2" → tag "v3.1.0.0"
 
     Args:
         device_fw: dict from parse_fw_version_response
@@ -248,18 +248,18 @@ def is_fw_compatible(device_fw: Dict[str, str], expected_tag: str) -> bool:
     return False
 
 
-def find_uf2_firmware(catnip) -> Optional[str]:
+def find_uf2_firmware(flasher) -> Optional[str]:
     """
     Find the UF2 firmware file path in the local release folder.
 
     Args:
-        catnip: Catnip instance with loaded release metadata
+        flasher: Flasher instance with loaded release metadata
 
     Returns:
         Absolute path to the UF2 file, or None if not found
     """
     try:
-        release_path = catnip.get_releases_path()
+        release_path = flasher.get_releases_path()
         if not os.path.exists(release_path):
             return None
 
@@ -438,13 +438,13 @@ def _print_boot_mode_instructions():
     console.print("")
 
 
-def check_and_update_rp2040(device: CatSnifferDevice = None, catnip=None) -> bool:
+def check_and_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bool:
     """
     Main orchestration function for RP2040 firmware update.
 
     Flow:
         1. Check local tool version against latest CatSniffer-Tools release
-        2. Get expected FW tag from CatSniffer-Firmware release (via Catnip)
+        2. Get expected FW tag from CatSniffer-Firmware release (via Flasher)
         3. Detect device (check 3 USB endpoints)
         4. If device detected: query fw_version and compare against expected FW
         5. If FW outdated: send reboot → wait for boot mode → flash UF2
@@ -452,7 +452,7 @@ def check_and_update_rp2040(device: CatSnifferDevice = None, catnip=None) -> boo
 
     Args:
         device: CatSnifferDevice instance (auto-detected if None)
-        catnip: Catnip instance (created if None)
+        flasher: Flasher instance (created if None)
 
     Returns:
         True if firmware is up-to-date or successfully updated, False otherwise
@@ -479,12 +479,12 @@ def check_and_update_rp2040(device: CatSnifferDevice = None, catnip=None) -> boo
         )
 
     # Step 2: Get expected firmware version from CatSniffer-Firmware release
-    if catnip is None:
-        from .catnip import Catnip
+    if flasher is None:
+        from .flasher import Flasher
 
-        catnip = Catnip()
+        flasher = Flasher()
 
-    expected_fw_tag = get_expected_fw_tag(catnip)
+    expected_fw_tag = get_expected_fw_tag(flasher)
     if not expected_fw_tag:
         console.print(
             "[yellow][!] Could not determine expected firmware version[/yellow]"
@@ -505,7 +505,7 @@ def check_and_update_rp2040(device: CatSnifferDevice = None, catnip=None) -> boo
 
     # Step 3: Detect device
     if device is None:
-        device = catsniffer_get_device()
+        device = catnip_get_device()
 
     if device is None:
         # No device detected — check if RP2040 is already in boot mode
@@ -516,7 +516,7 @@ def check_and_update_rp2040(device: CatSnifferDevice = None, catnip=None) -> boo
             console.print(
                 f"[green][*] RP2040 Boot Mode detected at: {mount_point}[/green]"
             )
-            uf2_path = find_uf2_firmware(catnip)
+            uf2_path = find_uf2_firmware(flasher)
             if uf2_path:
                 console.print(f"[*] Flashing UF2: {os.path.basename(uf2_path)}")
                 return flash_rp2040_uf2(uf2_path)
@@ -569,32 +569,32 @@ def check_and_update_rp2040(device: CatSnifferDevice = None, catnip=None) -> boo
         f"[yellow][!] Firmware mismatch! Device: {device_fw.get('fw', '?')} ≠ Expected: {expected_fw_tag}[/yellow]"
     )
 
-    return _perform_rp2040_update(device, catnip)
+    return _perform_rp2040_update(device, flasher)
 
 
-def force_update_rp2040(device: CatSnifferDevice = None, catnip=None) -> bool:
+def force_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bool:
     """
     Force update the RP2040 firmware regardless of version compatibility.
 
     Args:
         device: CatSnifferDevice instance (auto-detected if None)
-        catnip: Catnip instance (created if None)
+        flasher: Flasher instance (created if None)
 
     Returns:
         True if successfully updated, False otherwise
     """
-    if catnip is None:
-        from .catnip import Catnip
+    if flasher is None:
+        from .flasher import Flasher
 
-        catnip = Catnip()
+        flasher = Flasher()
 
-    expected_tag = get_expected_fw_tag(catnip)
+    expected_tag = get_expected_fw_tag(flasher)
     console.print(
         f"[cyan][*] Force updating to release: {expected_tag or 'latest'}[/cyan]"
     )
 
     if device is None:
-        device = catsniffer_get_device()
+        device = catnip_get_device()
 
     if device is None:
         # Check for boot mode
@@ -603,7 +603,7 @@ def force_update_rp2040(device: CatSnifferDevice = None, catnip=None) -> bool:
             console.print(
                 f"[green][*] RP2040 Boot Mode detected at: {mount_point}[/green]"
             )
-            uf2_path = find_uf2_firmware(catnip)
+            uf2_path = find_uf2_firmware(flasher)
             if uf2_path:
                 return flash_rp2040_uf2(uf2_path)
             else:
@@ -613,10 +613,10 @@ def force_update_rp2040(device: CatSnifferDevice = None, catnip=None) -> bool:
             _print_boot_mode_instructions()
             return False
 
-    return _perform_rp2040_update(device, catnip)
+    return _perform_rp2040_update(device, flasher)
 
 
-def _perform_rp2040_update(device: CatSnifferDevice, catnip) -> bool:
+def _perform_rp2040_update(device: CatSnifferDevice, flasher) -> bool:
     """
     Perform the actual RP2040 firmware update sequence.
 
@@ -627,13 +627,13 @@ def _perform_rp2040_update(device: CatSnifferDevice, catnip) -> bool:
 
     Args:
         device: CatSnifferDevice with valid shell_port
-        catnip: Catnip instance
+        flasher: Flasher instance
 
     Returns:
         True on success, False on failure
     """
     # Find UF2 firmware
-    uf2_path = find_uf2_firmware(catnip)
+    uf2_path = find_uf2_firmware(flasher)
     if not uf2_path:
         console.print("[red][X] No UF2 firmware found in release folder![/red]")
         console.print(

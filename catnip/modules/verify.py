@@ -23,7 +23,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from .catsniffer import CatSnifferDevice
+from .catnip import CatSnifferDevice
 
 console = Console()
 
@@ -116,7 +116,7 @@ def find_verification_devices() -> List[VerificationDevice]:
             devices[serial_num] = []
         devices[serial_num].append(port)
 
-    catsniffers = []
+    catnips = []
     device_id = 1
 
     for serial_num, ports in devices.items():
@@ -149,10 +149,10 @@ def find_verification_devices() -> List[VerificationDevice]:
 
         if len(ports_dict) == 3:
             device = VerificationDevice(device_id, ports_dict)
-            catsniffers.append(device)
+            catnips.append(device)
             device_id += 1
 
-    return catsniffers
+    return catnips
 
 
 def print_device_table(

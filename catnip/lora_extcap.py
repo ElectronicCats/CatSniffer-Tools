@@ -17,10 +17,10 @@ import threading
 import platform
 from serial.tools.list_ports import comports
 
-from modules.catsniffer import (
+from modules.catnip import (
     ShellConnection,
     LoRaConnection,
-    catsniffer_get_devices,
+    catnip_get_devices,
     CATSNIFFER_VID,
     CATSNIFFER_PID,
 )
@@ -235,9 +235,7 @@ class MinimalExtcap:
     def extcap_interfaces(self):
         lines = []
         lines.append(self.extcap_version())
-        lines.append(
-            "interface {value=catsniffer_lora}{display=CatSniffer LoRa Extcap}"
-        )
+        lines.append("interface {value=catnip_lora}{display=CatSniffer LoRa Extcap}")
         lines.append(
             "control {number=%d}{type=button}{role=logger}{display=Log}{tooltip=Show capture log}"
             % CTRL_NUM_LOGGER
@@ -293,9 +291,8 @@ class MinimalExtcap:
         return "\n".join(lines)
 
     def extcap_dlts(self):
-        return (
-            "dlt {number=%d}{name=catsniffer_lora_dlt}{display=CatSniffer LoRa DLT}"
-            % (CATSNIFFER_DLT)
+        return "dlt {number=%d}{name=catnip_lora_dlt}{display=CatSniffer LoRa DLT}" % (
+            CATSNIFFER_DLT
         )
 
     def extcap_config(self):
@@ -357,7 +354,7 @@ class MinimalExtcap:
         )
 
         # Get available CatSniffer devices
-        devices = catsniffer_get_devices()
+        devices = catnip_get_devices()
 
         # Populate shell and lora port options from detected devices
         shell_ports = []

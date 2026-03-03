@@ -15,7 +15,7 @@ Available Shell Commands:
 Official IDs supported by the firmware:
 - sniffle
 - ti_sniffer
-- catsniffer_v3
+- catnip_v3
 - airtag_spoofer_cc1352p7
 - airtag_scanner_cc1352p7
 """

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Meshtastic Live Decoder - Updated for Catsniffer FW with FSK support
+Meshtastic Live Decoder - Updated for Catnip FW with FSK support
 """
 
 import argparse
@@ -26,7 +26,7 @@ from .core import (
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
-from modules.catsniffer import LoRaConnection, ShellConnection
+from modules.catnip import LoRaConnection, ShellConnection
 from protocol.sniffer_sx import SnifferSx
 
 
@@ -250,7 +250,7 @@ class MeshtasticLiveDecoder:
 def main():
     """CLI entry point"""
     parser = argparse.ArgumentParser(
-        description="Live Meshtastic decoder - Updated for Catsniffer FW",
+        description="Live Meshtastic decoder - Updated for Catnip FW",
         epilog="""
 Examples:
   python live.py -p /dev/ttyUSB1

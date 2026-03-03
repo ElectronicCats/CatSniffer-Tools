@@ -4,10 +4,10 @@ set -e
 echo "[*] Installing PyInstaller..."
 pip install pyinstaller
 
-echo "[*] Building catsniffer..."
+echo "[*] Building catnip..."
 pyinstaller \
   --onefile \
-  --name catsniffer \
+  --name catnip \
   --collect-all scapy \
   --collect-all textual \
   --collect-all meshtastic \
@@ -19,7 +19,7 @@ pyinstaller \
   --hidden-import usb \
   --hidden-import usb.backend.libusb1 \
   --hidden-import magic \
-  catsniffer.py
+  catnip.py
 
 echo "[*] Building lora_extcap..."
 pyinstaller \
@@ -35,4 +35,4 @@ pyinstaller \
   lora_extcap.py
 
 echo "[+] Done! Binaries are in dist/"
-ls -lh dist/catsniffer dist/lora_extcap
+ls -lh dist/catnip dist/lora_extcap

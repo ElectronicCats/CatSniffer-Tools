@@ -191,48 +191,48 @@ class TestCativityRunner:
         dev.bridge_port = "/dev/ttyACM0"
         return dev
 
-    @patch("modules.cativity.runner.Catsniffer")
-    def test_init(self, mock_catsniffer):
+    @patch("modules.cativity.runner.Catnip")
+    def test_init(self, mock_catnip):
         dev = self.mock_device()
         runner = CativityRunner(device=dev)
         assert runner.current_channel == 11
         assert len(runner.channel_activity) == 16  # 11 to 26
 
-    @patch("modules.cativity.runner.Catsniffer")
-    def test_run_connection_failed(self, mock_catsniffer):
+    @patch("modules.cativity.runner.Catnip")
+    def test_run_connection_failed(self, mock_catnip):
         dev = self.mock_device()
         runner = CativityRunner(device=dev, console=MagicMock())
-        runner.catsniffer.connect.return_value = False
+        runner.catnip.connect.return_value = False
 
         runner.run()
         runner.console.print.assert_called_once()
 
-    @patch("modules.cativity.runner.Catsniffer")
+    @patch("modules.cativity.runner.Catnip")
     @patch("threading.Thread")
-    def test_run_success(self, mock_thread, mock_catsniffer):
+    def test_run_success(self, mock_thread, mock_catnip):
         dev = self.mock_device()
         runner = CativityRunner(device=dev, console=MagicMock())
-        runner.catsniffer.connect.return_value = True
+        runner.catnip.connect.return_value = True
 
         # Avoid infinite loop by hacking capture_started
         def mock_read_until(*args, **kwargs):
             runner.capture_started = False
             return b"test_data"
 
-        runner.catsniffer.read_until = mock_read_until
+        runner.catnip.read_until = mock_read_until
         runner.run(channel=15)
 
-        runner.catsniffer.write.assert_called()
+        runner.catnip.write.assert_called()
         assert runner.current_channel == 15
         assert runner.fixed_channel is True
         mock_thread.assert_called()
 
-    @patch("modules.cativity.runner.Catsniffer")
-    def test_stop(self, mock_catsniffer):
+    @patch("modules.cativity.runner.Catnip")
+    def test_stop(self, mock_catnip):
         dev = self.mock_device()
         runner = CativityRunner(device=dev)
         runner.capture_started = True
 
         runner.stop()
         assert runner.capture_started is False
-        runner.catsniffer.disconnect.assert_called_once()
+        runner.catnip.disconnect.assert_called_once()

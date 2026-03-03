@@ -187,8 +187,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Extract PSKs and important config info from a Meshtastic JSONC config file.",
         epilog="""Examples:
-  catsniffer meshtastic config device.yaml
-  catsniffer meshtastic config /path/to/config.jsonc
+  catnip meshtastic config device.yaml
+  catnip meshtastic config /path/to/config.jsonc
 """,
         formatter_class=argparse.RawTextHelpFormatter,
     )

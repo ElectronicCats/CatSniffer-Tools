@@ -11,6 +11,6 @@ python3 -m nuitka \
   --enable-plugin=anti-bloat \
   --assume-yes-for-downloads \
   --output-dir=dist \
-  catsniffer.py
+  catnip.py
 
 echo "[+] Build finished"

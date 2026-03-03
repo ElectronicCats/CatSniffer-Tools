@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Meshtastic Chat TUI Dashboard
-Updated for Catsniffer FW with FSK support
+Updated for Catnip FW with FSK support
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ from textual.reactive import reactive
 from textual.widgets import DataTable, Static, Input, Footer
 
 # Hardware / protobufs
-from modules.catsniffer import LoRaConnection
+from modules.catnip import LoRaConnection
 from protocol.sniffer_sx import SnifferSx
 from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
 from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
@@ -537,7 +537,7 @@ async def run_app(args) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Meshtastic Chat TUI - Updated for Catsniffer FW",
+        description="Meshtastic Chat TUI - Updated for Catnip FW",
         epilog="""
 Examples:
   python dashboard.py -p /dev/ttyUSB1

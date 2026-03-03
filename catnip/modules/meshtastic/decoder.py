@@ -187,9 +187,9 @@ def main():
     parser = argparse.ArgumentParser(
         description="Decrypt and decode a hex-encoded Meshtastic packet captured from SDR or LoRa sniffer.",
         epilog="""Examples:
-  catsniffer meshtastic decode -i fffffffff449ca274402870263...
-  catsniffer meshtastic decode -i <hex> -k 1PG7OiApB1nwvP+rz05pAQ==
-  catsniffer meshtastic decode -i <hex> -k ham   # For open channels
+  catnip meshtastic decode -i fffffffff449ca274402870263...
+  catnip meshtastic decode -i <hex> -k 1PG7OiApB1nwvP+rz05pAQ==
+  catnip meshtastic decode -i <hex> -k ham   # For open channels
 """,
         formatter_class=argparse.RawTextHelpFormatter,
     )

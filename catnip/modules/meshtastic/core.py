@@ -165,7 +165,7 @@ def configure_meshtastic_radio(
     shell_port: str, freq_hz: int, preset: str = "LongFast"
 ) -> bool:
     """Configure radio parameters using the shell port with proper values for Meshtastic"""
-    from modules.catsniffer import ShellConnection
+    from modules.catnip import ShellConnection
 
     preset_config = CHANNELS_PRESET.get(preset, CHANNELS_PRESET["LongFast"])
 

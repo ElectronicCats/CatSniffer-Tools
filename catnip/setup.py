@@ -4,8 +4,8 @@ from setuptools import setup, find_packages
 long_description = Path("README.md").read_text(encoding="utf-8")
 
 setup(
-    name="catsniffer",
-    version="3.0.0",
+    name="catnip",
+    version="3.3.0.0",
     packages=find_packages(include=["modules", "modules.*", "protocol", "protocol.*"]),
     description="All in one CatSniffer tools — multi-protocol RF sniffer CLI",
     long_description=long_description,
@@ -35,10 +35,10 @@ setup(
             "pytest>=7.0.0",
         ],
     },
-    py_modules=["catsniffer"],
+    py_modules=["catnip"],
     scripts=["lora_extcap.py"],
     entry_points={
-        "console_scripts": ["catsniffer=catsniffer:main_cli"],
+        "console_scripts": ["catnip=catnip:main_cli"],
     },
     url="https://github.com/ElectronicCats/CatSniffer-Tools/",
     author="Electronic Cats",

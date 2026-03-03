@@ -4,9 +4,9 @@ import platform
 import struct
 
 # Internal
-from .catsniffer import (
+from .catnip import (
     CatSnifferDevice,
-    Catsniffer,
+    Catnip,
     ShellConnection,
     LoRaConnection,
 )
@@ -348,7 +348,7 @@ def run_bridge(
 
     opening_worker.start()
 
-    serial_worker = Catsniffer(port=device.bridge_port)
+    serial_worker = Catnip(port=device.bridge_port)
     serial_worker.connect()
 
     for cmd in snifferTICmd.get_startup_cmd(channel):
@@ -387,7 +387,7 @@ def run_bridge(
 
 
 def run_sx_bridge_legacy(
-    serial_worker: Catsniffer,
+    serial_worker: Catnip,
     frequency,
     bandwidth,
     spread_factor,

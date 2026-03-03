@@ -13,9 +13,10 @@ from typing import Optional, Dict, List
 OFFICIAL_FW_IDS = [
     "sniffle",
     "ti_sniffer",
-    "catsniffer_v3",
+    "catnip_v3",
     "airtag_spoofer_cc1352p7",
     "airtag_scanner_cc1352p7",
+    "justworks_scanner_cc1352p7",
 ]
 
 # Map user-friendly aliases to official IDs
@@ -23,6 +24,7 @@ ALIAS_TO_OFFICIAL_ID = {
     # BLE
     "ble": "sniffle",
     "sniffle": "sniffle",
+    "justworks": "justworks_scanner_cc1352p7",
     # TI Sniffer (Zigbee, Thread, 15.4)
     "zigbee": "ti_sniffer",
     "thread": "ti_sniffer",
@@ -36,17 +38,19 @@ ALIAS_TO_OFFICIAL_ID = {
     "airtag-scanner": "airtag_scanner_cc1352p7",
     "airtag-spoofer": "airtag_spoofer_cc1352p7",
     # CatSniffer V3
-    "catsniffer_v3": "catsniffer_v3",
-    "v3": "catsniffer_v3",
+    "catnip_v3": "catnip_v3",
+    "v3": "catnip_v3",
 }
 
 # Map official IDs to specific file patterns/basenames
 # This is used when searching for files to flash.
 OFFICIAL_ID_TO_FILENAME = {
     "sniffle": "sniffle_cc1352p7_1M",
-    "ti_sniffer": "sniffer_fw_CC1352P_7_v1.10",
+    "ti_sniffer": "sniffer_fw_Catsniffer_v3.x",
     "airtag_spoofer_cc1352p7": "airtag_spoofer_CC1352P_7",
     "airtag_scanner_cc1352p7": "airtag_scanner_CC1352P_7",
+    "catnip_v3": "catsniffer-v3",
+    "justworks_scanner_cc1352p7": "justworks_scanner",
 }
 
 
@@ -76,6 +80,8 @@ def get_official_id(alias_or_name: str) -> Optional[str]:
     # 3. Pattern matching for filenames
     if "sniffle" in name_lower:
         return "sniffle"
+    if any(x in name_lower for x in ["catsniffer-v3.1."]):
+        return "rp2040_boot"
     if any(x in name_lower for x in ["sniffer", "zigbee", "thread", "15.4"]):
         return "ti_sniffer"
     if "airtag" in name_lower:

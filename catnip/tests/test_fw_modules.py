@@ -87,7 +87,7 @@ class TestFWAliases:
 
     def test_official_ids_defined(self):
         """Verify that official IDs are defined."""
-        assert len(self.OFFICIAL_FW_IDS) >= 5
+        assert len(self.OFFICIAL_FW_IDS) >= 6
         assert "sniffle" in self.OFFICIAL_FW_IDS
         assert "ti_sniffer" in self.OFFICIAL_FW_IDS
         assert "airtag_scanner_cc1352p7" in self.OFFICIAL_FW_IDS
@@ -130,8 +130,8 @@ class TestFWAliases:
             ("airtag-spoofer", "airtag_spoofer_cc1352p7"),
             ("airtag_spoofer", "airtag_spoofer_cc1352p7"),
             # CatSniffer V3
-            ("catsniffer_v3", "catsniffer_v3"),
-            ("v3", "catsniffer_v3"),
+            ("catnip_v3", "catnip_v3"),
+            ("v3", "catnip_v3"),
         ],
     )
     def test_get_official_id_with_aliases(self, alias, expected):
@@ -145,7 +145,7 @@ class TestFWAliases:
             # Full filenames
             ("sniffle_cc1352p7_1M.hex", "sniffle"),
             ("sniffle_cc1352p7_1M", "sniffle"),
-            ("sniffer_fw_CC1352P_7_v1.10.hex", "ti_sniffer"),
+            ("sniffer_fw_Catsniffer_v3.x.hex", "ti_sniffer"),
             ("airtag_scanner_CC1352P_7_v1.0.hex", "airtag_scanner_cc1352p7"),
             ("airtag_spoofer_CC1352P_7_v1.0.hex", "airtag_spoofer_cc1352p7"),
             # Partial names
@@ -193,10 +193,10 @@ class TestFWAliases:
         "official_id,expected_pattern",
         [
             ("sniffle", "sniffle_cc1352p7_1M"),
-            ("ti_sniffer", "sniffer_fw_CC1352P_7_v1.10"),
+            ("ti_sniffer", "sniffer_fw_Catsniffer_v3.x"),
             ("airtag_spoofer_cc1352p7", "airtag_spoofer_CC1352P_7"),
             ("airtag_scanner_cc1352p7", "airtag_scanner_CC1352P_7"),
-            ("catsniffer_v3", None),  # No defined pattern
+            ("catnip_v3", "catsniffer-v3"),
         ],
     )
     def test_get_filename_pattern(self, official_id, expected_pattern):
@@ -260,7 +260,7 @@ class TestFirmwareMetadata:
         [
             ("OK cc1352_fw_id=ti_sniffer type=official", "ti_sniffer"),
             ("OK cc1352_fw_id=airtag_scanner_cc1352p7", "airtag_scanner_cc1352p7"),
-            ("OK cc1352_fw_id=catsniffer_v3", "catsniffer_v3"),
+            ("OK cc1352_fw_id=catnip_v3", "catnip_v3"),
             ("ERROR: Command not found", None),
             ("", None),
             ("Random response without ID", None),
@@ -735,13 +735,13 @@ class TestFirmwareRobustness:
 NOTE: Based on analysis, the following issues were identified
 that require fixes in the original files:
 
-1. In catnip.py, line ~450:
+1. In flasher.py, line ~450:
    - Error: `with patch("modules.cc2538.CC26xx"...`
    - Fix: Change to `with patch("cc2538.CC26xx"...`
 
-2. In test_catsniffer.py, all references to "modules.xxx":
+2. In test_catnip.py, all references to "modules.xxx":
    - Change "modules.verify" to "verify"
-   - Change "modules.catnip" to "catnip"
+   - Change "modules.flasher" to "flasher"
    - Change "modules.bridge" to "bridge"
    - Change "modules.cli" to "cli"
 
@@ -749,7 +749,7 @@ that require fixes in the original files:
    - Currently: `from .fw_aliases import get_official_id`
    - Verify the import path is correct (might need `from fw_aliases import...`)
 
-4. In test_catsniffer.py, TestRunSxBridge.test_keyboard_interrupt_stops:
+4. In test_catnip.py, TestRunSxBridge.test_keyboard_interrupt_stops:
    - Improve mock of readline to simulate data first then interrupt
 """
 

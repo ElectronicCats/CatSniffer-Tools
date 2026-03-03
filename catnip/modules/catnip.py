@@ -147,7 +147,7 @@ def _map_ports_intelligent(ports):
     return ports_dict
 
 
-def catsniffer_get_devices():
+def catnip_get_devices():
     """
     Find all connected CatSniffer devices with their 3 ports.
 
@@ -174,7 +174,7 @@ def catsniffer_get_devices():
     # Group ports by device using serial number
     devices_by_serial = _identify_ports_by_serial(cat_ports)
 
-    catsniffers = []
+    catnips = []
     device_id = 1
 
     for serial_num, ports in sorted(devices_by_serial.items()):
@@ -197,15 +197,15 @@ def catsniffer_get_devices():
                 lora_port=ports_dict.get("Cat-LoRa"),
                 shell_port=ports_dict.get("Cat-Shell"),
             )
-            catsniffers.append(device)
+            catnips.append(device)
             device_id += 1
 
-    return catsniffers
+    return catnips
 
 
-def catsniffer_get_device(device_id=None):
+def catnip_get_device(device_id=None):
     """Get a single CatSniffer device, optionally by ID."""
-    devices = catsniffer_get_devices()
+    devices = catnip_get_devices()
     if not devices:
         return None
 
@@ -218,9 +218,9 @@ def catsniffer_get_device(device_id=None):
     return devices[0]
 
 
-def catsniffer_get_port():
+def catnip_get_port():
     """Legacy function - returns the bridge port of the first device."""
-    device = catsniffer_get_device()
+    device = catnip_get_device()
     if device and device.bridge_port:
         return device.bridge_port
     return DEFAULT_COMPORT
@@ -351,13 +351,13 @@ class ShellConnection:
         return response is not None
 
 
-class Catsniffer(SerialConnection):
+class Catnip(SerialConnection):
     """Main CatSniffer class for bridge port communication."""
 
     def __init__(self, port=None):
-        super(Catsniffer, self).__init__()
+        super(Catnip, self).__init__()
         if port is None:
-            port = catsniffer_get_port()
+            port = catnip_get_port()
         self.set_port(port)
 
     def check_flag(self, flag, timeout=2) -> bool:

@@ -6,15 +6,15 @@
 
 ## Table of Contents
 
-- [CatSniffer V3 Tools – Complete User Guide](#catsniffer-v3-tools--complete-user-guide)
+- [CatSniffer V3 Tools – Complete User Guide](#catnip-v3-tools--complete-user-guide)
   - [Table of Contents](#table-of-contents)
   - [Introduction](#introduction)
-    - [What is CatSniffer V3 Tools?](#what-is-catsniffer-v3-tools)
+    - [What is CatSniffer V3 Tools?](#what-is-catnip-v3-tools)
     - [Who is this tool for?](#who-is-this-tool-for)
   - [Project Architecture](#project-architecture)
     - [Directory Structure](#directory-structure)
     - [Main Components](#main-components)
-      - [1. **catsniffer.py** (Entry Point)](#1-catsnifferpy-entry-point)
+      - [1. **catnip.py** (Entry Point)](#1-catnippy-entry-point)
       - [2. **`modules/` Module** (Application Core)](#2-modules-module-application-core)
       - [3. **`protocol`/ Module** (Radio Drivers)](#3-protocol-module-radio-drivers)
       - [4. **Auto-generated Firmware Directory**](#4-auto-generated-firmware-directory)
@@ -28,7 +28,7 @@
     - [First Execution](#first-execution)
     - [Available Commands](#available-commands)
     - [Verifying Connected Devices](#verifying-connected-devices)
-      - [CatSniffer Port Architecture](#catsniffer-port-architecture)
+      - [CatSniffer Port Architecture](#catnip-port-architecture)
       - [Example with Multiple Devices](#example-with-multiple-devices)
   - [Firmware Management](#firmware-management)
     - [Viewing Available Firmware](#viewing-available-firmware)
@@ -143,7 +143,7 @@ This tool is aimed at:
 
 ```text
 CatSniffer-Tools/
-├── catsniffer.py               # Main entry point
+├── catnip.py               # Main entry point
 ├── compile.sh                  # Firmware compilation script
 ├── lora_extcap.py              # Wireshark extcap plugin (LoRa)
 ├── requirements.txt            # Python dependencies
@@ -151,8 +151,8 @@ CatSniffer-Tools/
 ├── modules/                    # Core application modules
 │   ├── __init__.py
 │   ├── bridge.py               # Serial communication bridge
-│   ├── catnip.py               # Firmware management and flashing
-│   ├── catsniffer.py           # Hardware detection and communication
+│   ├── flasher.py               # Firmware management and flashing
+│   ├── catnip.py           # Hardware detection and communication
 │   ├── cc2538.py               # CC2538 chip controller
 │   ├── cli.py                  # CLI command definitions
 │   ├── fw_aliases.py           # Firmware aliases
@@ -187,14 +187,14 @@ CatSniffer-Tools/
 
 ### Main Components
 
-#### 1. **catsniffer.py** (Entry Point)
+#### 1. **catnip.py** (Entry Point)
 Main script providing access to all system functionalities through structured commands.
 
 #### 2. **`modules/` Module** (Application Core)
 
 - **cli.py**: Defines the user-available command interface
-- **catnip.py**: Manages download, SHA256 verification, and flashing of firmware to the CC1352 chip
-- **catsniffer.py**: Implements automatic serial port detection logic and hardware communication
+- **flasher.py**: Manages download, SHA256 verification, and flashing of firmware to the CC1352 chip
+- **catnip.py**: Implements automatic serial port detection logic and hardware communication
 - **bridge.py**: Establishes the serial communication bridge with devices
 - **cc2538.py:** Provides low-level control for the CC2538 chip
 - **pipes.py**: Creates data pipes that transmit captured packets in PCAP format to Wireshark
@@ -290,19 +290,19 @@ This option installs CatSniffer Tools as a global system command, allowing it to
 
 ```bash
 git clone https://github.com/ElectronicCats/CatSniffer-Tools.git
-cd CatSniffer-Tools/catsnifferv2/
+cd CatSniffer-Tools/catnipv2/
 pip install .
 ```
 
 **Installation verification:**
 ```bash
-catsniffer --help
+catnip --help
 ```
 
 **Expected output**:
 ```bash
-Usage: catsniffer [OPTIONS] COMMAND [ARGS]...
-  CatSniffer: All in one catsniffer tools environment.
+Usage: catnip [OPTIONS] COMMAND [ARGS]...
+  CatSniffer: All in one catnip tools environment.
 ```
 
 ### Virtual Environment Installation
@@ -310,7 +310,7 @@ Usage: catsniffer [OPTIONS] COMMAND [ARGS]...
 Recommended for development or to avoid conflicts with other Python dependencies on the system.
 ```bash
 git clone https://github.com/ElectronicCats/CatSniffer-Tools.git
-cd CatSniffer-Tools/catsnifferv2/
+cd CatSniffer-Tools/catnipv2/
 python -m venv .venv
 source .venv/bin/activate    # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
@@ -318,7 +318,7 @@ pip install -r requirements.txt
 
 **Installation verification:**
 ```bash
-python catsniffer.py --help
+python catnip.py --help
 ```
 
 ---
@@ -335,7 +335,7 @@ When running the tool for the first time from a clean environment, the system au
 
 **Initial command:**
 ```bash
-python3 catsniffer.py
+python3 catnip.py
 ```
 
 **Expected output:**
@@ -347,7 +347,7 @@ python3 catsniffer.py
 │        ++++=.        .=++++       |                                          │
 │        =+++++===++===++++++       |                                          │
 │        -++++++++++++++++++-       |                                          │
-│   .:   =++---++++++++---++=   :.  |  Module:  Catsniffer                     │
+│   .:   =++---++++++++---++=   :.  |  Module:  Catnip                     │
 │   ::---+++.   -++++-   .+++---::  |  Version: 3.0.0                          │
 │  ::1..:-++++:   ++++   :++++-::.::|  Company: Electronic Cats - PWNLAB       │
 │  .:...:=++++++++++++++++++=:...:. |                                          │
@@ -381,9 +381,9 @@ python3 catsniffer.py
 After initialization, the tool displays available commands:
 
 ```bash
-Usage: catsniffer.py [OPTIONS] COMMAND [ARGS]...
+Usage: catnip.py [OPTIONS] COMMAND [ARGS]...
 
-  CatSniffer: All in one catsniffer tools environment.
+  CatSniffer: All in one catnip tools environment.
 
 Options:
   -v, --verbose  Show Verbose mode
@@ -444,7 +444,7 @@ Before performing any operation, it is recommended to verify that the system cor
 
 **Command:**
 ```bash
-python3 catsniffer.py devices
+python3 catnip.py devices
 ```
 
 #### CatSniffer Port Architecture
@@ -501,14 +501,14 @@ To explore all firmware available in the official repository:
 
 **Command:**
 ```bash
-python catsniffer.py flash --list
+python catnip.py flash --list
 ```
 
 **Flash command help:**
 ```bash
-python3 catsniffer.py flash --help
+python3 catnip.py flash --help
 
-Usage: catsniffer.py flash [OPTIONS] [FIRMWARE]
+Usage: catnip.py flash [OPTIONS] [FIRMWARE]
 
   Flash CC1352 Firmware or list available firmware images
 
@@ -556,12 +556,12 @@ Recommended Aliases by Protocol:
     lora-freq   → LoRa Frequency Spectrum analyzer
 
 Usage Examples:
-  catsniffer flash zigbee          (TI multiprotocol sniffer)
-  catsniffer flash thread         (same TI firmware)
-  catsniffer flash ble            (Sniffle BLE)
-  catsniffer flash lora-sniffer   (LoRa Sniffer)
-  catsniffer flash airtag-scanner (Apple Airtag)
-  catsniffer flash --device 1 zigbee
+  catnip flash zigbee          (TI multiprotocol sniffer)
+  catnip flash thread         (same TI firmware)
+  catnip flash ble            (Sniffle BLE)
+  catnip flash lora-sniffer   (LoRa Sniffer)
+  catnip flash airtag-scanner (Apple Airtag)
+  catnip flash --device 1 zigbee
 ```
 
 **Table structure:**
@@ -580,7 +580,7 @@ Aliases are short, memorable names assigned to each firmware. This is the most c
 
 *Example:*
 ```bash
-python catsniffer.py flash sniffle
+python catnip.py flash sniffle
 ```
 
 **Advantages:**
@@ -593,7 +593,7 @@ The system can make partial matches of the firmware file name.
 
 **Ejemplo:**
 ```bash
-python catsniffer.py flash sniffer_ti
+python catnip.py flash sniffer_ti
 ```
 
 **Advantages:**
@@ -608,7 +608,7 @@ Exact specification of the firmware file name.
 **Example:**
 
 ```bash
-python catsniffer.py flash sniffer_ti_CC1352P_7_v1.0.hex
+python catnip.py flash sniffer_ti_CC1352P_7_v1.0.hex
 ```
 
 **Advantages:**
@@ -621,7 +621,7 @@ The system also allows flashing custom firmware files that are not in the offici
 
 **Example:**
 ```bash
-python catsniffer.py flash --device 1 ~/PersonalProject/workspace/custom_firmware_v1.0.hex
+python catnip.py flash --device 1 ~/PersonalProject/workspace/custom_firmware_v1.0.hex
 ```
 
 ### Flashing Process
@@ -630,7 +630,7 @@ Firmware flashing follows a predictable and transparent flow:
 
 **Complete example command:**
 ```bash
-python catsniffer.py flash --device 1 sniffle
+python catnip.py flash --device 1 sniffle
 ```
 
 **Step-by-step output:**
@@ -692,7 +692,7 @@ Resolved 'sniffle' to sniffle -> sniffle_cc1352p7_1M.hex
 1. Check physical USB connection
 2. Verify USB-Serial drivers are installed
 3. On Linux, check permissions with `ls -l /dev/ttyACM*`
-4. Run `python catsniffer.py devices` to confirm detection
+4. Run `python catnip.py devices` to confirm detection
 
 **Error: "Permission denied"**
 ```bash
@@ -709,7 +709,7 @@ sudo usermod -a -G dialout $USER
 
 **Alternative solution (temporary):**
 ```bash
-sudo python catsniffer.py flash sniffle
+sudo python catnip.py flash sniffle
 ```
 
 **Error: "Flash verification failed"**
@@ -723,7 +723,7 @@ sudo python catsniffer.py flash sniffle
 1. Disconnect and reconnect the device
 2. Attempt flashing again
 3. Try a different USB cable
-4. Verify firmware integrity: `python catsniffer.py flash --list`
+4. Verify firmware integrity: `python catnip.py flash --list`
 5. If persists, contact technical support
 
 **Error: "Firmware not found"**
@@ -735,7 +735,7 @@ sudo python catsniffer.py flash sniffle
 
 **Solution:**
 ```bash
-python catsniffer.py flash --list  # View available firmware
+python catnip.py flash --list  # View available firmware
 ```
 
 ---
@@ -750,14 +750,14 @@ Runs fundamental communication and detection tests.
 
 **Command:**
 ```bash
-python catsniffer.py verify
+python catnip.py verify
 ```
 
 **Command help:**
 ```bash
-python catsniffer.py verify --help
+python catnip.py verify --help
 
-Usage: catsniffer.py verify [OPTIONS]
+Usage: catnip.py verify [OPTIONS]
 
   Verify CatSniffer device functionality
 
@@ -836,7 +836,7 @@ Runs a comprehensive set of tests including radio transmission/reception.
 
 **Command:**
 ```bash
-python catsniffer.py verify --test-all
+python catnip.py verify --test-all
 ```
 
 **Expected output:**
@@ -967,7 +967,7 @@ In multi-device configurations:
 
 **Command:**
 ```bash
-python catsniffer.py verify --device 2
+python catnip.py verify --device 2
 ```
 
 ### Quiet Mode
@@ -976,7 +976,7 @@ For use in scripts or when only the pass/fail result is needed:
 
 **Command:**
 ```bash
-python catsniffer.py verify --quiet
+python catnip.py verify --quiet
 ```
 
 **Expected output:**
@@ -1019,11 +1019,11 @@ When verification fails, the system provides detailed information to diagnose th
 
 **Recommended diagnostic steps:**
 1. **Verify physical connection**: Check USB cable and connection
-2. **Re-enumerate devices**: `python catsniffer.py devices`
+2. **Re-enumerate devices**: `python catnip.py devices`
 3. **Test alternative port**: Connect to different USB port
 4. **Verify drivers**: Confirm USB-Serial driver installation
 5. **Reset device**: Disconnect/reconnect power
-6. **Flash firmware**: `python catsniffer.py flash sniffle` as reset
+6. **Flash firmware**: `python catnip.py flash sniffle` as reset
 
 ## Protocol Sniffing
 
@@ -1035,9 +1035,9 @@ CatSniffer uses Sniffle firmware for BLE traffic capture.
 
 **Command help:**
 ```bash
-python catsniffer.py sniff ble --help
+python catnip.py sniff ble --help
 
-Usage: catsniffer.py sniff ble [OPTIONS]
+Usage: catnip.py sniff ble [OPTIONS]
 
   Sniffing BLE with Sniffle firmware
 
@@ -1079,7 +1079,7 @@ BLE uses three dedicated channels for advertising:
 
 **Command:**
 ```bash
-python catsniffer.py sniff ble --channel 37 --mode passive_scan
+python catnip.py sniff ble --channel 37 --mode passive_scan
 ```
 
 #### Wireshark Integration
@@ -1088,7 +1088,7 @@ For real-time visual analysis:
 
 **Command:**
 ```bash
-python catsniffer.py sniff ble --wireshark --channel 38 --mode conn_follow
+python catnip.py sniff ble --wireshark --channel 38 --mode conn_follow
 ```
 
 **Process**:
@@ -1109,19 +1109,19 @@ python catsniffer.py sniff ble --wireshark --channel 38 --mode conn_follow
 
 **1. Device Discovery**
 ```bash
-python catsniffer.py sniff ble -c 37 -m passive_scan
+python catnip.py sniff ble -c 37 -m passive_scan
 ```
 Useful for inventorying BLE devices in the environment.
 
 **2. Specific Connection Analysis**
 ```bash
-python catsniffer.py sniff ble -c 39 -m conn_follow --wireshark
+python catnip.py sniff ble -c 39 -m conn_follow --wireshark
 ```
 Monitors data traffic between two paired devices.
 
 **3. Security Audit**
 ```bash
-python catsniffer.py sniff ble -c 38 -m active_scan
+python catnip.py sniff ble -c 38 -m active_scan
 ```
 Obtains extended information from all nearby BLE devices.
 
@@ -1137,9 +1137,9 @@ Apple AirTag is a tracking device that uses Bluetooth Low Energy (BLE) to commun
 
 **Command help:**
 ```bash
-python catsniffer.py sniff airtag_scanner --help
+python catnip.py sniff airtag_scanner --help
 
-Usage: catsniffer.py sniff airtag_scanner [OPTIONS]
+Usage: catnip.py sniff airtag_scanner [OPTIONS]
 
   Sniffing Airtag Scanner firmware
 
@@ -1155,7 +1155,7 @@ The AirTag Scanner operates differently from other sniffing modes. Instead of cr
 
 **Command:**
 ```bash
-python catsniffer.py sniff airtag_scanner
+python catnip.py sniff airtag_scanner
 ```
 
 **Expected output:**
@@ -1173,7 +1173,7 @@ For convenience, CatSniffer Tools includes automatic PuTTY integration that conf
 
 **Command:**
 ```bash
-python catsniffer.py sniff airtag_scanner --putty
+python catnip.py sniff airtag_scanner --putty
 ```
 
 **What happens:**
@@ -1205,7 +1205,7 @@ The `--putty` option works across different operating systems:
 sudo apt install putty
 
 # Run AirTag Scanner
-python catsniffer.py sniff airtag_scanner --putty
+python catnip.py sniff airtag_scanner --putty
 ```
 
 **macOS:**
@@ -1214,7 +1214,7 @@ python catsniffer.py sniff airtag_scanner --putty
 brew install putty
 
 # Run AirTag Scanner
-python catsniffer.py sniff airtag_scanner --putty
+python catnip.py sniff airtag_scanner --putty
 ```
 
 **Windows:**
@@ -1223,7 +1223,7 @@ python catsniffer.py sniff airtag_scanner --putty
 # Install to default location (C:\Program Files\PuTTY\)
 
 # Run AirTag Scanner
-python catsniffer.py sniff airtag_scanner --putty
+python catnip.py sniff airtag_scanner --putty
 ```
 
 #### Manual Serial Connection
@@ -1233,7 +1233,7 @@ If you prefer to use a different serial terminal (screen, minicom, etc.), you ca
 **Using screen (Linux/macOS):**
 ```bash
 # Start the firmware
-python catsniffer.py sniff airtag_scanner
+python catnip.py sniff airtag_scanner
 
 # In another terminal, connect with screen
 screen /dev/ttyACM0 9600
@@ -1255,13 +1255,13 @@ minicom -D /dev/ttyACM0 -b 9600
 
 **1. Privacy Audit**
 ```bash
-python catsniffer.py sniff airtag_scanner --putty
+python catnip.py sniff airtag_scanner --putty
 ```
 Monitor for nearby AirTags to detect potential tracking devices in your environment.
 
 **2. Research and Development**
 ```bash
-python catsniffer.py sniff airtag_scanner
+python catnip.py sniff airtag_scanner
 # Connect with your preferred serial tool for custom logging
 ```
 Analyze the BLE advertising packets from AirTags and Find My devices.
@@ -1269,10 +1269,10 @@ Analyze the BLE advertising packets from AirTags and Find My devices.
 **3. Multi-Device Monitoring**
 ```bash
 # Terminal 1 - Device 1
-python catsniffer.py sniff airtag_scanner --device 1 --putty
+python catnip.py sniff airtag_scanner --device 1 --putty
 
 # Terminal 2 - Device 2
-python catsniffer.py sniff airtag_scanner --device 2 --putty
+python catnip.py sniff airtag_scanner --device 2 --putty
 ```
 Monitor different areas simultaneously with multiple CatSniffer devices.
 
@@ -1300,15 +1300,15 @@ Monitor different areas simultaneously with multiple CatSniffer devices.
 **Solutions:**
 1. Verify the correct port:
    ```bash
-   python catsniffer.py devices
+   python catnip.py devices
    ```
 2. Reflash the firmware:
    ```bash
-   python catsniffer.py flash airtag-scanner
+   python catnip.py flash airtag-scanner
    ```
 3. Verify firmware is active:
    ```bash
-   python catsniffer.py verify
+   python catnip.py verify
    ```
 
 **Problem: Permission denied on serial port**
@@ -1361,9 +1361,9 @@ Cativity monitors all these channels to detect network activity.
 ### Command Help
 
 ```bash
-python catsniffer.py cativity --help
+python catnip.py cativity --help
 
-Usage: catsniffer.py cativity [OPTIONS]
+Usage: catnip.py cativity [OPTIONS]
 
   IQ Activity Monitor
 
@@ -1384,7 +1384,7 @@ This mode visualizes packet activity on all 802.15.4 channels through automatic 
 
 **Command:**
 ```bash
-python3 catsniffer.py cativity
+python3 catnip.py cativity
 ```
 
 **Initialization Process:**
@@ -1439,7 +1439,7 @@ Continuously monitors a specific channel without hopping.
 
 **Command:**
 ```bash
-python3 catsniffer.py cativity --channel 15
+python3 catnip.py cativity --channel 15
 ```
 
 **When to use:**
@@ -1467,7 +1467,7 @@ Builds a visual map of relationships between devices in the network.
 
 **Command:**
 ```bash
-python3 catsniffer.py cativity --topology
+python3 catnip.py cativity --topology
 ```
 
 **Output:**
@@ -1482,17 +1482,17 @@ Allows focusing on Zigbee or Thread traffic specifically.
 
 **Zigbee Filter:**
 ```bash
-python3 catsniffer.py cativity --protocol zigbee
+python3 catnip.py cativity --protocol zigbee
 ```
 
 **Thread Filter:**
 ```bash
-python3 catsniffer.py cativity --protocol thread
+python3 catnip.py cativity --protocol thread
 ```
 
 **All protocols (default):**
 ```bash
-python3 catsniffer.py cativity --protocol all
+python3 catnip.py cativity --protocol all
 ```
 
 **Differentiation:**
@@ -1507,7 +1507,7 @@ python3 catsniffer.py cativity --protocol all
 
 **Command:**
 ```bash
-python3 catsniffer.py cativity --topology --protocol zigbee
+python3 catnip.py cativity --topology --protocol zigbee
 ```
 
 **Result**: Complete network topology map with identified device types
@@ -1518,7 +1518,7 @@ Objective: Identify congested channels in a building with multiple networks
 
 **Command:**
 ```bash
-python3 catsniffer.py cativity
+python3 catnip.py cativity
 ```
 
 **Analysis**: Channels with longer activity bars have higher traffic/interference
@@ -1528,7 +1528,7 @@ python3 catsniffer.py cativity
 
 **Command**
 ```bash
-python3 catsniffer.py cativity --channel 25 --protocol all
+python3 catnip.py cativity --channel 25 --protocol all
 ```
 
 **Usage**: Keep running during the period of interest, packets are recorded for analysis
@@ -1538,12 +1538,12 @@ python3 catsniffer.py cativity --channel 25 --protocol all
 
 **Terminal 1:**
 ```bash
-python3 catsniffer.py cativity --device 1 --channel 15
+python3 catnip.py cativity --device 1 --channel 15
 ```
 
 **Terminal 2:**
 ```bash
-python3 catsniffer.py cativity --device 2 --channel 25
+python3 catnip.py cativity --device 2 --channel 25
 ```
 
 **Result**: Parallel monitoring of two different channels
@@ -1601,13 +1601,13 @@ python3 catsniffer.py cativity --device 2 --channel 25
 
 ```bash
 # Manually flash TI firmware
-python catsniffer.py flash sniffer-ti
+python catnip.py flash sniffer-ti
 
 # Verify installation
-python catsniffer.py verify
+python catnip.py verify
 
 # Retry Cativity
-python catsniffer.py cativity
+python catnip.py cativity
 ```
 
 ---
@@ -1630,9 +1630,9 @@ The protocol uses LoRa modulation with AES-256 encryption and operates primarily
 ### Command Overview
 
 ```bash
-python catsniffer.py meshtastic --help
+python catnip.py meshtastic --help
 
-Usage: catsniffer.py meshtastic [OPTIONS] COMMAND [ARGS]...
+Usage: catnip.py meshtastic [OPTIONS] COMMAND [ARGS]...
 
   Meshtastic protocol tools
 
@@ -1670,9 +1670,9 @@ The decoder allows you to decrypt and decode previously captured Meshtastic pack
 #### Command Help
 
 ```bash
-python catsniffer.py meshtastic decode --help
+python catnip.py meshtastic decode --help
 
-Usage: catsniffer.py meshtastic decode [OPTIONS]
+Usage: catnip.py meshtastic decode [OPTIONS]
 
   Decrypt and decode a hex-encoded Meshtastic packet
 
@@ -1699,7 +1699,7 @@ Meshtastic uses several standard keys that the decoder automatically tries:
 
 **Example 1: Decode a captured packet**
 ```bash
-python catsniffer.py meshtastic decode \
+python catnip.py meshtastic decode \
   --input "fffffffff449ca27440287026300000048656c6c6f2065766572796f6e65"
 ```
 
@@ -1711,7 +1711,7 @@ Decrypted raw (hex): 48656c6c6f2065766572796f6e65
 
 **Example 2: Decode with custom key**
 ```bash
-python catsniffer.py meshtastic decode \
+python catnip.py meshtastic decode \
   --input "fffffffff449ca27440287026300000041406aa0a81ef722d3a4598dc66326ace68cc3" \
   --key "1PG7OiApB1nwvP+rz05pAQ=="
 ```
@@ -1724,7 +1724,7 @@ Decrypted raw (hex): 0801120f48656c6c6f20656e63727970746564
 
 **Example 2.1 Position with custom key**
 ```bash
-python catsniffer.py meshtastic decode \
+python catnip.py meshtastic decode \
   --input "fffffffff449ca27440287026300000041426aa5ed3f7503aa913c259ea6" \
   --key "1PG7OiApB1nwvP+rz05pAQ=="
 ```
@@ -1737,7 +1737,7 @@ Decrypted raw (hex): 0803120a0d44ee4d161500c63bb7
 
 **Example 3: Decode open channel (no encryption)**
 ```bash
-python catsniffer.py meshtastic decode \
+python catnip.py meshtastic decode \
   --input "fffffffff449ca27440287026300000048656c6c6f2065766572796f6e65" \
   --key ham
 ```
@@ -1768,9 +1768,9 @@ The live decoder captures Meshtastic packets in real-time using the CatSniffer's
 #### Command Help
 
 ```bash
-python catsniffer.py meshtastic live --help
+python catnip.py meshtastic live --help
 
-Usage: catsniffer.py meshtastic live [OPTIONS]
+Usage: catnip.py meshtastic live [OPTIONS]
 
   Live Meshtastic decoder - Capture and decode packets in real-time
 
@@ -1803,7 +1803,7 @@ Meshtastic uses specific LoRa radio configurations. The tool supports all standa
 #### Basic Live Capture
 **Command:**
 ```bash
-python catsniffer.py meshtastic live --device 1 --frequency 906.875 --preset LongFast
+python catnip.py meshtastic live --device 1 --frequency 906.875 --preset LongFast
 ```
 
 **Expected output:**
@@ -1867,9 +1867,9 @@ The dashboard provides a beautiful terminal user interface (TUI) for monitoring 
 #### Command help:
 
 ```bash
-python catsniffer.py meshtastic dashboard --help
+python catnip.py meshtastic dashboard --help
 
-Usage: catsniffer.py meshtastic dashboard [OPTIONS]
+Usage: catnip.py meshtastic dashboard [OPTIONS]
 
   Meshtastic Chat TUI - Beautiful terminal dashboard for Meshtastic
 
@@ -1886,7 +1886,7 @@ Options:
 
 **Command:**
 ```bash
-python catsniffer.py meshtastic dashboard -d 1 -f 906.875 -ps LongFast
+python catnip.py meshtastic dashboard -d 1 -f 906.875 -ps LongFast
 ```
 
 **Initial screen:**
@@ -1953,7 +1953,7 @@ When node information packets are received, the dashboard automatically:
 
 ```bash
 # Check current settings
-python catsniffer.py verify --device 1
+python catnip.py verify --device 1
 # Look for LoRa configuration section
 ```
 
@@ -1961,7 +1961,7 @@ python catsniffer.py verify --device 1
 
 ```bash
 # Use standard Meshtastic configuration
-python catsniffer.py meshtastic live --device 1 -f 906.875 -ps LongFast
+python catnip.py meshtastic live --device 1 -f 906.875 -ps LongFast
 ```
 
 3. Check device proximity
@@ -1971,7 +1971,7 @@ python catsniffer.py meshtastic live --device 1 -f 906.875 -ps LongFast
 4. Verify firmware
 
 ```bash
-python catsniffer.py verify --test-all --device 1
+python catnip.py verify --test-all --device 1
 # Confirm LoRa communication tests pass
 ```
 
@@ -2019,13 +2019,13 @@ chmod +x ~/.local/lib/wireshark/extcap/lora_extcap.py
 
 ```bash
 # Terminal 1: Start capture
-python catsniffer.py sniff ble --wireshark -c 37 -m passive_scan
+python catnip.py sniff ble --wireshark -c 37 -m passive_scan
 ```
 
 **What happens internally:**
 
 1. **Firmware verification**: If Sniffle is not installed, it is flashed automatically
-2. **PCAP pipe creation**: `/tmp/fcatsniffer` is created as a named pipe
+2. **PCAP pipe creation**: `/tmp/fcatnip` is created as a named pipe
 3. **Sniffer configuration**: BLE channel and mode are configured
 4. **Wireshark launch**: Wireshark is executed pointing to the pipe
 5. **Packet streaming**: Captured packets flow in real-time to Wireshark
@@ -2057,7 +2057,7 @@ python catsniffer.py sniff ble --wireshark -c 37 -m passive_scan
 
 **Solution on Unix-like:**
 ```bash
-rm /tmp/fcatsniffer
+rm /tmp/fcatnip
 ```
 
 **Prevention**: Always end sniffing sessions with Ctrl+C and wait for the process to clean up resources.
@@ -2083,7 +2083,7 @@ sudo chmod 666 /dev/ttyACM*
 
 ### Problem: Device Not Detected
 
-**Symptom**: `python catsniffer.py devices` shows no devices.
+**Symptom**: `python catnip.py devices` shows no devices.
 
 **Diagnostic checklist:**
 
@@ -2121,12 +2121,12 @@ groups  # Verify you are in dialout group
 1. **Retry flashing**
 
   ```bash
-  python catsniffer.py flash <firmware>
+  python catnip.py flash <firmware>
   ```
 
 2. **Verify firmware integrity**
   ```bash
-  python catsniffer.py flash --list
+  python catnip.py flash --list
   # Verify checksums are "VERIFIED"
   ```
 
@@ -2135,7 +2135,7 @@ groups  # Verify you are in dialout group
   # Delete releases directory
   rm -rf release_board-v3.x-*
   # Restart tool to re-download
-  python catsniffer.py
+  python catnip.py
   ```
 
 4. **Try different USB cable**
@@ -2149,12 +2149,12 @@ groups  # Verify you are in dialout group
 
 1. **Check PCAP pipe**
    ```bash
-   ls -l /tmp/fcatsniffer
+   ls -l /tmp/fcatnip
    # Must exist and be a pipe (type p)
    ```
 2. **Check capture process**
    ```bash
-   ps aux | grep catsniffer
+   ps aux | grep catnip
    # There should be an active Python process
    ```
 
@@ -2166,10 +2166,10 @@ groups  # Verify you are in dialout group
 
   ```bash
   # Terminal 1
-  python catsniffer.py sniff ble -c 37 -m passive_scan
+  python catnip.py sniff ble -c 37 -m passive_scan
 
   # Terminal 2
-  cat /tmp/fcatsniffer | tcpdump -r -
+  cat /tmp/fcatnip | tcpdump -r -
   ```
 
 ### Problem: Cativity Shows No Activity
@@ -2188,14 +2188,14 @@ groups  # Verify you are in dialout group
 
 3. **Verify firmware**
    ```bash
-   python catsniffer.py verify
+   python catnip.py verify
    # Confirm TI Sniffer firmware is active
    ```
 
 4. **Try known specific channel**
    ```bash
-   python catsniffer.py cativity --channel 15  # Common Zigbee channel
-   python catsniffer.py cativity --channel 25  # Common Thread channel
+   python catnip.py cativity --channel 15  # Common Zigbee channel
+   python catnip.py cativity --channel 25  # Common Thread channel
    ```
 
 ---
@@ -2237,5 +2237,5 @@ This project is licensed under the terms specified in the official repository. C
 ## Credits
 
 - **Developed by**: Electronic Cats - PWNLAB
-- **Version**: 3.0.0
+- **Version**: 3.3.0.0
 - **Last Updated**: 2026
