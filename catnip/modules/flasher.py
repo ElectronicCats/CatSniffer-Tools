@@ -29,6 +29,7 @@ from rich.table import Table
 
 GITHUB_RELEASE_URL = (
     "https://api.github.com/repos/ElectronicCats/CatSniffer-Firmware/releases/latest"
+    # "https://api.github.com/repos/ElectronicCats/CatSniffer-Firmware/releases/tags/board-v3.x-v2.0.0"
 )
 GITHUB_RELEASE_URL_SNIFFLE = (
     "https://api.github.com/repos/nccgroup/Sniffle/releases/latest"
@@ -36,6 +37,7 @@ GITHUB_RELEASE_URL_SNIFFLE = (
 GITHUB_SNIFFLE_HEX = "sniffle_cc1352p7_1M"
 RELEASE_FOLDER_NAME = "release"
 RELEASE_METADATA_NAME = "releases.json"
+DESCRIPTIONS_FILE_NAME = "descriptions.json"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(CURRENT_DIR)
 
@@ -274,21 +276,82 @@ class Flasher:
         return h.hexdigest()
 
     def parse_descriptions(self) -> dict:
-        if not self.release_description:
-            return {}
+        """
+        Parse firmware descriptions from descriptions.json (bundled with the release).
+        Falls back to GitHub release body parsing and hardcoded patterns if not available.
 
-        description = self.release_description.strip().split("\n")
+        Priority:
+        1. descriptions.json from the local release folder
+        2. GitHub release body (markdown changelog)
+        3. Hardcoded fallback patterns
+        """
         descriptions_dict = {}
-        for line in description:
-            try:
-                key, desc = line.split(": ", 1)
-                if key.endswith(".hex"):
-                    descriptions_dict[key.lower()] = desc
-                if key.endswith(".uf2"):
-                    key = key.replace("- ", "")
-                    descriptions_dict[key.lower()] = desc
-            except ValueError:
-                pass
+
+        # 1. Try to load from descriptions.json in the release folder
+        try:
+            descriptions_json_path = os.path.join(
+                self.get_releases_path(), DESCRIPTIONS_FILE_NAME
+            )
+            if os.path.exists(descriptions_json_path):
+                with open(descriptions_json_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+
+                # The JSON is structured as { "board_vX": [ {filename, description}, ... ] }
+                # Flatten all board entries into a single filename -> description dict
+                for board_entries in data.values():
+                    if isinstance(board_entries, list):
+                        for entry in board_entries:
+                            fname = entry.get("filename", "").lower()
+                            desc = entry.get("description", "")
+                            if fname and desc:
+                                descriptions_dict[fname] = desc
+
+                if descriptions_dict:
+                    logger.info(
+                        f"[*] Loaded {len(descriptions_dict)} descriptions from {DESCRIPTIONS_FILE_NAME}"
+                    )
+                    return descriptions_dict
+        except Exception as e:
+            logger.warning(f"[!] Could not load {DESCRIPTIONS_FILE_NAME}: {e}")
+
+        # 2. Fallback: try to parse from GitHub release body (markdown changelog)
+        FALLBACKS = {
+            "sniffle": "BLE sniffer for Bluetooth 5 and 4.x (LE) from NCC Group (Sniffle)",
+            "sniffer_fw": "Multiprotocol sniffer from Texas Instrument (IEEE 802.15.4, Zigbee, Thread)",
+            "airtag_scanner": "Apple Airtag Scanner firmware (Windows/Linux/Mac)",
+            "airtag_spoofer": "Apple Airtag Spoofer firmware (Windows/Linux/Mac)",
+            "justworks_scanner": "Justworks scanner for scanning vulnerable devices",
+            "catsniffer-v3": "CatSniffer RP2040 Unified Firmware",
+        }
+
+        if self.release_description:
+            description_lines = self.release_description.strip().split("\n")
+            for line in description_lines:
+                try:
+                    line = line.strip().lstrip("- ")
+                    if ": " in line:
+                        parts = line.split(": ", 1)
+                        if len(parts) == 2:
+                            key, desc = parts
+                            key = key.strip().lstrip("* ").lstrip("- ")
+                            if key.lower().endswith((".hex", ".uf2")):
+                                descriptions_dict[key.lower()] = desc.strip()
+                except ValueError:
+                    pass
+
+        # 3. Apply hardcoded fallbacks for any firmware still missing a description
+        try:
+            firmwares = self.get_local_firmware()
+            for fw in firmwares:
+                fw_lower = fw.lower()
+                if fw_lower not in descriptions_dict:
+                    for pattern, fallback_desc in FALLBACKS.items():
+                        if pattern in fw_lower:
+                            descriptions_dict[fw_lower] = fallback_desc
+                            break
+        except Exception:
+            pass
+
         return descriptions_dict
 
     def get_releases_path(self) -> str:
@@ -304,6 +367,8 @@ class Flasher:
             dir_list = os.listdir(release_path)
             if RELEASE_METADATA_NAME in dir_list:
                 dir_list.remove(RELEASE_METADATA_NAME)
+            if DESCRIPTIONS_FILE_NAME in dir_list:
+                dir_list.remove(DESCRIPTIONS_FILE_NAME)
             return dir_list
         except Exception as e:
             logger.error(f"[X] Error getting local firmware: {e}")
@@ -478,7 +543,11 @@ class Flasher:
 
     def get_firmware_cc_uf2(self, asset) -> bool:
         name = asset.get("name", "")
-        return name.endswith(".hex") or name.endswith(".uf2")
+        return (
+            name.endswith(".hex")
+            or name.endswith(".uf2")
+            or name == DESCRIPTIONS_FILE_NAME
+        )
 
     def save_firmware(self, name, content) -> str:
         try:

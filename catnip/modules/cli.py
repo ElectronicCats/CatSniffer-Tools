@@ -800,9 +800,7 @@ def flash(firmware, device, list) -> None:
             table = Table(box=box.ROUNDED, show_header=True)
             table.add_column("Alias", style="green bold", min_width=15)
             table.add_column("Firmware Name", style="cyan", min_width=30)
-            table.add_column("Type", style="yellow", min_width=12)
-            table.add_column("Protocols", style="magenta", min_width=15)
-            table.add_column("Description", style="white", min_width=40)
+            table.add_column("Description", style="white", min_width=70)
 
             # Get descriptions
             descriptions = flasher.parse_descriptions()
@@ -903,72 +901,14 @@ def flash(firmware, device, list) -> None:
                 # Get alias
                 alias = firmware_to_alias.get(fw, "firmware")
 
-                # Determine type based on the name
-                if "sniffle" in fw_lower or "ble" in fw_lower:
-                    fw_type = "BLE"
-                    protocols = "BLE"
-                elif "sniffer_fw" in fw_lower or "sniffer_fw_cc1352" in fw_lower:
-                    fw_type = "TI Sniffer"
-                    protocols = "Zigbee/Thread/15.4"
-                elif "zigbee" in fw_lower:
-                    fw_type = "Zigbee"
-                    protocols = "Zigbee"
-                elif "thread" in fw_lower:
-                    fw_type = "Thread"
-                    protocols = "Thread"
-                elif "lora" in fw_lower:
-                    if "cad" in fw_lower:
-                        fw_type = "LoRa CAD"
-                        protocols = "LoRa"
-                    elif "cli" in fw_lower:
-                        fw_type = "LoRa CLI"
-                        protocols = "LoRa"
-                    elif "freq" in fw_lower:
-                        fw_type = "LoRa Freq"
-                        protocols = "LoRa"
-                    elif "sniffer" in fw_lower:
-                        fw_type = "LoRa Sniffer"
-                        protocols = "LoRa"
-                    else:
-                        fw_type = "LoRa"
-                        protocols = "LoRa"
-                elif "airtag" in fw_lower:
-                    if "scanner" in fw_lower:
-                        fw_type = "Airtag Scanner"
-                        protocols = "BLE"
-                    elif "spoofer" in fw_lower:
-                        fw_type = "Airtag Spoofer"
-                        protocols = "BLE"
-                    else:
-                        fw_type = "Airtag"
-                        protocols = "BLE"
-                elif "15.4" in fw_lower or "154" in fw_lower:
-                    fw_type = "15.4"
-                    protocols = "15.4"
-                elif "justworks" in fw_lower:
-                    fw_type = "JustWorks"
-                    protocols = "BLE"
-                elif "free_dap" in fw_lower:
-                    fw_type = "Debugger"
-                    protocols = "Debug"
-                elif "serial" in fw_lower:
-                    fw_type = "Serial"
-                    protocols = "Serial"
-                elif "meshtastic" in fw_lower:
-                    fw_type = "Meshtastic"
-                    protocols = "LoRa"
-                else:
-                    fw_type = "Other"
-                    protocols = "Various"
-
                 # Get description
                 desc = descriptions.get(fw_lower, "No description available")
 
                 # Truncate description if it's too long
-                if len(desc) > 50:
-                    desc = desc[:47] + "..."
+                if len(desc) > 70:
+                    desc = desc[:67] + "..."
 
-                table.add_row(f"[green]{alias}[/green]", fw, fw_type, protocols, desc)
+                table.add_row(f"[green]{alias}[/green]", fw, desc)
 
             console.print(table)
 
