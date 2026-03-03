@@ -50,6 +50,15 @@ def le_advertising_report(event_type=0x00, addr_type=0x00, addr=b'\x00'*6,
     return le_meta_event(LE_ADV_REPORT, report)
 
 
+def le_read_remote_features_complete(handle, features=None):
+    """LE Read Remote Features Complete event (subevent 0x04)"""
+    if features is None:
+        # Encryption, conn param request, extended reject, LE ping, data length extension
+        features = bytes([0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+    data = bytes([0x00]) + struct.pack('<H', handle) + features
+    return le_meta_event(0x04, data)
+
+
 def disconnect_complete(status=0x00, handle=0x0000, reason=0x13):
     """Generate Disconnect Complete event"""
     payload = bytes([status]) + struct.pack('<H', handle) + bytes([reason])
@@ -162,7 +171,8 @@ def cc_le_read_supported_features(opcode):
     # Bit 3: Slave-initiated Features Exchange, Bit 4: LE Ping
     # Bit 5: LE Data Packet Length Extension, Bit 6: LL Privacy
     # Bit 7: Extended Scanner Filter Policies
-    features = bytes([0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])  # Basic features
+    # More complete feature set for a central device
+    features = bytes([0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])  # Bits 0-5 set
     data = bytes([0x00]) + features
     return command_complete(opcode, data)
 

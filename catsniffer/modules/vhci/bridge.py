@@ -19,6 +19,26 @@ from .constants import *
 from .commands import HCICommandDispatcher
 from . import events
 
+_SNIFFLE_CMD_NAMES = {
+    SNIFFLE_SET_CHAN_AA_PHY: "SET_CHAN",
+    SNIFFLE_PAUSE_DONE: "PAUSE",
+    SNIFFLE_RSSI_FILTER: "RSSI",
+    SNIFFLE_MAC_FILTER: "MAC",
+    SNIFFLE_ADV_HOP: "ADV_HOP",
+    SNIFFLE_FOLLOW: "FOLLOW",
+    SNIFFLE_AUX_ADV: "AUXADV",
+    SNIFFLE_RESET: "RESET",
+    SNIFFLE_MARKER: "MARKER",
+    SNIFFLE_TRANSMIT: "TRANSMIT",
+    SNIFFLE_CONNECT: "CONNECT",
+    SNIFFLE_SET_ADDR: "SET_ADDR",
+    SNIFFLE_ADVERTISE: "ADVERTISE",
+    SNIFFLE_INTERVAL_PRELOAD: "INTVL",
+    SNIFFLE_SCAN: "SCAN",
+    SNIFFLE_PHY_PRELOAD: "PHY",
+    SNIFFLE_TX_POWER: "TXPWR",
+}
+
 
 class VHCIBridge:
     """Bridge between Linux VHCI and Sniffle firmware"""
@@ -99,6 +119,9 @@ class VHCIBridge:
         self.suggested_tx_octets = 27
         self.suggested_tx_time = 328
 
+        # Rate-limit timestamp for serial RX logging
+        self._last_rx_log = 0.0
+
         # Command dispatcher
         self.dispatcher = HCICommandDispatcher(self)
 
@@ -118,6 +141,20 @@ class VHCIBridge:
         except Exception as e:
             self.log.warning("Sync warning: %s", e)
         self.rx_buf = b''
+
+        # Verify firmware is responding before reset
+        self.log.info("Checking firmware response...")
+        marker = struct.pack('<I', 0xDEADBEEF)
+        self.ser.write(b64encode(bytes([5, 0x18]) + marker) + b"\r\n")
+        self.ser.flush()
+        time.sleep(0.5)
+        
+        if self.ser.in_waiting == 0:
+            self.log.error("CatSniffer not responding! Is it in bootloader mode?")
+            self.log.error("Check: ls -la /dev/ttyACM*")
+            raise RuntimeError("CatSniffer firmware not responding - device may be in bootloader mode")
+        
+        self.ser.reset_input_buffer()
 
         # Reset firmware
         self.log.info("Resetting firmware...")
@@ -142,14 +179,13 @@ class VHCIBridge:
         os.write(self.vhci, bytes([0xFF, 0x00]))
 
         # Read response (blocking, short timeout)
-        # Response format: pkt_type (1), opcode (1), index (1)
-        import select as sel
-        readable, _, _ = sel.select([self.vhci], [], [], 2.0)
+        # Response format: pkt_type (1), opcode (1), index_lo (1), index_hi (1)
+        readable, _, _ = select.select([self.vhci], [], [], 2.0)
         if readable:
             rsp = os.read(self.vhci, 260)
             self.log.info("VHCI response: %s (len=%d)", rsp.hex() if rsp else "empty", len(rsp))
-            if len(rsp) >= 3:
-                self.hci_index = rsp[2]
+            if len(rsp) >= 4:
+                self.hci_index = rsp[2] | (rsp[3] << 8)
                 self.log.info("Created hci%d", self.hci_index)
         else:
             self.log.error("VHCI response timeout!")
@@ -176,12 +212,29 @@ class VHCIBridge:
 
     def run(self):
         """Main loop"""
+        heartbeat = 0
+        # Delay advertising reports for 1 second to let BlueZ initialize
+        startup_done = False
+        startup_time = time.time()
         while self.running:
             # Process HCI commands from host
             self._process_vhci()
 
-            # Process messages from firmware
-            self._process_sniffle()
+            # Process messages from firmware (but delay adv reports)
+            if startup_done:
+                self._process_sniffle()
+            elif time.time() - startup_time > 1.0:
+                startup_done = True
+                self._process_sniffle()
+            else:
+                # Just read serial to prevent buffer overflow
+                if self.ser.in_waiting:
+                    self.ser.read(self.ser.in_waiting)
+
+            # Heartbeat every 1000 iterations
+            heartbeat += 1
+            if heartbeat % 1000 == 0:
+                self.log.debug("Heartbeat: state=%d rx_buf=%d", self.state, len(self.rx_buf))
 
             # Small sleep to avoid busy loop
             time.sleep(0.001)
@@ -271,8 +324,13 @@ class VHCIBridge:
         """Process incoming messages from Sniffle firmware"""
         try:
             if self.ser.in_waiting:
-                self.rx_buf += self.ser.read(self.ser.in_waiting)
-        except:
+                data = self.ser.read(self.ser.in_waiting)
+                self.rx_buf += data
+                now = time.time()
+                if now - self._last_rx_log > 1.0:
+                    self.log.debug("Serial RX: %d bytes, buffer: %d bytes", len(data), len(self.rx_buf))
+                    self._last_rx_log = now
+        except Exception:
             pass
 
         while True:
@@ -324,7 +382,6 @@ class VHCIBridge:
         pkt_len = ln & 0x7FFF
         chan = cp & 0x3F
         pkt_data = body[10:]
-
         self.log.debug("Packet: chan=%d len=%d rssi=%d", chan, pkt_len, rssi)
         
         # Store last RSSI
@@ -335,6 +392,7 @@ class VHCIBridge:
             self._handle_adv_packet(chan, pkt_data, pkt_len, rssi)
         else:
             # Data channel - generate ACL packet
+            self.log.info("DATA CHANNEL: chan=%d len=%d rssi=%d state=%d", chan, pkt_len, rssi, self.state)
             self._handle_data_packet(chan, pkt_data, pkt_len, rssi)
 
     def _handle_adv_packet(self, chan, pkt_data, pkt_len, rssi):
@@ -374,8 +432,9 @@ class VHCIBridge:
 
             try:
                 os.write(self.vhci, event)
-            except:
-                pass
+                self.log.debug("Sent adv report: addr=%s type=%d", adv_addr[::-1].hex(), evt_type)
+            except Exception as e:
+                self.log.error("Failed to send adv report: %s", e)
 
     def _handle_data_packet(self, chan, pkt_data, pkt_len, rssi):
         """Handle data channel packet"""
@@ -407,8 +466,8 @@ class VHCIBridge:
         hci_acl = bytes([HCI_ACL]) + acl_pkt
         try:
             os.write(self.vhci, hci_acl)
-        except:
-            pass
+        except Exception as e:
+            self.log.error("Failed to send ACL packet: %s", e)
 
     def _handle_sniffle_state(self, body):
         """Handle state change message from Sniffle"""
@@ -473,6 +532,8 @@ class VHCIBridge:
     def _send_sniffle_cmd(self, cmd_bytes):
         """Send command to Sniffle firmware"""
         b0 = (len(cmd_bytes) + 3) // 3
+        opcode = cmd_bytes[0] if cmd_bytes else 0
+        self.log.info("CMD: %s (%s)", _SNIFFLE_CMD_NAMES.get(opcode, f"0x{opcode:02x}"), bytes(cmd_bytes[:15]).hex())
         msg = b64encode(bytes([b0] + cmd_bytes)) + b'\r\n'
         self.ser.write(msg)
 
@@ -491,6 +552,9 @@ class VHCIBridge:
         self.scanning = True
 
         # Set channel 37 with advertising access address
+        # Preload PHY to 1M (firmware defaults to 2M)
+        self._send_sniffle_cmd([SNIFFLE_PHY_PRELOAD, PHY_1M])
+
         self._send_sniffle_cmd([SNIFFLE_SET_CHAN_AA_PHY] +
                                list(struct.pack("<BLBL", 37, BLE_ADV_AA, PHY_1M, BLE_ADV_CRCI)))
 
@@ -536,18 +600,50 @@ class VHCIBridge:
         self.peer_addr = peer_addr
         self.peer_addr_type = peer_addr_type
 
+        # Set channel first (as in initiator.py)
+        self._send_sniffle_cmd([SNIFFLE_SET_CHAN_AA_PHY] +
+                               list(struct.pack("<BLBL", 37, BLE_ADV_AA, PHY_1M, BLE_ADV_CRCI)))
+
+        # Pause after done (required for initiator mode)
+        self._send_sniffle_cmd([SNIFFLE_PAUSE_DONE, 0x01])
+
         # Disable follow mode (we initiate, not follow)
         self._send_sniffle_cmd([SNIFFLE_FOLLOW, 0x00])
 
-        # Set own address
+        # Turn off RSSI filter
+        self._send_sniffle_cmd([SNIFFLE_RSSI_FILTER])
+
+        # Enable aux advertising (initiator needs this)
+        self._send_sniffle_cmd([SNIFFLE_AUX_ADV, 0x01])
+
+        # Set MAC filter for target (no hop3 for initiator)
+        self._send_sniffle_cmd([SNIFFLE_MAC_FILTER] + list(peer_addr))
+
+        # Set own address (random static)
         addr = [randrange(256) for _ in range(6)]
         addr[5] |= 0xC0  # Static random
         self.bd_addr = bytes(addr)
         self.sniffle_set_addr(self.bd_addr)
 
-        # Set channel
-        self._send_sniffle_cmd([SNIFFLE_SET_CHAN_AA_PHY] +
-                               list(struct.pack("<BLBL", 37, BLE_ADV_AA, PHY_1M, BLE_ADV_CRCI)))
+        # Set TX power to +5 dBm
+        self._send_sniffle_cmd([SNIFFLE_TX_POWER, 5])
+
+        # Reset preloaded interval
+        self._send_sniffle_cmd([SNIFFLE_INTERVAL_PRELOAD])
+
+        # Flush old packets: send marker and wait for it to echo back (like mark_and_flush)
+        marker_val = struct.pack('<I', randint(0, 0xFFFFFFFF))
+        self._send_sniffle_cmd([SNIFFLE_MARKER] + list(marker_val))
+        flush_deadline = time.time() + 2.0
+        while time.time() < flush_deadline:
+            if self.ser.in_waiting:
+                self.rx_buf += self.ser.read(self.ser.in_waiting)
+            msg_type, msg_body = self._recv_sniffle_msg()
+            if msg_type == SNIFFLE_MSG_MARKER and msg_body[:4] == marker_val:
+                break  # Marker echoed back — buffer is clean
+            time.sleep(0.005)
+
+        self.log.info("Flush complete, buffer cleared")
 
         # Build LLData
         lldata = []
@@ -559,9 +655,14 @@ class VHCIBridge:
         lldata.extend([0xFF, 0xFF, 0xFF, 0xFF, 0x1F])  # Channel map
         lldata.append(randint(5, 16))  # Hop
 
+        # Store access address for decoder (like initiator.py: hw.decoder_state.cur_aa = _aa)
+        self.conn_aa = struct.unpack('<I', bytes(lldata[:4]))[0]
+        
         # Send connect command
         cmd = [SNIFFLE_CONNECT, peer_addr_type] + list(peer_addr) + lldata
         self._send_sniffle_cmd(cmd)
+        
+        self.log.info("Connect sent: peer=%s aa=0x%08X", peer_addr[::-1].hex(), self.conn_aa)
 
     def cancel_connection(self):
         """Cancel ongoing connection attempt"""

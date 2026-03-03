@@ -1632,7 +1632,16 @@ def vhci_start(device, port, addr, verbose):
         print_info(f"Using CatSniffer: {serial_port}")
 
     # Import and run the vhci bridge
+    import logging
     from .vhci_bridge import VHCIBridge
+    from rich.logging import RichHandler
+
+    # Configure the vhci logger directly — basicConfig is a no-op if root already has handlers
+    vhci_log = logging.getLogger('vhci')
+    vhci_log.setLevel(logging.DEBUG if verbose else logging.INFO)
+    vhci_log.handlers.clear()
+    vhci_log.addHandler(RichHandler(console=console, show_time=False, show_path=False))
+    vhci_log.propagate = False
 
     # Parse BD_ADDR
     bd_addr = None
@@ -1642,26 +1651,25 @@ def vhci_start(device, port, addr, verbose):
     # Start bridge
     bridge = VHCIBridge(serial_port, bd_addr)
 
-    def signal_handler(sig, frame):
-        print_warning("\nShutting down...")
-        bridge.stop()
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    bridge.start()
+    try:
+        bridge.start()
+    except Exception as e:
+        print_error(f"Failed to start bridge: {e}")
+        return
 
     console.print("\n[green]Bridge running![/green]")
-    console.print("  Check: [cyan]hciconfig -a[/cyan]")
-    console.print("  Use:   [cyan]btmon -i hci1[/cyan]")
-    console.print("  Use:   [cyan]gatttool -i hci1 -b TARGET -I[/cyan]")
-    console.print("  Use:   [cyan]bettercap -iface hci1[/cyan]")
+    console.print(f"  Check: [cyan]hciconfig -a[/cyan]")
+    console.print(f"  Use:   [cyan]btmon -i hci{bridge.hci_index}[/cyan]")
+    console.print(f"  Use:   [cyan]gatttool -i hci{bridge.hci_index} -b TARGET -I[/cyan]")
+    console.print(f"  Use:   [cyan]bettercap -iface hci{bridge.hci_index}[/cyan]")
     console.print("\n[yellow]Press Ctrl+C to stop[/yellow]\n")
 
-    # Keep running
-    while bridge.running:
-        time.sleep(1)
+    try:
+        bridge.run()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        bridge.stop()
 
 
 @vhci.command("check")

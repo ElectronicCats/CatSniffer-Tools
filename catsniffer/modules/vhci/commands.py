@@ -34,8 +34,7 @@ class HCICommandDispatcher:
             OP_READ_CURRENT_IAC_LAP: self.handle_read_current_iac_lap,
             OP_READ_EXTENDED_INQUIRY_RESPONSE: self.handle_read_extended_inquiry_response,
             OP_WRITE_EXTENDED_INQUIRY_RESPONSE: self.handle_write_extended_inquiry_response,
-            OP_READ_EXTENDED_INQUIRY_RESPONSE: self.handle_read_extended_inquiry_response,
-            OP_WRITE_EXTENDED_INQUIRY_RESPONSE: self.handle_write_extended_inquiry_response,
+            OP_WRITE_SECURE_CONNECTIONS_HOST_SUPPORT: self.handle_write_secure_connections_host_support,
 
             # Informational
             OP_READ_LOCAL_VERSION: self.handle_read_local_version,
@@ -240,6 +239,11 @@ class HCICommandDispatcher:
             self.bridge.eir_data = params[1:241] if len(params) > 1 else bytes(240)
         return events.command_complete(opcode, bytes([0x00]))
 
+    def handle_write_secure_connections_host_support(self, opcode, params):
+        """Handle Write Secure Connections Host Support (0x0C6D)"""
+        # Just acknowledge - we don't actually support secure connections
+        return events.command_complete(opcode, bytes([0x00]))
+
     # ==================== Informational Commands ====================
 
     def handle_read_local_version(self, opcode, params):
@@ -417,7 +421,11 @@ class HCICommandDispatcher:
 
     def handle_le_create_connection_cancel(self, opcode, params):
         """LE Create Connection Cancel"""
-        self.bridge.cancel_connection()
+        # Don't send PAUSE_DONE if the firmware is already connecting or connected —
+        # BlueZ fires this when its own timer expires, but the firmware may still
+        # succeed. Sending PAUSE_DONE here would cause CENTRAL→PAUSED immediately.
+        if self.bridge.state not in (STATE_INITIATING, STATE_CENTRAL, STATE_PERIPHERAL):
+            self.bridge.cancel_connection()
         return events.command_complete(opcode, bytes([0x00]))
 
     def handle_le_read_white_list_size(self, opcode, params):
@@ -555,9 +563,16 @@ class HCICommandDispatcher:
         return events.command_complete(opcode, bytes([0x00]))
 
     def handle_le_read_remote_used_features(self, opcode, params):
-        """LE Read Remote Used Features - returns status, event comes later"""
+        """LE Read Remote Used Features - returns status then immediately sends features event"""
         if len(params) >= 2:
             handle = struct.unpack('<H', params[:2])[0]
+            evt = events.le_read_remote_features_complete(handle)
+            try:
+                import os
+                os.write(self.bridge.vhci, evt)
+                self.bridge.log.debug("Sent LE Remote Features Complete for handle 0x%04X", handle)
+            except Exception as e:
+                self.bridge.log.error("Failed to send LE Remote Features event: %s", e)
             return events.command_status(opcode, 0x00)
         return events.command_complete(opcode, bytes([0x02]))
 
