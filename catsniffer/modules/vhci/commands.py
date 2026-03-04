@@ -397,10 +397,10 @@ class HCICommandDispatcher:
         if len(params) >= 2:
             enable = params[0]
             filter_dups = params[1]
-            if self.bridge.active_conn:
-                # Don't touch Sniffle state while a connection is active
-                self.bridge.log.info("Scanning: %s (suppressed while connected)",
-                                     "enabled" if enable else "disabled")
+            if self.bridge.active_conn or self.bridge.state == STATE_INITIATING:
+                # Don't touch Sniffle state while connecting or connected
+                self.bridge.log.info("Scanning: %s (suppressed, state=%d)",
+                                     "enabled" if enable else "disabled", self.bridge.state)
             elif enable:
                 self.bridge.start_scanning(filter_dups)
                 self.bridge.log.info("Scanning: enabled")

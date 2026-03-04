@@ -458,10 +458,22 @@ class VHCIBridge:
             self._handle_ll_control(lldata)
             return
 
-        # Build ACL packet
+        # LLID=1: L2CAP continuation fragment — forward with PB=1 (no L2CAP header)
+        if llid == 0x01:
+            if dlen > 0 and lldata:
+                acl_handle = (self.conn_handle & 0x0FFF) | (0x01 << 12)
+                acl_pkt = struct.pack('<HH', acl_handle, len(lldata)) + lldata
+                hci_acl = bytes([HCI_ACL]) + acl_pkt
+                try:
+                    os.write(self.vhci, hci_acl)
+                    self.log.info("ACL CONT → BlueZ: len=%d data=%s", len(lldata), lldata.hex())
+                except Exception as e:
+                    self.log.error("Failed to send ACL continuation: %s", e)
+            return
+
+        # Build ACL packet (LLID=2: first/complete L2CAP fragment)
         # Handle with PB=2 (first flushable)
         acl_handle = (self.conn_handle & 0x0FFF) | (0x02 << 12)
-        acl_len = len(lldata) + 4  # L2CAP header + data
 
         # Build L2CAP header
         if len(lldata) >= 4:
@@ -515,6 +527,20 @@ class VHCIBridge:
 
         elif opcode == 0x09:  # LL_FEATURE_RSP (response to our LL_FEATURE_REQ)
             self.log.info("LL_FEATURE_RSP from peer: features=%s", lldata[1:9].hex() if len(lldata) >= 9 else lldata[1:].hex())
+
+        elif opcode == 0x0E:  # LL_SLAVE_FEATURE_REQ (peripheral requesting central's features)
+            self.log.info("LL_SLAVE_FEATURE_REQ from peer")
+            features = bytes([0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+            rsp = bytes([0x09]) + features  # LL_FEATURE_RSP
+            self._send_ll_pdu(rsp)
+            self.log.info("Sent LL_FEATURE_RSP for LL_SLAVE_FEATURE_REQ")
+
+        elif opcode == 0x14:  # LL_LENGTH_REQ (data length extension)
+            self.log.info("LL_LENGTH_REQ from peer")
+            # LL_LENGTH_RSP: opcode(1) + MaxRxOctets(2) + MaxRxTime(2) + MaxTxOctets(2) + MaxTxTime(2)
+            rsp = bytes([0x15]) + struct.pack('<HHHH', 251, 2120, 251, 2120)
+            self._send_ll_pdu(rsp)
+            self.log.info("Sent LL_LENGTH_RSP")
 
         elif opcode == 0x02:  # LL_TERMINATE_IND
             reason = lldata[1] if len(lldata) > 1 else 0x00
@@ -589,6 +615,12 @@ class VHCIBridge:
                 self.log.info("Disconnect Complete event sent!")
             except Exception as e:
                 self.log.error("Failed to send Disconnect Complete: %s", e)
+
+            # BlueZ won't resend LE_SET_SCAN_ENABLE if it thinks scanning is already
+            # on. Sniffle just went to PAUSED, so proactively restart scanning.
+            if self.scanning:
+                self.log.info("Auto-restarting scan after disconnect")
+                self.start_scanning()
 
     # ==================== Sniffle Command Methods ====================
 
