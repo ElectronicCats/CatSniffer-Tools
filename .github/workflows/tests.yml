@@ -1,0 +1,79 @@
+name: CatSniffer Unit Tests
+
+on:
+  push:
+    branches: ["main", "develop", "refactor"]
+    # Only trigger if there are changes in the catnip/ directory or the test workflow itself
+    paths:
+      - "catnip/**"
+      - ".github/workflows/tests.yml"
+  pull_request:
+    branches: ["main", "develop", "refactor"]
+    paths:
+      - "catnip/**"
+      - ".github/workflows/tests.yml"
+
+jobs:
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+
+    # ── All job actions occur within catsniffer  ─────────────
+    defaults:
+      run:
+        working-directory: catnip
+
+    steps:
+      # ── 1. Clone the repository ──────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Configure Python ──────────────────────────────────────────────
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+          # Point to the correct requirements.txt file within the monorepo
+          cache-dependency-path: catnip/requirements.txt
+
+      # ── 3. Install dependencies ──────────────────────────────────────────
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov
+          # Verify if requirements.txt exists before trying to install it
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            echo "requirements.txt not found, continuing without it..."
+          fi
+
+      # ── 4. Run tests ─────────────────────────────────
+      - name: Run tests
+        run: |
+          # Verify if the tests directory exists
+          if [ -d tests ]; then
+            pytest tests/ \
+              --cov=modules \
+              --cov-report=term-missing \
+              --cov-report=xml \
+              -v
+          else
+            echo "Directory 'tests/' not found"
+            exit 1
+          fi
+
+      # ── 5. Upload coverage to Codecov ───────────────────────────
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: matrix.python-version == '3.12'
+        with:
+          files: catnip/coverage.xml
+          flags: catnip              # Label to distinguish in Codecov
+          fail_ci_if_error: false
