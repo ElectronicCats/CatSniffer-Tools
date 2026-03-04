@@ -1507,6 +1507,194 @@ def lora_spectrum(device, baudrate, start_freq, end_freq, offset):
         scanner.stop_task()
 
 
+# ===================== VHCI Bridge Commands =====================
+
+
+@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+def vhci():
+    """VHCI Bridge - Expose CatSniffer as a Linux hciX Bluetooth controller"""
+    pass
+
+
+@vhci.command("start")
+@click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
+@click.option(
+    "--port",
+    "-p",
+    default=None,
+    help="Serial port override (e.g. /dev/ttyACM1)",
+)
+@click.option(
+    "--baud",
+    default=2000000,
+    type=int,
+    show_default=True,
+    help="Baud rate for serial port",
+)
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose (DEBUG) logging")
+def vhci_start(device, port, baud, verbose):
+    """Start the VHCI bridge — CatSniffer appears as hciX in Linux.
+
+    Requires root privileges and the hci_vhci kernel module:
+
+    \b
+        sudo modprobe hci_vhci
+        sudo catnip vhci start
+        hciconfig -a
+
+    Compatible tools: bluetoothctl, btmgmt, btmon, bleak, bettercap.
+    """
+    import signal
+    from .vhci import VHCIBridge
+
+    if os.geteuid() != 0:
+        print_warning("Root privileges required for /dev/vhci access. Run with sudo.")
+
+    if not os.path.exists("/dev/vhci"):
+        print_error("/dev/vhci not found. Load the kernel module first:")
+        console.print("  sudo modprobe hci_vhci")
+        sys.exit(1)
+
+    # Resolve serial port
+    if port:
+        serial_port = port
+    elif device is not None:
+        dev = catnip_get_device(device)
+        if dev is None:
+            print_error(f"CatSniffer device #{device} not found.")
+            sys.exit(1)
+        if not dev.bridge_port:
+            print_error(f"Device #{device} has no Cat-Bridge port detected.")
+            sys.exit(1)
+        serial_port = dev.bridge_port
+        print_info(f"Using device {dev}, port: {serial_port}")
+    else:
+        devs = catnip_get_devices()
+        if devs and devs[0].bridge_port:
+            serial_port = devs[0].bridge_port
+            print_info(f"Auto-detected CatSniffer: {devs[0]}, port: {serial_port}")
+        else:
+            print_error("CatSniffer not found. Use -p to specify a port or -d for device ID.")
+            sys.exit(1)
+
+    # Logging
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(message)s",
+        handlers=[RichHandler(console=console, show_time=False)],
+    )
+    log = logging.getLogger("vhci")
+
+    bridge = VHCIBridge(serial_port, log)
+
+    def _shutdown(sig, frame):
+        console.print("\n[yellow]Shutting down VHCI bridge...[/yellow]")
+        bridge.stop()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    try:
+        bridge.start()
+    except Exception as e:
+        print_error(f"Failed to start bridge: {e}")
+        sys.exit(1)
+
+    console.print("[green]Bridge running. Device should appear as hciX.[/green]")
+    console.print("[dim]Check with: hciconfig -a   |   Press Ctrl+C to stop[/dim]")
+
+    try:
+        bridge.run()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        bridge.stop()
+
+
+@vhci.command("check")
+def vhci_check():
+    """Check VHCI bridge prerequisites (kernel module, /dev/vhci, root, packages)."""
+    import subprocess as _sp
+
+    all_ok = True
+
+    # Root check
+    if os.geteuid() == 0:
+        console.print("[green]  root         : OK[/green]")
+    else:
+        console.print("[yellow]  root         : NOT root — bridge will fail to open /dev/vhci[/yellow]")
+        all_ok = False
+
+    # Kernel module
+    try:
+        result = _sp.run(["lsmod"], capture_output=True, text=True, timeout=5)
+        if "hci_vhci" in result.stdout:
+            console.print("[green]  hci_vhci     : loaded[/green]")
+        else:
+            console.print("[yellow]  hci_vhci     : NOT loaded — run: sudo modprobe hci_vhci[/yellow]")
+            all_ok = False
+    except Exception:
+        console.print("[red]  hci_vhci     : could not run lsmod[/red]")
+        all_ok = False
+
+    # /dev/vhci
+    if os.path.exists("/dev/vhci"):
+        console.print("[green]  /dev/vhci    : exists[/green]")
+    else:
+        console.print("[yellow]  /dev/vhci    : missing — run: sudo modprobe hci_vhci[/yellow]")
+        all_ok = False
+
+    # BlueZ (bluetoothctl)
+    try:
+        _sp.run(["bluetoothctl", "--version"], capture_output=True, timeout=3)
+        console.print("[green]  bluetoothctl : found[/green]")
+    except FileNotFoundError:
+        console.print("[yellow]  bluetoothctl : not found — install bluez[/yellow]")
+        all_ok = False
+    except Exception:
+        console.print("[yellow]  bluetoothctl : check failed[/yellow]")
+
+    # btmon
+    try:
+        _sp.run(["btmon", "--version"], capture_output=True, timeout=3)
+        console.print("[green]  btmon        : found[/green]")
+    except FileNotFoundError:
+        console.print("[dim]  btmon        : not found (optional — install bluez-utils)[/dim]")
+    except Exception:
+        pass
+
+    # bleak (Python)
+    try:
+        import bleak  # noqa: F401
+        console.print("[green]  bleak        : installed[/green]")
+    except ImportError:
+        console.print("[dim]  bleak        : not installed (optional — pip install bleak)[/dim]")
+
+    # CatSniffer device
+    devs = catnip_get_devices()
+    if devs:
+        for dev in devs:
+            port = dev.bridge_port or "?"
+            console.print(f"[green]  CatSniffer   : {dev}  bridge={port}[/green]")
+    else:
+        console.print("[yellow]  CatSniffer   : no device detected[/yellow]")
+        all_ok = False
+
+    console.print("")
+    if all_ok:
+        print_success("All prerequisites met. Run: sudo catnip vhci start")
+    else:
+        print_warning("Some prerequisites are missing. See above.")
+
+
 # ===================== Firmware Update Commands =====================
 
 
@@ -1574,5 +1762,6 @@ def main_cli() -> None:
     cli.add_command(cativity)
     cli.add_command(meshtastic)
     cli.add_command(lora)
+    cli.add_command(vhci)
     cli.add_command(verify)
     cli()

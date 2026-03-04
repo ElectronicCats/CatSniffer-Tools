@@ -45,7 +45,7 @@ pip install -e .
 If the CatSniffer does not already have Sniffle firmware:
 
 ```
-catsniffer flash --firmware sniffle
+catnip flash sniffle
 ```
 
 ---
@@ -55,7 +55,7 @@ catsniffer flash --firmware sniffle
 ### Check prerequisites
 
 ```
-catsniffer vhci check
+catnip vhci check
 ```
 
 This verifies that `hci_vhci` is loaded, `/dev/vhci` exists, and lists any
@@ -64,7 +64,7 @@ existing HCI controllers.
 ### Start the bridge
 
 ```
-sudo catsniffer vhci start
+sudo catnip vhci start
 ```
 
 Options:
@@ -73,17 +73,15 @@ Options:
 |------|-------------|
 | `-d`, `--device` | CatSniffer device index when multiple are connected |
 | `-p`, `--port` | Serial port path (auto-detected if omitted) |
-| `-a`, `--addr` | Custom BD_ADDR to present to BlueZ (e.g. `C0:FF:EE:C0:FF:EE`) |
 | `-v`, `--verbose` | Enable verbose logging (shows all HCI opcodes and data packets) |
 
 Examples:
 
 ```
-sudo catsniffer vhci start
-sudo catsniffer vhci start -d 1
-sudo catsniffer vhci start -p /dev/ttyACM0
-sudo catsniffer vhci start -p /dev/ttyACM0 -v
-sudo catsniffer vhci start -a C0:FF:EE:C0:FF:EE
+sudo catnip vhci start
+sudo catnip vhci start -d 1
+sudo catnip vhci start -p /dev/ttyACM0
+sudo catnip vhci start -p /dev/ttyACM0 -v
 ```
 
 When the bridge starts successfully it prints a line such as:
@@ -216,7 +214,7 @@ hcitool -i hci1 lescan
 
 ## Architecture
 
-The bridge is implemented in four files under `catsniffer/modules/vhci/`:
+The bridge is implemented in four files under `catnip/modules/vhci/`:
 
 | File | Role |
 |------|------|
@@ -406,7 +404,7 @@ ls -la /dev/ttyACM*
 Re-flash Sniffle firmware:
 
 ```
-catsniffer flash --firmware sniffle
+catnip flash sniffle
 ```
 
 ### BlueZ does not register hciN
