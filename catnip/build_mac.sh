@@ -6,7 +6,8 @@ pip install pyinstaller
 
 echo "[*] Building catnip..."
 pyinstaller \
-  --onefile \
+  --onedir \
+  --noupx \
   --name catnip \
   --collect-all scapy \
   --collect-all textual \
@@ -23,7 +24,8 @@ pyinstaller \
 
 echo "[*] Building lora_extcap..."
 pyinstaller \
-  --onefile \
+  --onedir \
+  --noupx \
   --name lora_extcap \
   --collect-all scapy \
   --collect-all meshtastic \
@@ -35,4 +37,4 @@ pyinstaller \
   lora_extcap.py
 
 echo "[+] Done! Binaries are in dist/"
-ls -lh dist/catnip dist/lora_extcap
+ls -lh dist/catnip/catnip dist/lora_extcap/lora_extcap
