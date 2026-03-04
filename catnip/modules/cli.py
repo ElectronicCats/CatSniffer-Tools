@@ -382,7 +382,7 @@ def find_extcap_plugin(plugin_name):
     return None
 
 
-@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+@click.group("catnip", context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("-v", "--verbose", is_flag=True, help="Show Verbose mode")
 def cli(verbose):
     """CatSniffer: All in one catnip tools environment."""
@@ -1550,7 +1550,7 @@ def vhci():
 
     \b
         sudo modprobe hci_vhci
-        sudo catnip vhci start
+        sudo python3 catnip.py vhci start
     """
     if platform.system() != "Linux":
         console.print("[red]Error: vhci is only supported on Linux.[/red]")
@@ -1751,7 +1751,7 @@ def vhci_check():
 
     console.print("")
     if all_ok:
-        print_success("All prerequisites met. Run: sudo catnip vhci start")
+        print_success("All prerequisites met. Run: sudo python3 catnip.py vhci start")
     else:
         print_warning("Some prerequisites are missing. See above.")
 
@@ -1865,6 +1865,14 @@ def completion_install(shell):
 
     env_var = "_CATNIP_COMPLETE"
 
+    # Absolute path to this script and the Python interpreter running it.
+    # We always want completions to call "python /abs/path/to/catnip.py" so
+    # that they work regardless of whether catnip is on PATH.
+    script_abs = str(Path(sys.argv[0]).resolve())
+    python_abs = str(Path(sys.executable).resolve())
+    # The full command string that the completion script will execute
+    cmd_to_call = f"{python_abs} {script_abs}"
+
     if shell == "bash":
         target = (
             Path.home()
@@ -1885,11 +1893,9 @@ def completion_install(shell):
         source_flag = "fish_source"
         rc_note = None
 
-    # Generate completion script using the current executable (works for both
-    # compiled binary and python catnip.py)
     try:
         result = _sp.run(
-            [sys.executable],
+            [python_abs, script_abs],
             env={**os.environ, env_var: source_flag},
             capture_output=True,
             text=True,
@@ -1900,8 +1906,96 @@ def completion_install(shell):
         sys.exit(1)
 
     if not script.strip():
-        print_error("Empty completion script generated. Is catnip installed?")
+        print_error(
+            "Empty completion script generated.\n"
+            "Make sure you are running this command via:\n"
+            f"  python {script_abs} completion install"
+        )
         sys.exit(1)
+
+    # ------------------------------------------------------------------ #
+    # Post-process: replace the bare 'catnip' program name that Click      #
+    # embeds in the script with the full "python /abs/path/catnip.py"      #
+    # invocation.  We handle every pattern Click 7.x / 8.x can emit.      #
+    # ------------------------------------------------------------------ #
+    if shell == "zsh":
+        # 1. #compdef directive — register for all the names a user might type
+        script = script.replace(
+            "#compdef catnip", "#compdef catnip catnip.py ./catnip.py"
+        )
+        # 2. The guard that aborts when the command is not found in $commands[].
+        #    We neutralise it because we use an absolute path, not a PATH entry.
+        script = script.replace(
+            "(( ! $+commands[catnip] ))",
+            "false",  # 'false' evaluates to 1 so the (( )) block never returns
+        )
+        # 3. The line that actually calls the program to obtain completions.
+        #    Click 8 emits:  _CATNIP_COMPLETE=zsh_complete catnip
+        script = script.replace(
+            f"{env_var}=zsh_complete catnip", f"{env_var}=zsh_complete {cmd_to_call}"
+        )
+        # 4. The compdef registration at the bottom of the script
+        script = script.replace(
+            "compdef _catnip_completion catnip",
+            f"compdef _catnip_completion catnip catnip.py ./catnip.py",
+        )
+
+        # 5. Append an explicit wrapper so that "python catnip.py <TAB>" and
+        #    "./catnip.py <TAB>" also trigger completion.  zsh matches on the
+        #    last component of $words[1], so we register a catch-all that
+        #    delegates to our function.
+        extra = (
+            "\n"
+            "# Enable completion when invoked as 'python catnip.py' or './catnip.py'\n"
+            "_catnip_completion_python_wrapper() {\n"
+            "  # $words[1] is 'python'/'python3', $words[2] is the script path\n"
+            "  local script_name=${words[2]:t}  # basename of the script argument\n"
+            "  if [[ $script_name == catnip.py ]]; then\n"
+            "    # Shift the completion context so Click sees sub-commands correctly\n"
+            '    words=(catnip "${words[@]:2}")\n'
+            "    (( CURRENT-- ))\n"
+            "    _catnip_completion\n"
+            "  fi\n"
+            "}\n"
+            "compdef _catnip_completion_python_wrapper python python3\n"
+        )
+        script += extra
+
+    elif shell == "bash":
+        # Click 8 emits:  _CATNIP_COMPLETE=bash_complete catnip
+        script = script.replace(
+            f"{env_var}=bash_complete catnip", f"{env_var}=bash_complete {cmd_to_call}"
+        )
+        # Register for both 'catnip' and 'catnip.py'
+        script = script.replace(
+            "complete -F _catnip_completion catnip",
+            "complete -F _catnip_completion catnip catnip.py",
+        )
+        # Append a wrapper that intercepts 'python catnip.py <TAB>'
+        extra = (
+            "\n"
+            "# Enable completion when invoked as 'python catnip.py'\n"
+            "_catnip_completion_python_wrapper() {\n"
+            "    local cur script_arg\n"
+            '    cur="${COMP_WORDS[COMP_CWORD]}"\n'
+            '    script_arg="${COMP_WORDS[1]}"\n'
+            '    if [[ "$(basename "$script_arg")" == "catnip.py" ]]; then\n'
+            "        # Rebuild COMP_WORDS without the leading 'python' / path\n"
+            '        local new_words=(catnip "${COMP_WORDS[@]:2}")\n'
+            '        COMP_WORDS=("${new_words[@]}")\n'
+            "        COMP_CWORD=$(( COMP_CWORD - 1 ))\n"
+            "        _catnip_completion\n"
+            "    fi\n"
+            "}\n"
+            "complete -F _catnip_completion_python_wrapper python python3\n"
+        )
+        script += extra
+
+    elif shell == "fish":
+        # Fish uses a different mechanism; just replace the bare program name
+        script = script.replace(
+            f"{env_var}=fish_complete catnip", f"{env_var}=fish_complete {cmd_to_call}"
+        )
 
     # Write script
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -1918,7 +2012,7 @@ def completion_install(shell):
             print_success(f"Added fpath entry to {zshrc}")
         else:
             console.print(
-                f"[dim]  ~/.zfunc already in fpath — skipping .zshrc edit[/dim]"
+                "[dim]  ~/.zfunc already in fpath — skipping .zshrc edit[/dim]"
             )
 
     console.print("")
@@ -1927,7 +2021,7 @@ def completion_install(shell):
         console.print(f"  [green]source {target}[/green]")
     elif shell == "zsh":
         console.print("Restart your shell or run:")
-        console.print("  [green]source ~/.zshrc && compinit[/green]")
+        console.print("  [green]source ~/.zshrc && compinit -u[/green]")
     elif shell == "fish":
         console.print("Completion is active immediately in new fish sessions.")
 
@@ -1943,4 +2037,4 @@ def main_cli() -> None:
     cli.add_command(vhci)
     cli.add_command(verify)
     cli.add_command(completion)
-    cli()
+    cli(prog_name="catnip")
