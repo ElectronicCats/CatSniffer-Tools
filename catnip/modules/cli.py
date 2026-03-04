@@ -1512,8 +1512,17 @@ def lora_spectrum(device, baudrate, start_freq, end_freq, offset):
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 def vhci():
-    """VHCI Bridge - Expose CatSniffer as a Linux hciX Bluetooth controller"""
-    pass
+    """[Linux only, requires sudo] VHCI Bridge - Expose CatSniffer as hciX.
+
+    Requires sudo and the hci_vhci kernel module.
+
+    \b
+        sudo modprobe hci_vhci
+        sudo catnip vhci start
+    """
+    if platform.system() != "Linux":
+        console.print("[red]Error: vhci is only supported on Linux.[/red]")
+        sys.exit(1)
 
 
 @vhci.command("start")
@@ -1525,12 +1534,6 @@ def vhci():
     help="Device ID (for multiple CatSniffers)",
 )
 @click.option(
-    "--port",
-    "-p",
-    default=None,
-    help="Serial port override (e.g. /dev/ttyACM1)",
-)
-@click.option(
     "--baud",
     default=2000000,
     type=int,
@@ -1538,7 +1541,7 @@ def vhci():
     help="Baud rate for serial port",
 )
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose (DEBUG) logging")
-def vhci_start(device, port, baud, verbose):
+def vhci_start(device, baud, verbose):
     """Start the VHCI bridge — CatSniffer appears as hciX in Linux.
 
     Requires root privileges and the hci_vhci kernel module:
@@ -1561,10 +1564,8 @@ def vhci_start(device, port, baud, verbose):
         console.print("  sudo modprobe hci_vhci")
         sys.exit(1)
 
-    # Resolve serial port
-    if port:
-        serial_port = port
-    elif device is not None:
+    # Resolve device
+    if device is not None:
         dev = catnip_get_device(device)
         if dev is None:
             print_error(f"CatSniffer device #{device} not found.")
@@ -1572,16 +1573,33 @@ def vhci_start(device, port, baud, verbose):
         if not dev.bridge_port:
             print_error(f"Device #{device} has no Cat-Bridge port detected.")
             sys.exit(1)
-        serial_port = dev.bridge_port
-        print_info(f"Using device {dev}, port: {serial_port}")
+        print_info(f"Using device {dev}, port: {dev.bridge_port}")
     else:
         devs = catnip_get_devices()
         if devs and devs[0].bridge_port:
-            serial_port = devs[0].bridge_port
-            print_info(f"Auto-detected CatSniffer: {devs[0]}, port: {serial_port}")
+            dev = devs[0]
+            print_info(f"Auto-detected CatSniffer: {dev}, port: {dev.bridge_port}")
         else:
-            print_error("CatSniffer not found. Use -p to specify a port or -d for device ID.")
+            print_error("CatSniffer not found. Connect a device or specify -d.")
             sys.exit(1)
+
+    # Firmware check
+    cat = Catnip(dev.bridge_port)
+    print_info("Checking for Sniffle firmware...")
+    if cat.check_firmware_by_metadata("sniffle", dev.shell_port):
+        print_success("Sniffle firmware found!")
+    else:
+        print_warning("Sniffle firmware not found — flashing now...")
+        flasher = Flasher()
+        if not flasher.find_flash_firmware("sniffle", dev):
+            print_error("Failed to flash Sniffle firmware. Aborting.")
+            sys.exit(1)
+        print_info("Waiting for device to initialize...")
+        time.sleep(1)
+        if cat.check_firmware_by_metadata("sniffle", dev.shell_port):
+            print_success("Sniffle firmware verified!")
+        else:
+            print_warning("Firmware verification failed, continuing anyway...")
 
     # Logging
     level = logging.DEBUG if verbose else logging.INFO
@@ -1592,7 +1610,7 @@ def vhci_start(device, port, baud, verbose):
     )
     log = logging.getLogger("vhci")
 
-    bridge = VHCIBridge(serial_port, log)
+    bridge = VHCIBridge(dev.bridge_port, log)
 
     def _shutdown(sig, frame):
         console.print("\n[yellow]Shutting down VHCI bridge...[/yellow]")
@@ -1756,12 +1774,130 @@ def update(device, force):
         console.print("\n[dim]Use 'catnip update --force' to force an update.[/dim]")
 
 
+# ===================== Shell Completion Commands =====================
+
+
+@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+def completion():
+    """Install shell tab completion for catnip (Linux/macOS only)."""
+    pass
+
+
+@completion.command("install")
+@click.option(
+    "--shell",
+    type=click.Choice(["bash", "zsh", "fish"]),
+    default=None,
+    help="Shell to install completion for (auto-detected if omitted)",
+)
+def completion_install(shell):
+    """Install tab completion for your shell.
+
+    Run this once, then restart your shell (or source your rc file).
+
+    \b
+        catnip completion install          # auto-detect shell
+        catnip completion install --shell zsh
+    """
+    if platform.system() == "Windows":
+        print_error("Shell completion is not supported on Windows.")
+        sys.exit(1)
+
+    import subprocess as _sp
+    from pathlib import Path
+
+    # Auto-detect shell
+    if shell is None:
+        shell_env = os.environ.get("SHELL", "")
+        if "zsh" in shell_env:
+            shell = "zsh"
+        elif "fish" in shell_env:
+            shell = "fish"
+        elif "bash" in shell_env:
+            shell = "bash"
+        else:
+            print_error("Could not detect shell. Use --shell bash|zsh|fish.")
+            sys.exit(1)
+        print_info(f"Detected shell: {shell}")
+
+    env_var = "_CATNIP_COMPLETE"
+
+    if shell == "bash":
+        target = Path.home() / ".local" / "share" / "bash-completion" / "completions" / "catnip"
+        source_flag = "bash_source"
+        rc_note = None
+    elif shell == "zsh":
+        target = Path.home() / ".zfunc" / "_catnip"
+        source_flag = "zsh_source"
+        rc_note = (
+            "fpath=(~/.zfunc $fpath)\nautoload -Uz compinit && compinit"
+        )
+    elif shell == "fish":
+        target = Path.home() / ".config" / "fish" / "completions" / "catnip.fish"
+        source_flag = "fish_source"
+        rc_note = None
+
+    # Generate completion script
+    try:
+        result = _sp.run(
+            ["python", "catnip.py"],
+            env={**os.environ, env_var: source_flag},
+            capture_output=True,
+            text=True,
+        )
+        script = result.stdout
+        if not script.strip():
+            # Try the installed entry point
+            result = _sp.run(
+                ["catnip"],
+                env={**os.environ, env_var: source_flag},
+                capture_output=True,
+                text=True,
+            )
+            script = result.stdout
+    except Exception as e:
+        print_error(f"Failed to generate completion script: {e}")
+        sys.exit(1)
+
+    if not script.strip():
+        print_error("Empty completion script generated. Is catnip installed?")
+        sys.exit(1)
+
+    # Write script
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(script)
+    print_success(f"Completion script written to: {target}")
+
+    # zsh needs fpath entry in .zshrc
+    if rc_note:
+        zshrc = Path.home() / ".zshrc"
+        existing = zshrc.read_text() if zshrc.exists() else ""
+        if "~/.zfunc" not in existing and ".zfunc" not in existing:
+            with zshrc.open("a") as f:
+                f.write(f"\n# catnip tab completion\n{rc_note}\n")
+            print_success(f"Added fpath entry to {zshrc}")
+        else:
+            console.print(f"[dim]  ~/.zfunc already in fpath — skipping .zshrc edit[/dim]")
+
+    console.print("")
+    if shell == "bash":
+        console.print("Restart your shell or run:")
+        console.print(f"  [green]source {target}[/green]")
+    elif shell == "zsh":
+        console.print("Restart your shell or run:")
+        console.print("  [green]source ~/.zshrc && compinit[/green]")
+    elif shell == "fish":
+        console.print("Completion is active immediately in new fish sessions.")
+
+
 def main_cli() -> None:
-    print_header()
+    if not os.environ.get("_CATNIP_COMPLETE"):
+        print_header()
     cli.add_command(sniff)
     cli.add_command(cativity)
     cli.add_command(meshtastic)
     cli.add_command(lora)
     cli.add_command(vhci)
     cli.add_command(verify)
+    cli.add_command(completion)
     cli()
