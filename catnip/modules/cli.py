@@ -42,9 +42,38 @@ import time
 from pathlib import Path
 
 # APP Information
-CLI_NAME = "Flasher CLI"
 VERSION_NUMBER = "3.3.0.0"
 COMPANY = "Electronic Cats - PWNLAB"
+_FUNNY_PHRASES = [
+    "Catching packets, not mice.",
+    "Your RF spy in the sky.",
+    "Sniffing the air so you don't have to.",
+    "Making invisible waves visible.",
+    "The only cat that loves antennas.",
+    "Packet sniffer. Not a drug.",
+    "Who said curiosity killed the cat?",
+    "Zigbee, Thread, LoRa — we don't discriminate.",
+    "Turning radio waves into trust issues.",
+    "Your neighbor's smart bulb has secrets.",
+    "Legally (probably) sniffing since 2024.",
+    "Because plaintext is a lifestyle choice.",
+    "RF doesn't lie. People do.",
+    "We sniff, you learn.",
+    "Not all heroes wear capes. Some carry antennas.",
+    "What even is encryption?",
+    "The air is full of data. Help yourself.",
+    "Meow. That was a Zigbee beacon.",
+    "If it transmits, we see it.",
+    "BLE, LoRa, Thread — all your protocols belong to us.",
+    "Your Meshtastic network is not as private as you think.",
+    "802.15.4 never had a chance.",
+    "From 433MHz to 2.4GHz, we catch them all.",
+    "LoRa? More like LoRa-caught.",
+    "Sub-GHz whisperer.",
+]
+
+import random as _random
+FUNNY_PHRASE = _random.choice(_FUNNY_PHRASES)
 
 # Defining styles for reuse
 STYLES = {
@@ -57,15 +86,8 @@ STYLES = {
     "prompt": Style(color="magenta", bold=True),
 }
 
-# Prompt
-PROMPT_ICON = "🐱"
-PROMPT_DESCRIPTION = (
-    "Flasher CLI - For sniffing the TI CC1352 device communication interfaces."
-)
-
 __version__ = "3.3.0.0"
 
-flasher = Flasher()
 wireshark = Wireshark()
 console = Console()
 
@@ -76,26 +98,31 @@ logging.basicConfig(
 )
 
 
-def print_header():
+def print_header(module=None):
     """Print the ASCII art header"""
+    if module:
+        label = f"catnip {module}"
+    elif os.geteuid() == 0:
+        label = "catnip: (root)"
+    else:
+        label = "catnip"
+
     ascii_art = f"""      :-:              :--       |
       ++++=.        .=++++       |
       =+++++===++===++++++       |
       -++++++++++++++++++-       |
- .:   =++---++++++++---++=   :.  |  Module:  {CLI_NAME}
- ::---+++.   -++++-   .+++---::  |  Version: {VERSION_NUMBER}
-::1..:-++++:   ++++   :++++-::.::|  Company: {COMPANY}
+ .:   =++---++++++++---++=   :.  |  {label}
+ ::---+++.   -++++-   .+++---::  |  v{VERSION_NUMBER}
+::1..:-++++:   ++++   :++++-::.::|  {FUNNY_PHRASE}
 .:...:=++++++++++++++++++=:...:. |
  :---.  -++++++++++++++-  .---:  |
  ..        .:------:.        ..  |"""
 
-    # Apply color to the ASCII art
     colored_ascii = f"[cyan bold]{ascii_art}[/cyan bold]"
 
-    # Create a panel for the header
     header_panel = Panel(
         colored_ascii,
-        title=PROMPT_DESCRIPTION,
+        title=f"[cyan]{COMPANY}[/cyan]",
         border_style=STYLES["header"],
         title_align="left",
         padding=(1, 2),
@@ -401,6 +428,7 @@ def sniff(verbose):
     help="Sniffle mode",
 )
 def sniff_ble(device, wireshark, channel, mode):
+    flasher = Flasher()
     """Sniffing BLE with Sniffle firmware"""
     dev = get_device_or_exit(device)
 
@@ -508,6 +536,7 @@ def sniff_ble(device, wireshark, channel, mode):
 )
 def sniff_zigbee(ws, channel, device):
     """Sniffing Zigbee with Sniffer TI firmware"""
+    flasher = Flasher()
     dev = get_device_or_exit(device)
     cat = Catnip(dev.bridge_port)
     # Verify firmware with metadata (preferred)
@@ -545,6 +574,7 @@ def sniff_zigbee(ws, channel, device):
 )
 def sniff_thread(ws, channel, device):
     """Sniffing Thread with Sniffer TI firmware"""
+    flasher = Flasher()
     dev = get_device_or_exit(device)
     cat = Catnip(dev.bridge_port)
     # Verify firmware with metadata (preferred)
@@ -659,6 +689,7 @@ def sniff_lora(
 @click.option("--putty", is_flag=True, help="Open PuTTY with serial configuration")
 def sniff_airtag_scanner(device, putty):
     """Sniffing Airtag Scanner firmware"""
+    flasher = Flasher()
     dev = get_device_or_exit(device)
 
     # Verify firmware
@@ -1837,24 +1868,16 @@ def completion_install(shell):
         source_flag = "fish_source"
         rc_note = None
 
-    # Generate completion script
+    # Generate completion script using the current executable (works for both
+    # compiled binary and python catnip.py)
     try:
         result = _sp.run(
-            ["python", "catnip.py"],
+            [sys.executable],
             env={**os.environ, env_var: source_flag},
             capture_output=True,
             text=True,
         )
         script = result.stdout
-        if not script.strip():
-            # Try the installed entry point
-            result = _sp.run(
-                ["catnip"],
-                env={**os.environ, env_var: source_flag},
-                capture_output=True,
-                text=True,
-            )
-            script = result.stdout
     except Exception as e:
         print_error(f"Failed to generate completion script: {e}")
         sys.exit(1)
@@ -1892,7 +1915,10 @@ def completion_install(shell):
 
 def main_cli() -> None:
     if not os.environ.get("_CATNIP_COMPLETE"):
-        print_header()
+        module = next(
+            (a for a in sys.argv[1:] if not a.startswith("-")), None
+        )
+        print_header(module)
     cli.add_command(sniff)
     cli.add_command(cativity)
     cli.add_command(meshtastic)

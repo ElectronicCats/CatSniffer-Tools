@@ -1,5 +1,6 @@
 import io
 import os
+import sys
 import json
 import time
 import hashlib
@@ -39,7 +40,11 @@ RELEASE_FOLDER_NAME = "release"
 RELEASE_METADATA_NAME = "releases.json"
 DESCRIPTIONS_FILE_NAME = "descriptions.json"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(CURRENT_DIR)
+if getattr(sys, 'frozen', False):
+    # Running as PyInstaller binary — store release folder next to the executable
+    ROOT_DIR = os.path.dirname(sys.executable)
+else:
+    ROOT_DIR = os.path.dirname(CURRENT_DIR)
 
 logger = logging.getLogger("rich")
 console = Console()

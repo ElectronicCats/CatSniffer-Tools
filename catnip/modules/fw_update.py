@@ -179,7 +179,7 @@ def parse_fw_version_response(response: str) -> Optional[Dict[str, str]]:
         return None
 
     result = {}
-    for line in response.strip().split("\n"):
+    for line in re.split(r"[\r\n]+", response):
         line = line.strip()
         if not line:
             continue
