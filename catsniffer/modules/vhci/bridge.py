@@ -309,16 +309,21 @@ class VHCIBridge:
 
     def _send_acl_to_sniffle(self, acl_data):
         """Send ACL data to Sniffle firmware"""
-        # Build Sniffle transmit command
-        # Format: opcode, eventCtr[2], LLID, len, pdu
-        llid = 0x03  # L2CAP start
+        # LLID=0x02: L2CAP start (or complete) fragment — NOT 0x03 which is LL Control
+        llid = 0x02
         pdu_len = len(acl_data)
-        event_ctr = 0  # TODO: track event counter
+        event_ctr = 0
 
         cmd = [SNIFFLE_TRANSMIT, event_ctr & 0xFF, (event_ctr >> 8) & 0xFF, llid, pdu_len]
         cmd.extend(acl_data)
-
         self._send_sniffle_cmd(cmd)
+
+        # Notify BlueZ that the TX slot was consumed so it can send more ACL data
+        ncp = events.number_of_completed_packets([(self.conn_handle, 1)])
+        try:
+            os.write(self.vhci, ncp)
+        except Exception as e:
+            self.log.error("Failed to send NCP event: %s", e)
 
     def _process_sniffle(self):
         """Process incoming messages from Sniffle firmware"""
@@ -445,7 +450,13 @@ class VHCIBridge:
         dlen = pkt_data[1]
         lldata = pkt_data[2:2+dlen] if len(pkt_data) >= 2+dlen else pkt_data[2:]
 
-        self.log.debug("Data packet: llid=%d dlen=%d", llid, dlen)
+        self.log.info("Data packet: llid=%d dlen=%d data=%s", llid, dlen, lldata[:8].hex())
+
+        # LLID=3 is an LL Control PDU — Sniffle firmware does NOT auto-respond to them.
+        # We must respond to certain procedures so the peer's ATT stack is not stalled.
+        if llid == 0x03:
+            self._handle_ll_control(lldata)
+            return
 
         # Build ACL packet
         # Handle with PB=2 (first flushable)
@@ -466,8 +477,60 @@ class VHCIBridge:
         hci_acl = bytes([HCI_ACL]) + acl_pkt
         try:
             os.write(self.vhci, hci_acl)
+            self.log.info("ACL RX → BlueZ: l2cap_len=%d cid=0x%04X data=%s",
+                          l2cap_len, l2cap_cid, lldata[4:].hex())
         except Exception as e:
             self.log.error("Failed to send ACL packet: %s", e)
+
+    def _handle_ll_control(self, lldata):
+        """Handle received LL Control PDU (LLID=3) from peer.
+
+        Sniffle firmware does NOT respond to these automatically in CENTRAL mode.
+        We must respond to at least LL_VERSION_IND and LL_FEATURE_REQ so that
+        NimBLE's LL procedure completes and its ATT layer can send responses.
+        """
+        if not lldata:
+            return
+        opcode = lldata[0]
+
+        if opcode == 0x0C:  # LL_VERSION_IND
+            # Peer is asking for our version. Respond with our own LL_VERSION_IND.
+            peer_ver = lldata[1] if len(lldata) > 1 else 0
+            peer_cid = struct.unpack('<H', lldata[2:4])[0] if len(lldata) >= 4 else 0
+            self.log.info("LL_VERSION_IND from peer: VersNr=0x%02X CompId=0x%04X", peer_ver, peer_cid)
+            # LL_VERSION_IND: opcode(1) + VersNr(1) + CompId(2) + SubVersNr(2) = 6 bytes
+            rsp = bytes([0x0C, 0x09, 0x5F, 0x00, 0x00, 0x00])  # BLE 5.0, company 0x005F
+            self._send_ll_pdu(rsp)
+            self.log.info("Sent LL_VERSION_IND response")
+
+        elif opcode == 0x08:  # LL_FEATURE_REQ
+            # Central can also receive LL_FEATURE_REQ from peripheral.
+            self.log.info("LL_FEATURE_REQ from peer")
+            # LL_FEATURE_RSP: opcode(1) + FeatureSet(8) = 9 bytes
+            # Report basic LE features: Encryption, Conn Param Req, LE Data Length Extension
+            features = bytes([0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+            rsp = bytes([0x09]) + features
+            self._send_ll_pdu(rsp)
+            self.log.info("Sent LL_FEATURE_RSP")
+
+        elif opcode == 0x09:  # LL_FEATURE_RSP (response to our LL_FEATURE_REQ)
+            self.log.info("LL_FEATURE_RSP from peer: features=%s", lldata[1:9].hex() if len(lldata) >= 9 else lldata[1:].hex())
+
+        elif opcode == 0x02:  # LL_TERMINATE_IND
+            reason = lldata[1] if len(lldata) > 1 else 0x00
+            self.log.info("LL_TERMINATE_IND from peer: reason=0x%02X", reason)
+            # Connection will drop naturally via state change to STATIC/PAUSED
+
+        else:
+            self.log.debug("LL Control PDU opcode=0x%02X (ignored)", opcode)
+
+    def _send_ll_pdu(self, ll_payload):
+        """Send an LL Control PDU (LLID=3) via TRANSMIT command"""
+        event_ctr = 0
+        cmd = [SNIFFLE_TRANSMIT, event_ctr & 0xFF, (event_ctr >> 8) & 0xFF,
+               0x03, len(ll_payload)]
+        cmd.extend(ll_payload)
+        self._send_sniffle_cmd(cmd)
 
     def _handle_sniffle_state(self, body):
         """Handle state change message from Sniffle"""

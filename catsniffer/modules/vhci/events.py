@@ -128,18 +128,20 @@ def cc_read_local_supported_commands(opcode):
 
 def cc_read_local_supported_features(opcode):
     """Response for Read Local Supported Features"""
-    # 8-byte LMP features
-    # Bit 0: 3-slot packets, Bit 1: 5-slot packets
-    # Byte 4 bit 6: LE Supported
-    features = bytes([0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00])
+    # 8-byte LMP features bitmask
+    # Bit 37 (byte4 bit5) = BR/EDR Not Supported  → 0x20
+    # Bit 38 (byte4 bit6) = LE Supported          → 0x40
+    # Both set = pure LE-only controller; BlueZ will not send BR/EDR commands
+    features = bytes([0x00, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00])
     data = bytes([0x00]) + features
     return command_complete(opcode, data)
 
 
 def cc_read_buffer_size(opcode):
-    """Response for Read Buffer Size"""
-    # ACL MTU: 251, SCO MTU: 0, ACL packets: 15, SCO packets: 0
-    data = bytes([0x00]) + struct.pack('<HBHH', 251, 0, 15, 0)
+    """Response for Read Buffer Size (BR/EDR ACL/SCO buffers)"""
+    # LE-only controller: return 0 for all BR/EDR buffers.
+    # BlueZ then uses LE_Read_Buffer_Size for LE traffic instead.
+    data = bytes([0x00]) + struct.pack('<HBHH', 0, 0, 0, 0)
     return command_complete(opcode, data)
 
 

@@ -270,7 +270,8 @@ class HCICommandDispatcher:
         """Read Local Extended Features"""
         page = params[0] if len(params) >= 1 else 0
         if page == 0:
-            features = bytes([0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00])
+            # Same as Read_Local_Supported_Features: LE-only (bits 37+38)
+            features = bytes([0x00, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00])
         else:
             features = bytes(8)
         data = bytes([0x00, 0x01]) + features
@@ -365,11 +366,18 @@ class HCICommandDispatcher:
         """LE Set Advertise Enable"""
         if len(params) >= 1:
             enable = params[0]
-            if enable:
+            if self.bridge.active_conn:
+                # Don't touch Sniffle state while a connection is active —
+                # advertising while CENTRAL would flip the firmware to ADVERTISING(8)
+                self.bridge.log.info("Advertising: %s (suppressed while connected)",
+                                     "enabled" if enable else "disabled")
+            elif enable:
                 self.bridge.start_advertising()
+                self.bridge.log.info("Advertising: enabled")
             else:
                 self.bridge.stop_advertising()
-            self.bridge.log.info("Advertising: %s", "enabled" if enable else "disabled")
+                self.bridge.log.info("Advertising: disabled")
+            self.bridge.advertising = bool(enable)
         return events.command_complete(opcode, bytes([0x00]))
 
     def handle_le_set_scan_parameters(self, opcode, params):
@@ -389,11 +397,16 @@ class HCICommandDispatcher:
         if len(params) >= 2:
             enable = params[0]
             filter_dups = params[1]
-            if enable:
+            if self.bridge.active_conn:
+                # Don't touch Sniffle state while a connection is active
+                self.bridge.log.info("Scanning: %s (suppressed while connected)",
+                                     "enabled" if enable else "disabled")
+            elif enable:
                 self.bridge.start_scanning(filter_dups)
+                self.bridge.log.info("Scanning: enabled")
             else:
                 self.bridge.stop_scanning()
-            self.bridge.log.info("Scanning: %s", "enabled" if enable else "disabled")
+                self.bridge.log.info("Scanning: disabled")
         return events.command_complete(opcode, bytes([0x00]))
 
     def handle_le_create_connection(self, opcode, params):
@@ -403,8 +416,9 @@ class HCICommandDispatcher:
             initiator_filter = params[4]
             peer_addr_type = params[5]
             peer_addr = params[6:12]
+            # params[12] = Own_Address_Type (1 byte); connection params start at [13]
             conn_interval_min, conn_interval_max, conn_latency, supervision_timeout = \
-                struct.unpack('<HHHH', params[12:20])
+                struct.unpack('<HHHH', params[13:21])
 
             self.bridge.log.info("LE Create Conn to %s type=%d",
                                  peer_addr[::-1].hex(), peer_addr_type)
