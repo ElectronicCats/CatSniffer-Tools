@@ -71,6 +71,9 @@ class VHCIBridge:
         self.peer_addr = None
         self.peer_addr_type = 0
         self.last_rssi = -60  # Default RSSI
+        self._conn_established_time = 0.0
+        self._last_acl_from_bluez = 0.0   # Timestamp of last ACL packet received from BlueZ
+        self._acl_total_this_conn = 0     # Total ACL packets this connection (detects real sessions)
         
         # Connection parameters
         self.conn_interval = 0x0018  # 30ms
@@ -231,6 +234,26 @@ class VHCIBridge:
                 if self.ser.in_waiting:
                     self.ser.read(self.ser.in_waiting)
 
+            # Watchdog: force disconnect stale connections BlueZ never properly closes.
+            # Threshold adapts: short (10s) if no real session happened (bettercap
+            # abandoned after its timeout), long (60s) for interactive tools like
+            # bluetoothctl that are idle between commands.
+            if self.active_conn:
+                acl_silence = time.time() - self._last_acl_from_bluez
+                threshold = 60.0 if self._acl_total_this_conn > 5 else 10.0
+                if acl_silence > threshold:
+                    self.log.warning("Watchdog: no ACL from BlueZ for %.1fs (total=%d, threshold=%.0fs) — forcing disconnect",
+                                     acl_silence, self._acl_total_this_conn, threshold)
+                    self.active_conn = False
+                    self._send_sniffle_cmd([SNIFFLE_PAUSE_DONE, 0x01])
+                    event = events.disconnect_complete(0x00, self.conn_handle, 0x08)  # Connection timeout
+                    try:
+                        os.write(self.vhci, event)
+                    except Exception as e:
+                        self.log.error("Watchdog disconnect event failed: %s", e)
+                    if self.scanning:
+                        self.start_scanning()
+
             # Heartbeat every 1000 iterations
             heartbeat += 1
             if heartbeat % 1000 == 0:
@@ -302,6 +325,8 @@ class VHCIBridge:
         acl_data = data[4:4+data_len]
 
         self.log.debug("ACL TX: handle=0x%04X pb=%d len=%d", handle, pb_flags, data_len)
+        self._last_acl_from_bluez = time.time()
+        self._acl_total_this_conn += 1
 
         # Send to firmware via Sniffle transmit
         if self.active_conn and acl_data:
@@ -397,7 +422,8 @@ class VHCIBridge:
             self._handle_adv_packet(chan, pkt_data, pkt_len, rssi)
         else:
             # Data channel - generate ACL packet
-            self.log.info("DATA CHANNEL: chan=%d len=%d rssi=%d state=%d", chan, pkt_len, rssi, self.state)
+            log_fn = self.log.debug if pkt_len == 2 else self.log.info
+            log_fn("DATA CHANNEL: chan=%d len=%d rssi=%d state=%d", chan, pkt_len, rssi, self.state)
             self._handle_data_packet(chan, pkt_data, pkt_len, rssi)
 
     def _handle_adv_packet(self, chan, pkt_data, pkt_len, rssi):
@@ -450,6 +476,10 @@ class VHCIBridge:
         dlen = pkt_data[1]
         lldata = pkt_data[2:2+dlen] if len(pkt_data) >= 2+dlen else pkt_data[2:]
 
+        # Keepalives (llid=1, dlen=0) are very frequent — log at DEBUG only
+        if dlen == 0:
+            self.log.debug("Data packet: keepalive llid=%d chan=%d", llid, chan)
+            return
         self.log.info("Data packet: llid=%d dlen=%d data=%s", llid, dlen, lldata[:8].hex())
 
         # LLID=3 is an LL Control PDU — Sniffle firmware does NOT auto-respond to them.
@@ -570,6 +600,9 @@ class VHCIBridge:
         if new_state in (STATE_CENTRAL, STATE_PERIPHERAL):
             # Connection established
             self.active_conn = True
+            self._conn_established_time = time.time()
+            self._last_acl_from_bluez = time.time()  # Grace period starts now
+            self._acl_total_this_conn = 0
             role = 0x00 if new_state == STATE_CENTRAL else 0x01
 
             self.log.info("Connection established! Role=%d, Peer=%s", 
@@ -729,7 +762,7 @@ class VHCIBridge:
         # Flush old packets: send marker and wait for it to echo back (like mark_and_flush)
         marker_val = struct.pack('<I', randint(0, 0xFFFFFFFF))
         self._send_sniffle_cmd([SNIFFLE_MARKER] + list(marker_val))
-        flush_deadline = time.time() + 2.0
+        flush_deadline = time.time() + 0.5
         while time.time() < flush_deadline:
             if self.ser.in_waiting:
                 self.rx_buf += self.ser.read(self.ser.in_waiting)
