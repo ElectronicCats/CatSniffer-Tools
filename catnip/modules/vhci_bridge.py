@@ -38,9 +38,12 @@ def find_catsniffer():
     """Auto-detect CatSniffer serial port"""
     # CatSniffer v3: VID=0x2E8A (Raspberry Pi), PID=0x00C0
     catsniffer_ports = [
-        i[0] for i in comports()
-        if i.vid == 0x2E8A and i.pid == 0x00C0 and
-        i.manufacturer and 'arduino' in i.manufacturer.lower()
+        i[0]
+        for i in comports()
+        if i.vid == 0x2E8A
+        and i.pid == 0x00C0
+        and i.manufacturer
+        and "arduino" in i.manufacturer.lower()
     ]
 
     if catsniffer_ports:
@@ -59,17 +62,17 @@ def setup_logging(verbose=False):
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=level,
-        format='%(message)s',
-        handlers=[RichHandler(console=console, show_time=False)]
+        format="%(message)s",
+        handlers=[RichHandler(console=console, show_time=False)],
     )
-    return logging.getLogger('vhci')
+    return logging.getLogger("vhci")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='CatSniffer VHCI Bridge - Expose CatSniffer as hciX device',
+        description="CatSniffer VHCI Bridge - Expose CatSniffer as hciX device",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''
+        epilog="""
 Examples:
     sudo python3 vhci_bridge.py -p /dev/ttyACM0
     sudo python3 vhci_bridge.py --auto
@@ -79,23 +82,25 @@ After starting, use standard tools:
     hciconfig -a           # Show device info
     hcitool -i hci1 lescan # Scan for devices
     gatttool -i hci1 -b <MAC> -I  # GATT operations
-        '''
+        """,
     )
 
-    parser.add_argument('-p', '--port',
-                        help='Serial port (e.g., /dev/ttyACM0)')
-    parser.add_argument('--auto', action='store_true',
-                        help='Auto-detect CatSniffer')
-    parser.add_argument('-v', '--verbose', action='store_true',
-                        help='Enable verbose logging')
-    parser.add_argument('--baud', type=int, default=2000000,
-                        help='Baud rate (default: 2000000)')
+    parser.add_argument("-p", "--port", help="Serial port (e.g., /dev/ttyACM0)")
+    parser.add_argument("--auto", action="store_true", help="Auto-detect CatSniffer")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging"
+    )
+    parser.add_argument(
+        "--baud", type=int, default=2000000, help="Baud rate (default: 2000000)"
+    )
 
     args = parser.parse_args()
 
     # Check root
     if os.geteuid() != 0:
-        console.print("[yellow]Warning: Root privileges required for VHCI access[/yellow]")
+        console.print(
+            "[yellow]Warning: Root privileges required for VHCI access[/yellow]"
+        )
         console.print("[yellow]Run with sudo[/yellow]")
 
     # Find port
@@ -146,5 +151,5 @@ After starting, use standard tools:
         bridge.stop()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

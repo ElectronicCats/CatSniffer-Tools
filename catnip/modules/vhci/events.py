@@ -6,47 +6,72 @@ import struct
 from .constants import *
 
 
-def command_complete(opcode, data=b''):
+def command_complete(opcode, data=b""):
     """Generate Command Complete event"""
     # Event header: type, code, length
     # Payload: num_hci_packets (1), opcode (2), return_params
-    payload = bytes([1]) + struct.pack('<H', opcode) + data
+    payload = bytes([1]) + struct.pack("<H", opcode) + data
     return bytes([HCI_EVT, EVT_CMD_COMPLETE, len(payload)]) + payload
 
 
 def command_status(opcode, status=0x00):
     """Generate Command Status event"""
     # Status, num_hci_packets, opcode
-    payload = bytes([status, 1]) + struct.pack('<H', opcode)
+    payload = bytes([status, 1]) + struct.pack("<H", opcode)
     return bytes([HCI_EVT, EVT_CMD_STATUS, len(payload)]) + payload
 
 
-def le_meta_event(subevent, data=b''):
+def le_meta_event(subevent, data=b""):
     """Generate LE Meta event"""
     payload = bytes([subevent]) + data
     return bytes([HCI_EVT, EVT_LE_META, len(payload)]) + payload
 
 
-def le_connection_complete(status=0x00, handle=0x0000, role=0x00,
-                           peer_addr_type=0x00, peer_addr=b'\x00'*6,
-                           interval=0x0018, latency=0x0000, timeout=0x01F4,
-                           mca=0x00):
+def le_connection_complete(
+    status=0x00,
+    handle=0x0000,
+    role=0x00,
+    peer_addr_type=0x00,
+    peer_addr=b"\x00" * 6,
+    interval=0x0018,
+    latency=0x0000,
+    timeout=0x01F4,
+    mca=0x00,
+):
     """Generate LE Connection Complete event"""
-    data = bytes([
-        status,
-    ]) + struct.pack('<H', handle) + bytes([
-        role,
-        peer_addr_type,
-    ]) + peer_addr + struct.pack('<HHH', interval, latency, timeout) + bytes([mca])
+    data = (
+        bytes(
+            [
+                status,
+            ]
+        )
+        + struct.pack("<H", handle)
+        + bytes(
+            [
+                role,
+                peer_addr_type,
+            ]
+        )
+        + peer_addr
+        + struct.pack("<HHH", interval, latency, timeout)
+        + bytes([mca])
+    )
     return le_meta_event(LE_CONN_COMPLETE, data)
 
 
-def le_advertising_report(event_type=0x00, addr_type=0x00, addr=b'\x00'*6,
-                          data=b'', rssi=-60):
+def le_advertising_report(
+    event_type=0x00, addr_type=0x00, addr=b"\x00" * 6, data=b"", rssi=-60
+):
     """Generate LE Advertising Report event"""
     # num_reports, event_type, addr_type, addr, data_len, data, rssi
     rssi_byte = rssi if rssi >= 0 else (256 + rssi)
-    report = bytes([1, event_type, addr_type]) + addr + bytes([len(data)]) + data + bytes([rssi_byte])
+    report = (
+        bytes([1, event_type, addr_type])
+        + addr
+        + bytes([len(data)])
+        + data
+        + bytes([rssi_byte])
+    )
     return le_meta_event(LE_ADV_REPORT, report)
 
 
@@ -55,13 +80,13 @@ def le_read_remote_features_complete(handle, features=None):
     if features is None:
         # Encryption, conn param request, extended reject, LE ping, data length extension
         features = bytes([0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
-    data = bytes([0x00]) + struct.pack('<H', handle) + features
+    data = bytes([0x00]) + struct.pack("<H", handle) + features
     return le_meta_event(0x04, data)
 
 
 def disconnect_complete(status=0x00, handle=0x0000, reason=0x13):
     """Generate Disconnect Complete event"""
-    payload = bytes([status]) + struct.pack('<H', handle) + bytes([reason])
+    payload = bytes([status]) + struct.pack("<H", handle) + bytes([reason])
     return bytes([HCI_EVT, EVT_DISCONN_COMPLETE, len(payload)]) + payload
 
 
@@ -72,23 +97,31 @@ def number_of_completed_packets(handles_and_counts):
     num_handles = len(handles_and_counts)
     payload = bytes([num_handles])
     for handle, count in handles_and_counts:
-        payload += struct.pack('<HH', handle, count)
+        payload += struct.pack("<HH", handle, count)
     return bytes([HCI_EVT, EVT_NUM_COMPLETED_PACKETS, len(payload)]) + payload
 
 
 # Pre-built responses for common commands
 
+
 def cc_read_local_version(opcode):
     """Response for Read Local Version Information"""
-    # Response format: status(1) + hci_version(1) + hci_revision(2) + 
+    # Response format: status(1) + hci_version(1) + hci_revision(2) +
     #                  lmp_version(1) + manufacturer(2) + lmp_subversion(2)
     # Total: 9 bytes
-    data = bytes([0x00,        # status
-                  0x09,        # HCI version 4.2
-                  0x06, 0x00,  # HCI revision
-                  0x08,        # LMP version 4.2
-                  0x5F, 0x00,  # manufacturer
-                  0x00, 0x00]) # subversion
+    data = bytes(
+        [
+            0x00,  # status
+            0x09,  # HCI version 4.2
+            0x06,
+            0x00,  # HCI revision
+            0x08,  # LMP version 4.2
+            0x5F,
+            0x00,  # manufacturer
+            0x00,
+            0x00,
+        ]
+    )  # subversion
     return command_complete(opcode, data)
 
 
@@ -105,7 +138,9 @@ def cc_read_local_supported_commands(opcode):
     commands[2] |= 0x08  # Reset
 
     # Informational
-    commands[4] |= 0x01 | 0x02 | 0x04 | 0x08 | 0x80  # Read Local Version/Commands/Features/BD_ADDR/Buffer
+    commands[4] |= (
+        0x01 | 0x02 | 0x04 | 0x08 | 0x80
+    )  # Read Local Version/Commands/Features/BD_ADDR/Buffer
     commands[5] |= 0x02  # Read Data Block Size
 
     # LE (starting at byte 25)
@@ -141,7 +176,7 @@ def cc_read_buffer_size(opcode):
     """Response for Read Buffer Size (BR/EDR ACL/SCO buffers)"""
     # LE-only controller: return 0 for all BR/EDR buffers.
     # BlueZ then uses LE_Read_Buffer_Size for LE traffic instead.
-    data = bytes([0x00]) + struct.pack('<HBHH', 0, 0, 0, 0)
+    data = bytes([0x00]) + struct.pack("<HBHH", 0, 0, 0, 0)
     return command_complete(opcode, data)
 
 
@@ -151,10 +186,10 @@ def cc_read_bd_addr(opcode, addr):
     return command_complete(opcode, data)
 
 
-def cc_read_local_name(opcode, name=b'CatSniffer'):
+def cc_read_local_name(opcode, name=b"CatSniffer"):
     """Response for Read Local Name"""
     # 248 bytes, null-terminated
-    name_data = name + b'\x00' * (248 - len(name))
+    name_data = name + b"\x00" * (248 - len(name))
     data = bytes([0x00]) + name_data
     return command_complete(opcode, data)
 
@@ -162,7 +197,7 @@ def cc_read_local_name(opcode, name=b'CatSniffer'):
 def cc_le_read_buffer_size(opcode):
     """Response for LE Read Buffer Size"""
     # ACL MTU: 251, packets: 15
-    data = bytes([0x00]) + struct.pack('<HB', 251, 15)
+    data = bytes([0x00]) + struct.pack("<HB", 251, 15)
     return command_complete(opcode, data)
 
 
@@ -195,12 +230,12 @@ def cc_le_read_supported_states(opcode):
 def cc_le_read_max_data_length(opcode):
     """Response for LE Read Maximum Data Length"""
     # Max TX octets/time, Max RX octets/time
-    data = bytes([0x00]) + struct.pack('<HHHH', 251, 2120, 251, 2120)
+    data = bytes([0x00]) + struct.pack("<HHHH", 251, 2120, 251, 2120)
     return command_complete(opcode, data)
 
 
 def cc_le_read_suggested_default_data_length(opcode):
     """Response for LE Read Suggested Default Data Length"""
     # Suggested TX octets/time
-    data = bytes([0x00]) + struct.pack('<HH', 27, 328)
+    data = bytes([0x00]) + struct.pack("<HH", 27, 328)
     return command_complete(opcode, data)

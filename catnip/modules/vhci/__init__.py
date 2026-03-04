@@ -7,4 +7,4 @@ from .commands import HCICommandDispatcher
 from . import events
 from . import constants
 
-__all__ = ['VHCIBridge', 'HCICommandDispatcher', 'events', 'constants']
+__all__ = ["VHCIBridge", "HCICommandDispatcher", "events", "constants"]

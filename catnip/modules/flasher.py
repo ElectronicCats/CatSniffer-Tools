@@ -40,7 +40,7 @@ RELEASE_FOLDER_NAME = "release"
 RELEASE_METADATA_NAME = "releases.json"
 DESCRIPTIONS_FILE_NAME = "descriptions.json"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-if getattr(sys, 'frozen', False):
+if getattr(sys, "frozen", False):
     # Running as PyInstaller binary — store release folder next to the executable
     ROOT_DIR = os.path.dirname(sys.executable)
 else:

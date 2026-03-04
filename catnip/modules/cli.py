@@ -73,6 +73,7 @@ _FUNNY_PHRASES = [
 ]
 
 import random as _random
+
 FUNNY_PHRASE = _random.choice(_FUNNY_PHRASES)
 
 # Defining styles for reuse
@@ -1679,7 +1680,9 @@ def vhci_check():
     if os.geteuid() == 0:
         console.print("[green]  root         : OK[/green]")
     else:
-        console.print("[yellow]  root         : NOT root — bridge will fail to open /dev/vhci[/yellow]")
+        console.print(
+            "[yellow]  root         : NOT root — bridge will fail to open /dev/vhci[/yellow]"
+        )
         all_ok = False
 
     # Kernel module
@@ -1688,7 +1691,9 @@ def vhci_check():
         if "hci_vhci" in result.stdout:
             console.print("[green]  hci_vhci     : loaded[/green]")
         else:
-            console.print("[yellow]  hci_vhci     : NOT loaded — run: sudo modprobe hci_vhci[/yellow]")
+            console.print(
+                "[yellow]  hci_vhci     : NOT loaded — run: sudo modprobe hci_vhci[/yellow]"
+            )
             all_ok = False
     except Exception:
         console.print("[red]  hci_vhci     : could not run lsmod[/red]")
@@ -1698,7 +1703,9 @@ def vhci_check():
     if os.path.exists("/dev/vhci"):
         console.print("[green]  /dev/vhci    : exists[/green]")
     else:
-        console.print("[yellow]  /dev/vhci    : missing — run: sudo modprobe hci_vhci[/yellow]")
+        console.print(
+            "[yellow]  /dev/vhci    : missing — run: sudo modprobe hci_vhci[/yellow]"
+        )
         all_ok = False
 
     # BlueZ (bluetoothctl)
@@ -1716,16 +1723,21 @@ def vhci_check():
         _sp.run(["btmon", "--version"], capture_output=True, timeout=3)
         console.print("[green]  btmon        : found[/green]")
     except FileNotFoundError:
-        console.print("[dim]  btmon        : not found (optional — install bluez-utils)[/dim]")
+        console.print(
+            "[dim]  btmon        : not found (optional — install bluez-utils)[/dim]"
+        )
     except Exception:
         pass
 
     # bleak (Python)
     try:
         import bleak  # noqa: F401
+
         console.print("[green]  bleak        : installed[/green]")
     except ImportError:
-        console.print("[dim]  bleak        : not installed (optional — pip install bleak)[/dim]")
+        console.print(
+            "[dim]  bleak        : not installed (optional — pip install bleak)[/dim]"
+        )
 
     # CatSniffer device
     devs = catnip_get_devices()
@@ -1854,15 +1866,20 @@ def completion_install(shell):
     env_var = "_CATNIP_COMPLETE"
 
     if shell == "bash":
-        target = Path.home() / ".local" / "share" / "bash-completion" / "completions" / "catnip"
+        target = (
+            Path.home()
+            / ".local"
+            / "share"
+            / "bash-completion"
+            / "completions"
+            / "catnip"
+        )
         source_flag = "bash_source"
         rc_note = None
     elif shell == "zsh":
         target = Path.home() / ".zfunc" / "_catnip"
         source_flag = "zsh_source"
-        rc_note = (
-            "fpath=(~/.zfunc $fpath)\nautoload -Uz compinit && compinit"
-        )
+        rc_note = "fpath=(~/.zfunc $fpath)\nautoload -Uz compinit && compinit"
     elif shell == "fish":
         target = Path.home() / ".config" / "fish" / "completions" / "catnip.fish"
         source_flag = "fish_source"
@@ -1900,7 +1917,9 @@ def completion_install(shell):
                 f.write(f"\n# catnip tab completion\n{rc_note}\n")
             print_success(f"Added fpath entry to {zshrc}")
         else:
-            console.print(f"[dim]  ~/.zfunc already in fpath — skipping .zshrc edit[/dim]")
+            console.print(
+                f"[dim]  ~/.zfunc already in fpath — skipping .zshrc edit[/dim]"
+            )
 
     console.print("")
     if shell == "bash":
@@ -1915,9 +1934,7 @@ def completion_install(shell):
 
 def main_cli() -> None:
     if not os.environ.get("_CATNIP_COMPLETE"):
-        module = next(
-            (a for a in sys.argv[1:] if not a.startswith("-")), None
-        )
+        module = next((a for a in sys.argv[1:] if not a.startswith("-")), None)
         print_header(module)
     cli.add_command(sniff)
     cli.add_command(cativity)

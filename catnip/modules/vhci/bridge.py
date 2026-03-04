@@ -44,13 +44,13 @@ class VHCIBridge:
     """Bridge between Linux VHCI and Sniffle firmware"""
 
     def __init__(self, serport, logger=None):
-        self.logger = logger or logging.getLogger('vhci')
+        self.logger = logger or logging.getLogger("vhci")
         self.log = self.logger
 
         # Serial port
         self.serport = serport
         self.ser = None
-        self.rx_buf = b''
+        self.rx_buf = b""
 
         # VHCI
         self.vhci = None
@@ -62,7 +62,7 @@ class VHCIBridge:
 
         # Controller info
         self.bd_addr = bytes([0xC0, 0xFF, 0xEE, 0xC0, 0xFF, 0xEE])  # Random static
-        self.local_name = b'CatSniffer'
+        self.local_name = b"CatSniffer"
         self.conn_accept_timeout = 0x7D00  # 32000 slots = 20 seconds
 
         # Connection state
@@ -72,23 +72,29 @@ class VHCIBridge:
         self.peer_addr_type = 0
         self.last_rssi = -60  # Default RSSI
         self._conn_established_time = 0.0
-        self._last_acl_from_bluez = 0.0   # Timestamp of last ACL packet received from BlueZ
-        self._acl_total_this_conn = 0     # Total ACL packets this connection (detects real sessions)
-        
+        self._last_acl_from_bluez = (
+            0.0  # Timestamp of last ACL packet received from BlueZ
+        )
+        self._acl_total_this_conn = (
+            0  # Total ACL packets this connection (detects real sessions)
+        )
+
         # Connection parameters
         self.conn_interval = 0x0018  # 30ms
         self.conn_latency = 0x0000
-        self.conn_timeout = 0x01F4   # 5000ms = 5s
-        
+        self.conn_timeout = 0x01F4  # 5000ms = 5s
+
         # Channel map (all channels enabled)
         self.channel_map = bytes([0xFF, 0xFF, 0x1F, 0x00, 0x00])  # 37 channels
-        
+
         # White list
         self.white_list = []  # List of (addr_type, addr) tuples
         self.white_list_max = 16
-        
+
         # Resolving list (for privacy)
-        self.resolving_list = []  # List of (peer_irk, peer_addr_type, peer_addr, local_irk)
+        self.resolving_list = (
+            []
+        )  # List of (peer_irk, peer_addr_type, peer_addr, local_irk)
         self.resolving_list_max = 16
         self.address_resolution_enabled = False
 
@@ -102,8 +108,8 @@ class VHCIBridge:
         self.advertising = False
         self.adv_type = 0  # ADV_IND
         self.adv_interval = 0x00A0  # 100 ms
-        self.adv_data = b''
-        self.scan_rsp_data = b''
+        self.adv_data = b""
+        self.scan_rsp_data = b""
 
         # Event masks
         self.event_mask = bytes([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x3F])
@@ -137,26 +143,28 @@ class VHCIBridge:
         # Sync with firmware - send markers and flush
         self.log.info("Syncing with firmware...")
         try:
-            self.ser.write(b'@@@@@@@@\r\n')
+            self.ser.write(b"@@@@@@@@\r\n")
             self.ser.flush()
             time.sleep(0.1)
             self.ser.reset_input_buffer()
         except Exception as e:
             self.log.warning("Sync warning: %s", e)
-        self.rx_buf = b''
+        self.rx_buf = b""
 
         # Verify firmware is responding before reset
         self.log.info("Checking firmware response...")
-        marker = struct.pack('<I', 0xDEADBEEF)
+        marker = struct.pack("<I", 0xDEADBEEF)
         self.ser.write(b64encode(bytes([5, 0x18]) + marker) + b"\r\n")
         self.ser.flush()
         time.sleep(0.5)
-        
+
         if self.ser.in_waiting == 0:
             self.log.error("CatSniffer not responding! Is it in bootloader mode?")
             self.log.error("Check: ls -la /dev/ttyACM*")
-            raise RuntimeError("CatSniffer firmware not responding - device may be in bootloader mode")
-        
+            raise RuntimeError(
+                "CatSniffer firmware not responding - device may be in bootloader mode"
+            )
+
         self.ser.reset_input_buffer()
 
         # Reset firmware
@@ -167,14 +175,14 @@ class VHCIBridge:
             self.ser.reset_input_buffer()
         except Exception as e:
             self.log.warning("Reset warning: %s", e)
-        self.rx_buf = b''
+        self.rx_buf = b""
 
         # Set serial to non-blocking
         self.ser.timeout = 0
 
         # Open VHCI device
         self.log.info("Opening VHCI device...")
-        self.vhci = os.open('/dev/vhci', os.O_RDWR)
+        self.vhci = os.open("/dev/vhci", os.O_RDWR)
 
         # Create VHCI controller
         # HCI_VENDOR_PKT (0xFF) + HCI_PRIMARY (0)
@@ -186,7 +194,9 @@ class VHCIBridge:
         readable, _, _ = select.select([self.vhci], [], [], 2.0)
         if readable:
             rsp = os.read(self.vhci, 260)
-            self.log.info("VHCI response: %s (len=%d)", rsp.hex() if rsp else "empty", len(rsp))
+            self.log.info(
+                "VHCI response: %s (len=%d)", rsp.hex() if rsp else "empty", len(rsp)
+            )
             if len(rsp) >= 4:
                 self.hci_index = rsp[2] | (rsp[3] << 8)
                 self.log.info("Created hci%d", self.hci_index)
@@ -242,11 +252,17 @@ class VHCIBridge:
                 acl_silence = time.time() - self._last_acl_from_bluez
                 threshold = 60.0 if self._acl_total_this_conn > 5 else 10.0
                 if acl_silence > threshold:
-                    self.log.warning("Watchdog: no ACL from BlueZ for %.1fs (total=%d, threshold=%.0fs) — forcing disconnect",
-                                     acl_silence, self._acl_total_this_conn, threshold)
+                    self.log.warning(
+                        "Watchdog: no ACL from BlueZ for %.1fs (total=%d, threshold=%.0fs) — forcing disconnect",
+                        acl_silence,
+                        self._acl_total_this_conn,
+                        threshold,
+                    )
                     self.active_conn = False
                     self._send_sniffle_cmd([SNIFFLE_PAUSE_DONE, 0x01])
-                    event = events.disconnect_complete(0x00, self.conn_handle, 0x08)  # Connection timeout
+                    event = events.disconnect_complete(
+                        0x00, self.conn_handle, 0x08
+                    )  # Connection timeout
                     try:
                         os.write(self.vhci, event)
                     except Exception as e:
@@ -257,7 +273,9 @@ class VHCIBridge:
             # Heartbeat every 1000 iterations
             heartbeat += 1
             if heartbeat % 1000 == 0:
-                self.log.debug("Heartbeat: state=%d rx_buf=%d", self.state, len(self.rx_buf))
+                self.log.debug(
+                    "Heartbeat: state=%d rx_buf=%d", self.state, len(self.rx_buf)
+                )
 
             # Small sleep to avoid busy loop
             time.sleep(0.001)
@@ -297,11 +315,13 @@ class VHCIBridge:
         if len(data) < 3:
             return
 
-        opcode = struct.unpack('<H', data[0:2])[0]
+        opcode = struct.unpack("<H", data[0:2])[0]
         param_len = data[2]
-        params = data[3:3+param_len] if param_len > 0 else b''
+        params = data[3 : 3 + param_len] if param_len > 0 else b""
 
-        self.log.info("HCI CMD: opcode=0x%04X len=%d params=%s", opcode, param_len, params.hex())
+        self.log.info(
+            "HCI CMD: opcode=0x%04X len=%d params=%s", opcode, param_len, params.hex()
+        )
 
         # Dispatch to handler
         response = self.dispatcher.dispatch(opcode, params)
@@ -318,11 +338,11 @@ class VHCIBridge:
         if len(data) < 4:
             return
 
-        handle_flags = struct.unpack('<H', data[0:2])[0]
+        handle_flags = struct.unpack("<H", data[0:2])[0]
         handle = handle_flags & 0x0FFF
         pb_flags = (handle_flags >> 12) & 0x03
-        data_len = struct.unpack('<H', data[2:4])[0]
-        acl_data = data[4:4+data_len]
+        data_len = struct.unpack("<H", data[2:4])[0]
+        acl_data = data[4 : 4 + data_len]
 
         self.log.debug("ACL TX: handle=0x%04X pb=%d len=%d", handle, pb_flags, data_len)
         self._last_acl_from_bluez = time.time()
@@ -339,7 +359,13 @@ class VHCIBridge:
         pdu_len = len(acl_data)
         event_ctr = 0
 
-        cmd = [SNIFFLE_TRANSMIT, event_ctr & 0xFF, (event_ctr >> 8) & 0xFF, llid, pdu_len]
+        cmd = [
+            SNIFFLE_TRANSMIT,
+            event_ctr & 0xFF,
+            (event_ctr >> 8) & 0xFF,
+            llid,
+            pdu_len,
+        ]
         cmd.extend(acl_data)
         self._send_sniffle_cmd(cmd)
 
@@ -358,7 +384,11 @@ class VHCIBridge:
                 self.rx_buf += data
                 now = time.time()
                 if now - self._last_rx_log > 1.0:
-                    self.log.debug("Serial RX: %d bytes, buffer: %d bytes", len(data), len(self.rx_buf))
+                    self.log.debug(
+                        "Serial RX: %d bytes, buffer: %d bytes",
+                        len(data),
+                        len(self.rx_buf),
+                    )
                     self._last_rx_log = now
         except Exception:
             pass
@@ -373,7 +403,9 @@ class VHCIBridge:
             elif msg_type == SNIFFLE_MSG_STATE:
                 self._handle_sniffle_state(msg_body)
             elif msg_type == SNIFFLE_MSG_DEBUG:
-                self.log.debug("Sniffle debug: %s", msg_body.decode('latin-1', errors='replace'))
+                self.log.debug(
+                    "Sniffle debug: %s", msg_body.decode("latin-1", errors="replace")
+                )
 
     def _recv_sniffle_msg(self):
         """Receive and decode a Sniffle message"""
@@ -382,12 +414,12 @@ class VHCIBridge:
             return None, None
 
         # Find CRLF
-        pos = self.rx_buf.find(b'\r\n')
+        pos = self.rx_buf.find(b"\r\n")
         if pos < 0:
             return None, None
 
         line = self.rx_buf[:pos]
-        self.rx_buf = self.rx_buf[pos+2:]
+        self.rx_buf = self.rx_buf[pos + 2 :]
 
         if not line:
             return None, None
@@ -413,7 +445,7 @@ class VHCIBridge:
         chan = cp & 0x3F
         pkt_data = body[10:]
         self.log.debug("Packet: chan=%d len=%d rssi=%d", chan, pkt_len, rssi)
-        
+
         # Store last RSSI
         self.last_rssi = rssi
 
@@ -423,7 +455,13 @@ class VHCIBridge:
         else:
             # Data channel - generate ACL packet
             log_fn = self.log.debug if pkt_len == 2 else self.log.info
-            log_fn("DATA CHANNEL: chan=%d len=%d rssi=%d state=%d", chan, pkt_len, rssi, self.state)
+            log_fn(
+                "DATA CHANNEL: chan=%d len=%d rssi=%d state=%d",
+                chan,
+                pkt_len,
+                rssi,
+                self.state,
+            )
             self._handle_data_packet(chan, pkt_data, pkt_len, rssi)
 
     def _handle_adv_packet(self, chan, pkt_data, pkt_len, rssi):
@@ -438,7 +476,7 @@ class VHCIBridge:
         # Extract address
         if len(pkt_data) >= 8:
             adv_addr = pkt_data[2:8]
-            adv_data = pkt_data[8:pkt_len] if pkt_len > 8 else b''
+            adv_data = pkt_data[8:pkt_len] if pkt_len > 8 else b""
 
             # Map PDU type to event type
             evt_type_map = {
@@ -458,12 +496,14 @@ class VHCIBridge:
                 addr_type=tx_addr,
                 addr=adv_addr,
                 data=adv_data,
-                rssi=rssi
+                rssi=rssi,
             )
 
             try:
                 os.write(self.vhci, event)
-                self.log.debug("Sent adv report: addr=%s type=%d", adv_addr[::-1].hex(), evt_type)
+                self.log.debug(
+                    "Sent adv report: addr=%s type=%d", adv_addr[::-1].hex(), evt_type
+                )
             except Exception as e:
                 self.log.error("Failed to send adv report: %s", e)
 
@@ -474,13 +514,15 @@ class VHCIBridge:
 
         llid = pkt_data[0] & 0x03
         dlen = pkt_data[1]
-        lldata = pkt_data[2:2+dlen] if len(pkt_data) >= 2+dlen else pkt_data[2:]
+        lldata = pkt_data[2 : 2 + dlen] if len(pkt_data) >= 2 + dlen else pkt_data[2:]
 
         # Keepalives (llid=1, dlen=0) are very frequent — log at DEBUG only
         if dlen == 0:
             self.log.debug("Data packet: keepalive llid=%d chan=%d", llid, chan)
             return
-        self.log.info("Data packet: llid=%d dlen=%d data=%s", llid, dlen, lldata[:8].hex())
+        self.log.info(
+            "Data packet: llid=%d dlen=%d data=%s", llid, dlen, lldata[:8].hex()
+        )
 
         # LLID=3 is an LL Control PDU — Sniffle firmware does NOT auto-respond to them.
         # We must respond to certain procedures so the peer's ATT stack is not stalled.
@@ -492,11 +534,13 @@ class VHCIBridge:
         if llid == 0x01:
             if dlen > 0 and lldata:
                 acl_handle = (self.conn_handle & 0x0FFF) | (0x01 << 12)
-                acl_pkt = struct.pack('<HH', acl_handle, len(lldata)) + lldata
+                acl_pkt = struct.pack("<HH", acl_handle, len(lldata)) + lldata
                 hci_acl = bytes([HCI_ACL]) + acl_pkt
                 try:
                     os.write(self.vhci, hci_acl)
-                    self.log.info("ACL CONT → BlueZ: len=%d data=%s", len(lldata), lldata.hex())
+                    self.log.info(
+                        "ACL CONT → BlueZ: len=%d data=%s", len(lldata), lldata.hex()
+                    )
                 except Exception as e:
                     self.log.error("Failed to send ACL continuation: %s", e)
             return
@@ -507,20 +551,24 @@ class VHCIBridge:
 
         # Build L2CAP header
         if len(lldata) >= 4:
-            l2cap_len, l2cap_cid = struct.unpack('<HH', lldata[:4])
+            l2cap_len, l2cap_cid = struct.unpack("<HH", lldata[:4])
             acl_data = lldata
         else:
             return
 
         # Build ACL packet
-        acl_pkt = struct.pack('<HH', acl_handle, len(acl_data)) + acl_data
+        acl_pkt = struct.pack("<HH", acl_handle, len(acl_data)) + acl_data
 
         # Send to VHCI
         hci_acl = bytes([HCI_ACL]) + acl_pkt
         try:
             os.write(self.vhci, hci_acl)
-            self.log.info("ACL RX → BlueZ: l2cap_len=%d cid=0x%04X data=%s",
-                          l2cap_len, l2cap_cid, lldata[4:].hex())
+            self.log.info(
+                "ACL RX → BlueZ: l2cap_len=%d cid=0x%04X data=%s",
+                l2cap_len,
+                l2cap_cid,
+                lldata[4:].hex(),
+            )
         except Exception as e:
             self.log.error("Failed to send ACL packet: %s", e)
 
@@ -538,8 +586,12 @@ class VHCIBridge:
         if opcode == 0x0C:  # LL_VERSION_IND
             # Peer is asking for our version. Respond with our own LL_VERSION_IND.
             peer_ver = lldata[1] if len(lldata) > 1 else 0
-            peer_cid = struct.unpack('<H', lldata[2:4])[0] if len(lldata) >= 4 else 0
-            self.log.info("LL_VERSION_IND from peer: VersNr=0x%02X CompId=0x%04X", peer_ver, peer_cid)
+            peer_cid = struct.unpack("<H", lldata[2:4])[0] if len(lldata) >= 4 else 0
+            self.log.info(
+                "LL_VERSION_IND from peer: VersNr=0x%02X CompId=0x%04X",
+                peer_ver,
+                peer_cid,
+            )
             # LL_VERSION_IND: opcode(1) + VersNr(1) + CompId(2) + SubVersNr(2) = 6 bytes
             rsp = bytes([0x0C, 0x09, 0x5F, 0x00, 0x00, 0x00])  # BLE 5.0, company 0x005F
             self._send_ll_pdu(rsp)
@@ -556,9 +608,14 @@ class VHCIBridge:
             self.log.info("Sent LL_FEATURE_RSP")
 
         elif opcode == 0x09:  # LL_FEATURE_RSP (response to our LL_FEATURE_REQ)
-            self.log.info("LL_FEATURE_RSP from peer: features=%s", lldata[1:9].hex() if len(lldata) >= 9 else lldata[1:].hex())
+            self.log.info(
+                "LL_FEATURE_RSP from peer: features=%s",
+                lldata[1:9].hex() if len(lldata) >= 9 else lldata[1:].hex(),
+            )
 
-        elif opcode == 0x0E:  # LL_SLAVE_FEATURE_REQ (peripheral requesting central's features)
+        elif (
+            opcode == 0x0E
+        ):  # LL_SLAVE_FEATURE_REQ (peripheral requesting central's features)
             self.log.info("LL_SLAVE_FEATURE_REQ from peer")
             features = bytes([0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
             rsp = bytes([0x09]) + features  # LL_FEATURE_RSP
@@ -568,7 +625,7 @@ class VHCIBridge:
         elif opcode == 0x14:  # LL_LENGTH_REQ (data length extension)
             self.log.info("LL_LENGTH_REQ from peer")
             # LL_LENGTH_RSP: opcode(1) + MaxRxOctets(2) + MaxRxTime(2) + MaxTxOctets(2) + MaxTxTime(2)
-            rsp = bytes([0x15]) + struct.pack('<HHHH', 251, 2120, 251, 2120)
+            rsp = bytes([0x15]) + struct.pack("<HHHH", 251, 2120, 251, 2120)
             self._send_ll_pdu(rsp)
             self.log.info("Sent LL_LENGTH_RSP")
 
@@ -583,8 +640,13 @@ class VHCIBridge:
     def _send_ll_pdu(self, ll_payload):
         """Send an LL Control PDU (LLID=3) via TRANSMIT command"""
         event_ctr = 0
-        cmd = [SNIFFLE_TRANSMIT, event_ctr & 0xFF, (event_ctr >> 8) & 0xFF,
-               0x03, len(ll_payload)]
+        cmd = [
+            SNIFFLE_TRANSMIT,
+            event_ctr & 0xFF,
+            (event_ctr >> 8) & 0xFF,
+            0x03,
+            len(ll_payload),
+        ]
         cmd.extend(ll_payload)
         self._send_sniffle_cmd(cmd)
 
@@ -605,8 +667,11 @@ class VHCIBridge:
             self._acl_total_this_conn = 0
             role = 0x00 if new_state == STATE_CENTRAL else 0x01
 
-            self.log.info("Connection established! Role=%d, Peer=%s", 
-                          role, (self.peer_addr or b'\x00'*6)[::-1].hex())
+            self.log.info(
+                "Connection established! Role=%d, Peer=%s",
+                role,
+                (self.peer_addr or b"\x00" * 6)[::-1].hex(),
+            )
 
             # Generate LE Connection Complete event
             event = events.le_connection_complete(
@@ -614,10 +679,10 @@ class VHCIBridge:
                 handle=self.conn_handle,
                 role=role,
                 peer_addr_type=self.peer_addr_type,
-                peer_addr=self.peer_addr or b'\x00'*6,
+                peer_addr=self.peer_addr or b"\x00" * 6,
                 interval=0x0018,
                 latency=0x0000,
-                timeout=0x01F4
+                timeout=0x01F4,
             )
 
             self.log.debug("Sending Connection Complete event: %s", event.hex())
@@ -638,7 +703,7 @@ class VHCIBridge:
             event = events.disconnect_complete(
                 status=0x00,
                 handle=self.conn_handle,
-                reason=0x13  # Remote user terminated
+                reason=0x13,  # Remote user terminated
             )
 
             self.log.debug("Sending Disconnect Complete event: %s", event.hex())
@@ -661,8 +726,12 @@ class VHCIBridge:
         """Send command to Sniffle firmware"""
         b0 = (len(cmd_bytes) + 3) // 3
         opcode = cmd_bytes[0] if cmd_bytes else 0
-        self.log.info("CMD: %s (%s)", _SNIFFLE_CMD_NAMES.get(opcode, f"0x{opcode:02x}"), bytes(cmd_bytes[:15]).hex())
-        msg = b64encode(bytes([b0] + cmd_bytes)) + b'\r\n'
+        self.log.info(
+            "CMD: %s (%s)",
+            _SNIFFLE_CMD_NAMES.get(opcode, f"0x{opcode:02x}"),
+            bytes(cmd_bytes[:15]).hex(),
+        )
+        msg = b64encode(bytes([b0] + cmd_bytes)) + b"\r\n"
         self.ser.write(msg)
 
     def sniffle_reset(self):
@@ -683,8 +752,10 @@ class VHCIBridge:
         # Preload PHY to 1M (firmware defaults to 2M)
         self._send_sniffle_cmd([SNIFFLE_PHY_PRELOAD, PHY_1M])
 
-        self._send_sniffle_cmd([SNIFFLE_SET_CHAN_AA_PHY] +
-                               list(struct.pack("<BLBL", 37, BLE_ADV_AA, PHY_1M, BLE_ADV_CRCI)))
+        self._send_sniffle_cmd(
+            [SNIFFLE_SET_CHAN_AA_PHY]
+            + list(struct.pack("<BLBL", 37, BLE_ADV_AA, PHY_1M, BLE_ADV_CRCI))
+        )
 
         # Start scan
         self._send_sniffle_cmd([SNIFFLE_SCAN])
@@ -702,8 +773,8 @@ class VHCIBridge:
         self.sniffle_set_addr(self.bd_addr)
 
         # Set advertising data
-        adv_data = self.adv_data[:31] if self.adv_data else b''
-        scan_rsp = self.scan_rsp_data[:31] if self.scan_rsp_data else b''
+        adv_data = self.adv_data[:31] if self.adv_data else b""
+        scan_rsp = self.scan_rsp_data[:31] if self.scan_rsp_data else b""
 
         # Pad to 31 bytes each
         adv_data = list(adv_data) + [0] * (31 - len(adv_data))
@@ -713,8 +784,12 @@ class VHCIBridge:
         mode_map = {0: 0, 2: 2, 3: 3}  # ADV_IND, ADV_NONCONN_IND, ADV_SCAN_IND
         mode = mode_map.get(self.adv_type, 0)
 
-        cmd = [SNIFFLE_ADVERTISE, mode, len(self.adv_data)] + adv_data[:31] + \
-              [len(self.scan_rsp_data)] + scan_rsp[:31]
+        cmd = (
+            [SNIFFLE_ADVERTISE, mode, len(self.adv_data)]
+            + adv_data[:31]
+            + [len(self.scan_rsp_data)]
+            + scan_rsp[:31]
+        )
         self._send_sniffle_cmd(cmd)
 
     def stop_advertising(self):
@@ -722,15 +797,18 @@ class VHCIBridge:
         self.advertising = False
         self._send_sniffle_cmd([SNIFFLE_PAUSE_DONE, 0x01])
 
-    def initiate_connection(self, peer_addr, peer_addr_type,
-                            interval_min, interval_max, latency, timeout):
+    def initiate_connection(
+        self, peer_addr, peer_addr_type, interval_min, interval_max, latency, timeout
+    ):
         """Initiate BLE connection"""
         self.peer_addr = peer_addr
         self.peer_addr_type = peer_addr_type
 
         # Set channel first (as in initiator.py)
-        self._send_sniffle_cmd([SNIFFLE_SET_CHAN_AA_PHY] +
-                               list(struct.pack("<BLBL", 37, BLE_ADV_AA, PHY_1M, BLE_ADV_CRCI)))
+        self._send_sniffle_cmd(
+            [SNIFFLE_SET_CHAN_AA_PHY]
+            + list(struct.pack("<BLBL", 37, BLE_ADV_AA, PHY_1M, BLE_ADV_CRCI))
+        )
 
         # Pause after done (required for initiator mode)
         self._send_sniffle_cmd([SNIFFLE_PAUSE_DONE, 0x01])
@@ -760,7 +838,7 @@ class VHCIBridge:
         self._send_sniffle_cmd([SNIFFLE_INTERVAL_PRELOAD])
 
         # Flush old packets: send marker and wait for it to echo back (like mark_and_flush)
-        marker_val = struct.pack('<I', randint(0, 0xFFFFFFFF))
+        marker_val = struct.pack("<I", randint(0, 0xFFFFFFFF))
         self._send_sniffle_cmd([SNIFFLE_MARKER] + list(marker_val))
         flush_deadline = time.time() + 0.5
         while time.time() < flush_deadline:
@@ -778,19 +856,23 @@ class VHCIBridge:
         lldata.extend([randrange(256) for _ in range(4)])  # Access address
         lldata.extend([randrange(256) for _ in range(3)])  # CRC init
         lldata.append(3)  # WinSize
-        lldata.extend(struct.pack('<H', randint(5, 15)))  # WinOffset
-        lldata.extend(struct.pack('<HHH', interval_min, latency, timeout))  # Interval, Latency, Timeout
+        lldata.extend(struct.pack("<H", randint(5, 15)))  # WinOffset
+        lldata.extend(
+            struct.pack("<HHH", interval_min, latency, timeout)
+        )  # Interval, Latency, Timeout
         lldata.extend([0xFF, 0xFF, 0xFF, 0xFF, 0x1F])  # Channel map
         lldata.append(randint(5, 16))  # Hop
 
         # Store access address for decoder (like initiator.py: hw.decoder_state.cur_aa = _aa)
-        self.conn_aa = struct.unpack('<I', bytes(lldata[:4]))[0]
-        
+        self.conn_aa = struct.unpack("<I", bytes(lldata[:4]))[0]
+
         # Send connect command
         cmd = [SNIFFLE_CONNECT, peer_addr_type] + list(peer_addr) + lldata
         self._send_sniffle_cmd(cmd)
-        
-        self.log.info("Connect sent: peer=%s aa=0x%08X", peer_addr[::-1].hex(), self.conn_aa)
+
+        self.log.info(
+            "Connect sent: peer=%s aa=0x%08X", peer_addr[::-1].hex(), self.conn_aa
+        )
 
     def cancel_connection(self):
         """Cancel ongoing connection attempt"""
