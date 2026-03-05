@@ -144,12 +144,12 @@ def my_command(device):
     """My new command"""
     # Get device instance
     catsniffer = CatSniffer(device_id=device)
-    
+
     # Verify that devices are available
     if not catsniffer.devices:
         click.echo("[-] No CatSniffer devices detected")
         return
-    
+
     # Your logic here
     catsniffer.my_function()
 ```
@@ -172,33 +172,33 @@ from protocol.common import SnifferBase
 
 class NewSniffer(SnifferBase):
     """Class to handle the new protocol"""
-    
+
     # Default configuration
     DEFAULT_CHANNEL = 0
     SUPPORTED_CHANNELS = []
     BAUD_RATE = 500000
-    
+
     def __init__(self, port, channel=None):
         super().__init__(port)
         self.channel = channel or self.DEFAULT_CHANNEL
         self.logger = logging.getLogger(__name__)
-    
+
     def configure(self, **kwargs):
         """Configure sniffer parameters"""
         for key, value in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, value)
-    
+
     def start_capture(self):
         """Start packet capture"""
         self.logger.info(f"Starting capture on channel {self.channel}")
         # Implement start logic
-    
+
     def stop_capture(self):
         """Stop packet capture"""
         self.logger.info("Stopping capture")
         # Implement stop logic
-    
+
     def get_packets(self):
         """Get captured packets"""
         # Implement packet reading
@@ -286,22 +286,22 @@ import logging
 
 class NewModule:
     """Main class for the new module"""
-    
+
     def __init__(self, device_id=None, **kwargs):
         self.device_id = device_id
         self.logger = logging.getLogger(__name__)
         self.config = kwargs
-    
+
     def start(self):
         """Start the module"""
         self.logger.info("Starting new module")
         # Start logic
-    
+
     def run(self):
         """Run the main function"""
         # Main logic
         pass
-    
+
     def stop(self):
         """Stop the module"""
         self.logger.info("Stopping new module")
@@ -323,10 +323,10 @@ def new_group():
 def new_start(device, verbose):
     """Start the new module"""
     from modules.new_module import NewModule
-    
+
     module = NewModule(device_id=device)
     module.start()
-    
+
     try:
         module.run()
     except KeyboardInterrupt:
@@ -416,30 +416,30 @@ def flash_special(file):
 ```python
 class MyClass:
     """Class that does something specific.
-    
+
     More detailed class description if necessary.
-    
+
     Attributes:
         attribute1: Attribute description.
         attribute2: Attribute description.
     """
-    
+
     def __init__(self, param1, param2=None):
         """Initializes the class.
-        
+
         Args:
             param1: Parameter 1 description.
             param2: Parameter 2 description. Defaults to None.
         """
         self.param1 = param1
         self.param2 = param2
-    
+
     def method(self):
         """Method description.
-        
+
         Returns:
             Return type.
-        
+
         Raises:
             Exception: Description of when it's raised.
         """
@@ -505,17 +505,17 @@ from modules.new_module import NewModule
 
 class TestNewModule:
     """Tests for the new module"""
-    
+
     @pytest.fixture
     def module(self):
         """Fixture that creates a module instance"""
         return NewModule(device_id=1)
-    
+
     def test_start(self, module):
         """Initialization test"""
         module.start()
         assert module.device_id == 1
-    
+
     def test_run(self, module):
         """Execution test"""
         # Use mock if necessary
@@ -563,10 +563,10 @@ Add command documentation in `cli.py` using docstrings:
 @click.option('-v', '--verbose', is_flag=True, help='Verbose mode')
 def my_command(option, verbose):
     """Brief command description.
-    
+
     More detailed description explaining what the command does,
     how to use it, and what results to expect.
-    
+
     Examples:
         $ catnip my_command
         $ catnip my_command --option value
