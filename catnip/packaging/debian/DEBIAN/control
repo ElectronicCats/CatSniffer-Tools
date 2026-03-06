@@ -1,0 +1,13 @@
+Package: catnip
+Version: 3.3.0.0
+Section: utils
+Priority: optional
+Architecture: all
+Maintainer: Electronic Cats <support@electroniccats.com>
+Depends: python3, python3-click, python3-cryptography, python3-intelhex, python3-matplotlib, python3-numpy, python3-serial, python3-usb, python3-requests, python3-rich, python3-scapy, python3-textual, python3-magic
+Homepage: https://github.com/ElectronicCats/CatSniffer-Tools/
+Description: All in one CatSniffer tools — multi-protocol RF sniffer CLI
+ CatSniffer is a multi-protocol RF sniffer for 2.4GHz and sub-GHz frequencies.
+ This tool allows you to sniff BLE, Zigbee, Thread, LoRa and more using the
+ CatSniffer hardware. It also provides a VHCI bridge to expose the device
+ as a standard Linux HCI controller.

@@ -1,0 +1,33 @@
+#!/bin/sh
+set -e
+
+# CatSniffer post-installation script
+
+case "$1" in
+    configure)
+        # 1. Ensure groups exist
+        for group in dialout bluetooth; do
+            if ! getent group "$group" >/dev/null; then
+                echo "Creating group $group..."
+                groupadd -r "$group" || true
+            fi
+        done
+
+        # 2. Reload udev rules
+        if [ -x /sbin/udevadm ]; then
+            echo "Reloading udev rules..."
+            udevadm control --reload-rules || true
+            udevadm trigger || true
+        fi
+    ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+    ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+    ;;
+esac
+
+exit 0

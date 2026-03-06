@@ -1,0 +1,71 @@
+name: Build Debian Package
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - dev
+  release:
+    types: [created]
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Realizar Checkout del Repositorio
+        uses: actions/checkout@v4
+
+      - name: Extraer Versión del Paquete
+        id: get_version
+        run: |
+          # Extrae la versión del archivo DEBIAN/control automáticamente
+          VERSION=$(grep -i '^Version:' catnip/packaging/debian/DEBIAN/control | awk '{print $2}')
+          if [ -z "$VERSION" ]; then
+            VERSION="latest"
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Preparar Entorno de Empaquetado
+        run: |
+          BUILD_DIR="build_deb"
+
+          # 1. Crear directorio base y copiar los metadatos de Debian
+          mkdir -p "$BUILD_DIR"
+          cp -a catnip/packaging/debian/* "$BUILD_DIR/"
+
+          # 2. Crear las subcarpetas donde debe vivir el código fuente
+          PKG_DIR="${BUILD_DIR}/usr/lib/python3/dist-packages/catnip"
+          mkdir -p "$PKG_DIR"
+
+          # 3. Copiar el código fuente fresco directo del repositorio raíz a la carpeta de empaquetado
+          cp -r catnip/modules/ "$PKG_DIR/"
+          cp -r catnip/protocol/ "$PKG_DIR/"
+          cp catnip/catnip.py "$PKG_DIR/"
+          touch "$PKG_DIR/__init__.py"  # Solo si siempre necesita un init vacío
+
+          # 4. Asegurar permisos correctos para Debian
+          # (Los scripts mantienen permisos de ejecución, control debe ser 644)
+          find "$BUILD_DIR/DEBIAN" -type f -exec chmod 644 {} \;
+          [ -f "$BUILD_DIR/DEBIAN/postinst" ] && chmod 755 "$BUILD_DIR/DEBIAN/postinst"
+          [ -f "$BUILD_DIR/DEBIAN/prerm" ] && chmod 755 "$BUILD_DIR/DEBIAN/prerm"
+          [ -f "$BUILD_DIR/usr/bin/catnip" ] && chmod 755 "$BUILD_DIR/usr/bin/catnip"
+
+      - name: Compilar Archivo .deb
+        run: |
+          # Empaquetamos fijando root-owner-group para evitar problemas de permisos del usuario
+          dpkg-deb --build --root-owner-group build_deb/ "catnip-${{ env.VERSION }}.deb"
+
+      - name: Subir Artifact del Action
+        uses: actions/upload-artifact@v4
+        with:
+          name: catnip-debian-package
+          path: "*.deb"
+          retention-days: 30
+
+      - name: Subir a GitHub Releases (Solo Releases)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: "catnip-${{ env.VERSION }}.deb"
