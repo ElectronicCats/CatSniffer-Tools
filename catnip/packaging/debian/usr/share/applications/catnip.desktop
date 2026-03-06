@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=CatSniffer
+Comment=All in one CatSniffer tools — multi-protocol RF sniffer CLI
+Exec=catnip
+Icon=catnip
+Terminal=true
+Type=Application
+Categories=Network;Security
