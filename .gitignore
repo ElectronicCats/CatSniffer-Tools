@@ -15,3 +15,4 @@ release*/
 releases*/
 releases.*
 *.uf2
+*.deb
