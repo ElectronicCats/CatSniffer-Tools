@@ -5,7 +5,7 @@ on:
     branches:
       - main
       - master
-      - dev
+      #- dev
   workflow_dispatch:
     inputs:
       version:
@@ -64,9 +64,9 @@ jobs:
       run: |
         # Ensure installer output directory exists avoiding crash
         if (!(Test-Path -Path installer)) { mkdir installer }
-        # Copiar el script de instalación
+        # Copy the driver installation script to the installer directory
         copy scripts\install_windows_drivers.ps1 installer\
-        # Compilar el instalador
+        # Compile the installer
         & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\catsniffer_installer.iss
 
     - name: Upload Installer

@@ -1544,7 +1544,7 @@ def lora_spectrum(device, baudrate, start_freq, end_freq, offset):
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 def vhci():
-    """[Linux only, requires sudo] VHCI Bridge - Expose CatSniffer as hciX.
+    """VHCI Bridge - Expose CatSniffer as hciX.
 
     Requires sudo and the hci_vhci kernel module.
 
@@ -1572,7 +1572,7 @@ def vhci():
 )
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose (DEBUG) logging")
 def vhci_start(device, baud, verbose):
-    """Start the VHCI bridge — CatSniffer appears as hciX in Linux.
+    """Start the VHCI bridge — CatSniffer appears as hciX.
 
     Requires root privileges and the hci_vhci kernel module:
 
@@ -1820,7 +1820,7 @@ def update(device, force):
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 def completion():
-    """Install shell tab completion for catnip (Linux/macOS only)."""
+    """Install shell tab completion for catnip."""
     pass
 
 
@@ -2026,7 +2026,7 @@ def completion_install(shell):
 
 @click.command("setup-env")
 def setup_env():
-    """[Linux only] Setup environment: install udev rules and add user to groups.
+    """Setup environment: install udev rules and add user to groups.
 
     Requires root privileges (sudo). This command installs the necessary
     udev rules for CatSniffer devices and VHCI, and adds the current
@@ -2038,10 +2038,10 @@ def setup_env():
         sys.exit(1)
 
     # 1. Install udev rules
-    rules_content = """# Permiso para VHCI (Bluetooth Virtual)
+    rules_content = """# Permission to VHCI (Bluetooth Virtual)
 KERNEL=="vhci", MODE="0660", GROUP="bluetooth", TAG+="uaccess"
 
-# Permiso para CatSniffer (Raspberry Pi RP2040)
+# Permission to CatSniffer (RP2040)
 SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="00c0", MODE="0660", GROUP="dialout", TAG+="uaccess"
 """
     rules_path = Path("/etc/udev/rules.d/99-catsniffer.rules")
@@ -2096,5 +2096,6 @@ def main_cli() -> None:
         cli.add_command(vhci)
         cli.add_command(setup_env)
     cli.add_command(verify)
-    cli.add_command(completion)
+    if platform.system() in ["Linux", "Darwin"]:
+        cli.add_command(completion)
     cli(prog_name="catnip")
