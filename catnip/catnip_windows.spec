@@ -23,7 +23,11 @@ hiddenimports.extend([
     'win32pipe',
     'win32event',
     'win32security',
-    'pywin32',
+    'win32api',
+    'pywintypes',
+    'scapy.layers.all',
+    'charset_normalizer.md__mypyc',
+    'pycparser',
 ])
 
 # Collect hidden imports from main libraries
@@ -90,7 +94,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['pywin32'],
     noarchive=False,
     optimize=0,
 )

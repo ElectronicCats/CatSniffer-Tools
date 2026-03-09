@@ -103,7 +103,7 @@ def print_header(module=None):
     """Print the ASCII art header"""
     if module:
         label = f"catnip {module}"
-    elif os.geteuid() == 0:
+    elif platform.system() != "Windows" and os.geteuid() == 0:
         label = "catnip: (root)"
     else:
         label = "catnip"
@@ -2024,7 +2024,7 @@ def completion_install(shell):
         console.print("Completion is active immediately in new fish sessions.")
 
 
-@cli.command("setup-env")
+@click.command("setup-env")
 def setup_env():
     """[Linux only] Setup environment: install udev rules and add user to groups.
 
@@ -2032,7 +2032,7 @@ def setup_env():
     udev rules for CatSniffer devices and VHCI, and adds the current
     user to the 'dialout' and 'bluetooth' groups.
     """
-    if os.geteuid() != 0:
+    if platform.system() != "Windows" and os.geteuid() != 0:
         print_error("Root privileges required. Please run with sudo:")
         console.print(f"  sudo {sys.argv[0]} setup-env")
         sys.exit(1)
