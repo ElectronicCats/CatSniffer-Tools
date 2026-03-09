@@ -37,15 +37,20 @@ jobs:
 
           # 2. Create the subfolders where the source code should live
           PKG_DIR="${BUILD_DIR}/usr/lib/python3/dist-packages/catnip"
+          DIST_DIR="${BUILD_DIR}/usr/lib/python3/dist-packages"
           mkdir -p "$PKG_DIR"
 
           # 3. Copy fresh source code directly from the root repository to the packaging folder
           cp -r catnip/modules/ "$PKG_DIR/"
-          cp -r catnip/protocol/ "$PKG_DIR/"
           cp catnip/catnip.py "$PKG_DIR/"
           touch "$PKG_DIR/__init__.py"  # Only if an empty init is always needed
 
-          # 4. Ensure correct permissions for Debian
+          # 4. Copy protocol/ as a top-level package (sibling of catnip/, not inside it)
+          #    This mirrors the project root layout where protocol/ sits next to modules/,
+          #    making "from protocol.X import Y" work both installed and via python catnip.py
+          cp -r catnip/protocol/ "$DIST_DIR/"
+
+          # 5. Ensure correct permissions for Debian
           # (Scripts retain execute permissions, control should be 644)
           find "$BUILD_DIR/DEBIAN" -type f -exec chmod 644 {} \;
           [ -f "$BUILD_DIR/DEBIAN/postinst" ] && chmod 755 "$BUILD_DIR/DEBIAN/postinst"
