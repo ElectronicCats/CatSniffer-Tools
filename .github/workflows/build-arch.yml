@@ -5,7 +5,7 @@ on:
     branches:
       - main
       - master
-      - dev
+      #- dev
   release:
     types: [created]
 
@@ -19,9 +19,11 @@ jobs:
       - name: Install dependencies
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm base-devel git python python-pip python-setuptools python-build python-installer python-wheel \
-            python-pyserial python-pyusb python-requests python-colorama python-rich python-pycryptodome python-cryptography \
-            python-click python-intelhex python-matplotlib python-numpy python-scapy python-textual python-magic libusb sudo
+          pacman -S --noconfirm base-devel git python python-pip python-setuptools \
+            python-pyserial python-pyusb python-requests python-colorama python-rich \
+            python-pycryptodome python-cryptography python-click python-intelhex \
+            python-matplotlib python-numpy python-scapy python-textual python-magic \
+            libusb sudo
 
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -29,27 +31,53 @@ jobs:
       - name: Extract Package Version
         id: get_version
         run: |
-          # Try to extract version from DEBIAN/control
-          if [ -f "catnip/packaging/debian/DEBIAN/control" ]; then
-            VERSION=$(grep -i '^Version:' catnip/packaging/debian/DEBIAN/control | awk '{print $2}')
-          fi
-
+          # Automatically extract the version from the DEBIAN/control file
+          VERSION=$(grep -i '^Version:' catnip/packaging/debian/DEBIAN/control | awk '{print $2}')
           if [ -z "$VERSION" ]; then
-            if [ "${{ github.event_name }}" == "release" ]; then
-              VERSION="${{ github.ref_name }}"
-              VERSION=${VERSION#v}
-            else
-              VERSION=$(date +%Y.%m.%d)
-            fi
+            VERSION="latest"
           fi
-
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
-          echo "Package version: $VERSION"
+
+      - name: Prepare Packaging Environment
+        run: |
+          BUILD_DIR="build_arch"
+
+          # 1. Create base directory structure following Arch packaging conventions
+          mkdir -p "$BUILD_DIR"
+
+          # 2. Create the subfolders where the source code should live
+          PKG_DIR="${BUILD_DIR}/usr/lib/python3/dist-packages/catnip"
+          DIST_DIR="${BUILD_DIR}/usr/lib/python3/dist-packages"
+          mkdir -p "$PKG_DIR"
+
+          # 3. Copy fresh source code directly from the root repository to the packaging folder
+          cp -r catnip/modules/ "$PKG_DIR/"
+          cp catnip/catnip.py "$PKG_DIR/"
+          touch "$PKG_DIR/__init__.py"
+
+          # 4. Copy protocol/ as a top-level package (sibling of catnip/, not inside it)
+          #    This mirrors the project root layout where protocol/ sits next to modules/,
+          #    making "from protocol.X import Y" work both installed and via python catnip.py
+          cp -r catnip/protocol/ "$DIST_DIR/"
+
+          # 5. Install the launcher script
+          mkdir -p "$BUILD_DIR/usr/bin"
+          cp catnip/packaging/debian/usr/bin/catnip "$BUILD_DIR/usr/bin/catnip"
+          chmod 755 "$BUILD_DIR/usr/bin/catnip"
+
+          # 6. Install udev rules
+          mkdir -p "$BUILD_DIR/usr/lib/udev/rules.d"
+          cp catnip/packaging/debian/lib/udev/rules.d/99-catsniffer.rules \
+            "$BUILD_DIR/usr/lib/udev/rules.d/99-catsniffer.rules"
+
+          # 7. Install desktop entry
+          mkdir -p "$BUILD_DIR/usr/share/applications"
+          cp catnip/packaging/debian/usr/share/applications/catnip.desktop \
+            "$BUILD_DIR/usr/share/applications/catnip.desktop"
 
       - name: Create PKGBUILD
-        working-directory: catnip
         run: |
-          cat > PKGBUILD << 'EOF'
+          cat > build_arch/PKGBUILD << EOF
           pkgname=catnip
           pkgver=${{ env.VERSION }}
           pkgrel=1
@@ -61,78 +89,32 @@ jobs:
                    'python-cryptography' 'python-click' 'python-intelhex'
                    'python-matplotlib' 'python-numpy' 'python-scapy'
                    'python-textual' 'python-magic' 'libusb')
-          makedepends=('python-build' 'python-installer' 'python-wheel' 'python-setuptools')
-          source=("$pkgname-$pkgver.tar.gz")
-          sha256sums=('SKIP')
-
-          build() {
-            cd "$srcdir"
-            # The source is already in the 'catnip' folder of the tarball we create
-            cd "catsniffer-tools-$pkgver/catnip"
-            python -m build --wheel --no-isolation
-          }
 
           package() {
-            cd "$srcdir/catsniffer-tools-$pkgver/catnip"
-
-            # Detect Python version
-            local python_version=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-
-            # Install Python package
-            python -m installer --destdir="$pkgdir" dist/*.whl
-
-            # Create symlink for main script
-            install -Dm755 catnip.py "$pkgdir/usr/bin/catnip"
-
-            # Install udev rules
-            install -Dm644 packaging/debian/lib/udev/rules.d/99-catsniffer.rules \
-              "$pkgdir/usr/lib/udev/rules.d/99-catsniffer.rules"
-
-            # Install desktop entry
-            install -Dm644 packaging/debian/usr/share/applications/catnip.desktop \
-              "$pkgdir/usr/share/applications/catnip.desktop"
-
-            # Ensure modules and protocol are correctly placed if not handled by build
-            # Note: setup.py should handle most of this, but we keep this for safety
-            # mirroring the project structure.
-            local site_packages="$pkgdir/usr/lib/python$python_version/site-packages"
-            mkdir -p "$site_packages"
-            cp -r modules/* "$site_packages/catnip/" 2>/dev/null || true
-            cp -r protocol "$site_packages/" 2>/dev/null || true
+            cp -r "\$srcdir"/../usr "\$pkgdir/"
           }
           EOF
 
-      - name: Create .tar.gz source
-        working-directory: catnip
+      - name: Build .pkg.tar.zst Package
         run: |
-          mkdir -p "catsniffer-tools-${{ env.VERSION }}"
-          cp -r ../* "catsniffer-tools-${{ env.VERSION }}/"
-          tar -czf "catnip-${{ env.VERSION }}.tar.gz" "catsniffer-tools-${{ env.VERSION }}"
-          rm -rf "catsniffer-tools-${{ env.VERSION }}"
-
-      - name: Build Package
-        working-directory: catnip
-        run: |
-          sed -i "s/SKIP/$(sha256sum catnip-${{ env.VERSION }}.tar.gz | cut -d' ' -f1)/" PKGBUILD
           useradd -m builder
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-          chown -R builder:builder .
-          sudo -u builder makepkg -f --noconfirm
+          chown -R builder:builder build_arch/
+          cd build_arch && sudo -u builder makepkg -f --noconfirm
 
-      - name: Rename Package
-        working-directory: catnip
+      - name: Move Package to Root
         run: |
-          PKG_FILE=$(ls *.pkg.tar.zst | head -n 1)
-          echo "PACKAGE_NAME=$PKG_FILE" >> $GITHUB_ENV
+          mv build_arch/*.pkg.tar.zst "catnip-${{ env.VERSION }}.pkg.tar.zst"
 
       - name: Upload Action Artifact
         uses: actions/upload-artifact@v4
         with:
           name: catnip-arch-package
-          path: "catnip/*.pkg.tar.zst"
+          path: "*.pkg.tar.zst"
+          retention-days: 30
 
       - name: Upload to GitHub Releases (Only Releases)
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v1
         with:
-          files: "catnip/*.pkg.tar.zst"
+          files: "catnip-${{ env.VERSION }}.pkg.tar.zst"

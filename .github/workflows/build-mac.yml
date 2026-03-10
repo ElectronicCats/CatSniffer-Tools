@@ -64,6 +64,7 @@ jobs:
         with:
           name: catnip-macos-${{ matrix.arch }}
           path: "catnip/${{ env.PACKAGE_NAME }}"
+          retention-days: 30
 
       - name: Upload to GitHub Releases (Only Releases)
         if: github.event_name == 'release'
