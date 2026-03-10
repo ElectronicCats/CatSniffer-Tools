@@ -16,6 +16,7 @@ pyinstaller \
   --onedir \
   --noupx \
   --name catnip \
+  --target-arch universal2 \
   --collect-all scapy \
   --collect-all textual \
   --collect-all meshtastic \
@@ -34,6 +35,7 @@ pyinstaller \
   --onedir \
   --noupx \
   --name lora_extcap \
+  --target-arch universal2 \
   --collect-all scapy \
   --collect-all meshtastic \
   --collect-all rich \

@@ -39,6 +39,13 @@ jobs:
           chmod +x build_mac.sh
           ./build_mac.sh
 
+      - name: Verify Binary Architectures
+        run: |
+          echo "[*] Checking catnip binary..."
+          file catnip/dist/catnip/catnip
+          echo "[*] Checking lora_extcap binary..."
+          file catnip/dist/lora_extcap/lora_extcap
+
       - name: Upload Action Artifact
         uses: actions/upload-artifact@v4
         with:
