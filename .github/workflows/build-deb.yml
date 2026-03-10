@@ -5,7 +5,7 @@ on:
     branches:
       - main
       - master
-      - dev
+      #- dev
   release:
     types: [created]
 

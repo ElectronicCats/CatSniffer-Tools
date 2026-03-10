@@ -1,0 +1,138 @@
+name: Build Arch Linux Package
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - dev
+  release:
+    types: [created]
+
+jobs:
+  build-arch:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+
+    steps:
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel git python python-pip python-setuptools python-build python-installer python-wheel
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Extract Package Version
+        id: get_version
+        run: |
+          # Try to extract version from DEBIAN/control (similar to deb workflow)
+          if [ -f "catnip/packaging/debian/DEBIAN/control" ]; then
+            VERSION=$(grep -i '^Version:' catnip/packaging/debian/DEBIAN/control | awk '{print $2}')
+          fi
+
+          # If not found, try to get from git tag or use default
+          if [ -z "$VERSION" ]; then
+            if [ "${{ github.event_name }}" == "release" ]; then
+              VERSION="${{ github.ref_name }}"
+              VERSION=${VERSION#v}  # Remove leading 'v' if present
+            else
+              VERSION=$(date +%Y.%m.%d)
+            fi
+          fi
+
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "Package version: $VERSION"
+
+      - name: Create PKGBUILD
+        working-directory: catnip
+        run: |
+          cat > PKGBUILD << 'EOF'
+          # Maintainer: Your Name <email@example.com>
+          pkgname=catnip
+          pkgver=${{ env.VERSION }}
+          pkgrel=1
+          pkgdesc="CatSniffer Tools - Multi-protocol sniffer and analysis tool"
+          arch=('any')
+          url="https://github.com/ElectronicCats/catsniffer-tools"
+          license=('MIT')
+          depends=('python' 'python-pyserial' 'python-pyusb' 'python-requests'
+                   'python-colorama' 'python-rich' 'python-pycryptodome'
+                   'libusb' 'python-pyaml')
+          makedepends=('python-build' 'python-installer' 'python-wheel' 'python-setuptools')
+          source=("$pkgname-$pkgver.tar.gz::https://github.com/ElectronicCats/catsniffer-tools/archive/refs/tags/v$pkgver.tar.gz")
+          sha256sums=('SKIP')
+
+          build() {
+            cd "$srcdir/catsniffer-tools-$pkgver/catnip"
+            python -m build --wheel --no-isolation
+          }
+
+          package() {
+            cd "$srcdir/catsniffer-tools-$pkgver/catnip"
+
+            # Install Python package
+            python -m installer --destdir="$pkgdir" dist/*.whl
+
+            # Create symlink for main script
+            install -Dm755 catnip.py "$pkgdir/usr/bin/catnip"
+
+            # Install udev rules
+            install -Dm644 packaging/debian/lib/udev/rules.d/99-catsniffer.rules \
+              "$pkgdir/usr/lib/udev/rules.d/99-catsniffer.rules"
+
+            # Install desktop entry
+            install -Dm644 packaging/debian/usr/share/applications/catnip.desktop \
+              "$pkgdir/usr/share/applications/catnip.desktop"
+
+            # Create necessary directories and copy all modules
+            mkdir -p "$pkgdir/usr/lib/python3.12/site-packages/catnip"
+            cp -r modules/* "$pkgdir/usr/lib/python3.12/site-packages/catnip/"
+            cp -r protocol "$pkgdir/usr/lib/python3.12/site-packages/"
+
+            # Create __init__.py files if needed
+            touch "$pkgdir/usr/lib/python3.12/site-packages/catnip/__init__.py"
+            touch "$pkgdir/usr/lib/python3.12/site-packages/protocol/__init__.py"
+          }
+          EOF
+
+      - name: Create .tar.gz source
+        working-directory: catnip
+        run: |
+          # Create source tarball for PKGBUILD
+          mkdir -p "catsniffer-tools-${{ env.VERSION }}"
+          cp -r ../* "catsniffer-tools-${{ env.VERSION }}/" 2>/dev/null || true
+          tar -czf "catnip-${{ env.VERSION }}.tar.gz" "catsniffer-tools-${{ env.VERSION }}"
+          rm -rf "catsniffer-tools-${{ env.VERSION }}"
+
+      - name: Build Package
+        working-directory: catnip
+        run: |
+          # Update PKGBUILD with actual sha256sum
+          sed -i "s/SKIP/$(sha256sum catnip-${{ env.VERSION }}.tar.gz | cut -d' ' -f1)/" PKGBUILD
+
+          # Create user for makepkg
+          useradd -m builder
+          chown -R builder:builder .
+
+          # Build package
+          sudo -u builder makepkg -f --noconfirm
+
+      - name: Rename Package
+        working-directory: catnip
+        run: |
+          PKG_FILE=$(ls *.pkg.tar.zst | head -n 1)
+          echo "PACKAGE_NAME=$PKG_FILE" >> $GITHUB_ENV
+
+      - name: Upload Action Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: catnip-arch-package
+          path: "catnip/*.pkg.tar.zst"
+
+      - name: Upload to GitHub Releases (Only Releases)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: "catnip/*.pkg.tar.zst"
