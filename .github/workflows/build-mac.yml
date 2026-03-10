@@ -11,7 +11,15 @@ on:
 
 jobs:
   build-mac:
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - os: macos-13
+            arch: x86_64
+          - os: macos-latest
+            arch: arm64
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout Repository
@@ -39,21 +47,26 @@ jobs:
           chmod +x build_mac.sh
           ./build_mac.sh
 
-      - name: Verify Binary Architectures
+      - name: Rename and Verify Binaries
         run: |
-          echo "[*] Checking catnip binary..."
-          file catnip/dist/catnip/catnip
-          echo "[*] Checking lora_extcap binary..."
-          file catnip/dist/lora_extcap/lora_extcap
+          cd catnip
+          # Get the version from the generated filename (e.g., catnip-1.2.3.pkg)
+          PKG_FILE=$(ls *.pkg | head -n 1)
+          NEW_NAME="${PKG_FILE%.pkg}-${{ matrix.arch }}.pkg"
+          mv "$PKG_FILE" "$NEW_NAME"
+          echo "PACKAGE_NAME=$NEW_NAME" >> $GITHUB_ENV
+
+          echo "[*] Verifying architecture of $NEW_NAME..."
+          file dist/catnip/catnip
 
       - name: Upload Action Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: catnip-macos-installer
-          path: "catnip/*.pkg"
+          name: catnip-macos-${{ matrix.arch }}
+          path: "catnip/${{ env.PACKAGE_NAME }}"
 
       - name: Upload to GitHub Releases (Only Releases)
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v1
         with:
-          files: "catnip/*.pkg"
+          files: "catnip/${{ env.PACKAGE_NAME }}"
