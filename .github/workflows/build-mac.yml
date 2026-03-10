@@ -1,0 +1,52 @@
+name: Build macOS Installer
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - dev
+  release:
+    types: [created]
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install System Dependencies
+        run: |
+          brew install libusb libmagic
+
+      - name: Install Python Dependencies
+        run: |
+          cd catnip
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build macOS Installer
+        run: |
+          cd catnip
+          chmod +x build_mac.sh
+          ./build_mac.sh
+
+      - name: Upload Action Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: catnip-macos-installer
+          path: "catnip/*.pkg"
+
+      - name: Upload to GitHub Releases (Only Releases)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: "catnip/*.pkg"
