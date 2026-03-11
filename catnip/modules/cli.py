@@ -1586,8 +1586,10 @@ def vhci_start(device, baud, verbose):
     import signal
     from .vhci import VHCIBridge
 
-    if os.geteuid() != 0:
-        print_warning("Root privileges required for /dev/vhci access. Run with sudo.")
+    if os.geteuid() != 0 and not os.access("/dev/vhci", os.R_OK | os.W_OK):
+        print_warning(
+            "Insufficient permissions for /dev/vhci access. Try running with sudo or check group membership."
+        )
 
     if not os.path.exists("/dev/vhci"):
         print_error("/dev/vhci not found. Load the kernel module first:")
@@ -1674,12 +1676,14 @@ def vhci_check():
 
     all_ok = True
 
-    # Root check
-    if os.geteuid() == 0:
+    # Permissions check
+    if os.access("/dev/vhci", os.R_OK | os.W_OK):
+        console.print("[green]  permissions  : OK (access to /dev/vhci)[/green]")
+    elif os.geteuid() == 0:
         console.print("[green]  root         : OK[/green]")
     else:
         console.print(
-            "[yellow]  root         : NOT root — bridge will fail to open /dev/vhci[/yellow]"
+            "[yellow]  permissions  : Insufficient — bridge may fail to open /dev/vhci[/yellow]"
         )
         all_ok = False
 
@@ -1749,7 +1753,10 @@ def vhci_check():
 
     console.print("")
     if all_ok:
-        print_success("All prerequisites met. Run: sudo python3 catnip.py vhci start")
+        if os.access("/dev/vhci", os.R_OK | os.W_OK):
+            print_success("All prerequisites met. Run: catnip vhci start")
+        else:
+            print_success("All prerequisites met. Run: sudo catnip vhci start")
     else:
         print_warning("Some prerequisites are missing. See above.")
 
