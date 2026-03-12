@@ -202,10 +202,10 @@ cd catsniffer-tools/catnip
 # Install system dependencies
 # Debian/Ubuntu:
 sudo apt-get update
-sudo apt-get install python3 python3-pip python3-venv libusb-1.0-0 libmagic1
+sudo apt-get install python3 python3-pip python3-venv libusb-1.0-0 libmagic1 python3-meshtastic
 
 # Arch Linux:
-sudo pacman -S python python-pip python-virtualenv libusb file
+sudo pacman -S python python-pip python-virtualenv libusb file python-meshtastic
 
 # Create and activate virtual environment (recommended)
 python3 -m venv venv
