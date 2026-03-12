@@ -60,12 +60,17 @@ jobs:
           #    making "from protocol.X import Y" work both installed and via python catnip.py
           cp -r catnip/protocol/ "$DIST_DIR/"
 
-          # 5. Install the launcher script
+          # 5. Vendor optional dependencies (like meshtastic)
+          # This allows the tool to work out-of-the-box without user-managed venvs
+          mkdir -p "$PKG_DIR/vendor"
+          python -m pip install --target "$PKG_DIR/vendor" meshtastic
+
+          # 6. Install the launcher script
           mkdir -p "$BUILD_DIR/usr/bin"
           cp catnip/packaging/debian/usr/bin/catnip "$BUILD_DIR/usr/bin/catnip"
           chmod 755 "$BUILD_DIR/usr/bin/catnip"
 
-          # 6. Install udev rules
+          # 7. Install udev rules
           mkdir -p "$BUILD_DIR/usr/lib/udev/rules.d"
           cp catnip/packaging/debian/lib/udev/rules.d/99-catsniffer.rules \
             "$BUILD_DIR/usr/lib/udev/rules.d/99-catsniffer.rules"

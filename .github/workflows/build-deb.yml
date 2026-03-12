@@ -43,14 +43,19 @@ jobs:
           # 3. Copy fresh source code directly from the root repository to the packaging folder
           cp -r catnip/modules/ "$PKG_DIR/"
           cp catnip/catnip.py "$PKG_DIR/"
-          touch "$PKG_DIR/__init__.py"  # Only if an empty init is always needed
+          touch "$PKG_DIR/__init__.py"
 
-          # 4. Copy protocol/ as a top-level package (sibling of catnip/, not inside it)
+          # 4. Vendor optional dependencies (like meshtastic)
+          # This allows the tool to work out-of-the-box without user-managed venvs
+          mkdir -p "$PKG_DIR/vendor"
+          python3 -m pip install --target "$PKG_DIR/vendor" meshtastic
+
+          # 5. Copy protocol/ as a top-level package (sibling of catnip/, not inside it)
           #    This mirrors the project root layout where protocol/ sits next to modules/,
           #    making "from protocol.X import Y" work both installed and via python catnip.py
           cp -r catnip/protocol/ "$DIST_DIR/"
 
-          # 5. Ensure correct permissions for Debian
+          # 6. Ensure correct permissions for Debian
           # (Scripts retain execute permissions, control should be 644)
           find "$BUILD_DIR/DEBIAN" -type f -exec chmod 644 {} \;
           [ -f "$BUILD_DIR/DEBIAN/postinst" ] && chmod 755 "$BUILD_DIR/DEBIAN/postinst"

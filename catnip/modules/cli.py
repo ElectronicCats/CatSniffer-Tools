@@ -1283,7 +1283,10 @@ def meshtastic_decode(input, key):
         from .meshtastic import MeshtasticDecoder
     except ImportError:
         print_error("The 'meshtastic' library is required for this command.")
-        console.print("\n[yellow]Install it using:[/yellow]")
+        console.print(
+            "\n[yellow]This library should be bundled with the package.[/yellow]"
+        )
+        console.print("If it's missing, you can install it as a workaround:")
         console.print("  pip install meshtastic")
         sys.exit(1)
 
@@ -1345,7 +1348,10 @@ def meshtastic_live(device, baudrate, frequency, preset):
         from .meshtastic import MeshtasticLiveDecoder
     except ImportError:
         print_error("The 'meshtastic' library is required for this command.")
-        console.print("\n[yellow]Install it using:[/yellow]")
+        console.print(
+            "\n[yellow]This library should be bundled with the package.[/yellow]"
+        )
+        console.print("If it's missing, you can install it as a workaround:")
         console.print("  pip install meshtastic")
         sys.exit(1)
 
@@ -1437,7 +1443,10 @@ def meshtastic_dashboard(device, baudrate, frequency, preset):
         from .meshtastic import MeshtasticChatApp, Monitor
     except ImportError:
         print_error("The 'meshtastic' library is required for this command.")
-        console.print("\n[yellow]Install it using:[/yellow]")
+        console.print(
+            "\n[yellow]This library should be bundled with the package.[/yellow]"
+        )
+        console.print("If it's missing, you can install it as a workaround:")
         console.print("  pip install meshtastic")
         sys.exit(1)
 
@@ -1487,7 +1496,10 @@ def meshtastic_config(file):
         from .meshtastic import MeshtasticConfigExtractor
     except ImportError:
         print_error("The 'meshtastic' library is required for this command.")
-        console.print("\n[yellow]Install it using:[/yellow]")
+        console.print(
+            "\n[yellow]This library should be bundled with the package.[/yellow]"
+        )
+        console.print("If it's missing, you can install it as a workaround:")
         console.print("  pip install meshtastic")
         sys.exit(1)
 

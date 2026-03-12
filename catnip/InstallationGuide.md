@@ -203,13 +203,9 @@ cd catsniffer-tools/catnip
 # Debian/Ubuntu:
 sudo apt-get update
 sudo apt-get install python3 python3-pip python3-venv libusb-1.0-0 libmagic1
-# Optional: for Meshtastic features
-pip install meshtastic
 
 # Arch Linux:
 sudo pacman -S python python-pip python-virtualenv libusb file
-# Optional: for Meshtastic features
-pip install meshtastic
 
 # Create and activate virtual environment (recommended)
 python3 -m venv venv
