@@ -42,12 +42,16 @@ jobs:
         run: |
           BUILD_DIR="build_arch"
 
+          # Detect Python version to use correct site-packages path
+          PY_VER=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+          echo "Detected Python version: $PY_VER"
+
           # 1. Create base directory structure following Arch packaging conventions
           mkdir -p "$BUILD_DIR"
 
-          # 2. Create the subfolders where the source code should live
-          PKG_DIR="${BUILD_DIR}/usr/lib/python3/dist-packages/catnip"
-          DIST_DIR="${BUILD_DIR}/usr/lib/python3/dist-packages"
+          # 2. Create the subfolders where the source code should live (Arch uses site-packages)
+          PKG_DIR="${BUILD_DIR}/usr/lib/python${PY_VER}/site-packages/catnip"
+          DIST_DIR="${BUILD_DIR}/usr/lib/python${PY_VER}/site-packages"
           mkdir -p "$PKG_DIR"
 
           # 3. Copy fresh source code directly from the root repository to the packaging folder
@@ -56,8 +60,6 @@ jobs:
           touch "$PKG_DIR/__init__.py"
 
           # 4. Copy protocol/ as a top-level package (sibling of catnip/, not inside it)
-          #    This mirrors the project root layout where protocol/ sits next to modules/,
-          #    making "from protocol.X import Y" work both installed and via python catnip.py
           cp -r catnip/protocol/ "$DIST_DIR/"
 
           # 5. Vendor optional dependencies (like meshtastic)
@@ -75,7 +77,7 @@ jobs:
           cp catnip/packaging/debian/lib/udev/rules.d/99-catsniffer.rules \
             "$BUILD_DIR/usr/lib/udev/rules.d/99-catsniffer.rules"
 
-          # 7. Install desktop entry
+          # 8. Install desktop entry
           mkdir -p "$BUILD_DIR/usr/share/applications"
           cp catnip/packaging/debian/usr/share/applications/catnip.desktop \
             "$BUILD_DIR/usr/share/applications/catnip.desktop"
@@ -89,11 +91,14 @@ jobs:
           pkgdesc="CatSniffer Tools - Multi-protocol sniffer and analysis tool"
           arch=('any')
           url="https://github.com/ElectronicCats/catsniffer-tools"
+          license=('GPL3')
           depends=('python' 'python-pyserial' 'python-pyusb' 'python-requests'
                    'python-colorama' 'python-rich' 'python-pycryptodome'
                    'python-cryptography' 'python-click' 'python-intelhex'
                    'python-matplotlib' 'python-numpy' 'python-scapy'
                    'python-textual' 'python-magic' 'libusb')
+          # Disable debug packages to prevent multiple .pkg.tar.zst files
+          options=('!debug')
 
           package() {
             cp -r "\$srcdir"/../usr "\$pkgdir/"
@@ -109,7 +114,13 @@ jobs:
 
       - name: Move Package to Root
         run: |
-          mv build_arch/*.pkg.tar.zst "catnip-${{ env.VERSION }}.pkg.tar.zst"
+          # Find the generated package, excluding any debug packages (though we disabled them)
+          PKG_FILE=$(find build_arch -name "catnip-*.pkg.tar.zst" ! -name "*-debug-*.pkg.tar.zst" | head -n 1)
+          if [ -z "$PKG_FILE" ]; then
+            echo "Error: Package file not found!"
+            exit 1
+          fi
+          mv "$PKG_FILE" "catnip-${{ env.VERSION }}.pkg.tar.zst"
 
       - name: Upload Action Artifact
         uses: actions/upload-artifact@v4
