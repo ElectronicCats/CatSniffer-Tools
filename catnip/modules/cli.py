@@ -95,7 +95,7 @@ console = Console()
 logger = logging.getLogger("rich")
 FORMAT = "%(message)s"
 logging.basicConfig(
-    level="WARNING", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
+    level="WARNING", format=FORMAT, datefmt="[%X]", handlers=[RichHandler(markup=True)]
 )
 
 
