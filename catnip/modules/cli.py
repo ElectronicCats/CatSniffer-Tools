@@ -1279,7 +1279,13 @@ def meshtastic():
 )
 def meshtastic_decode(input, key):
     """Decrypt and decode a hex-encoded Meshtastic packet"""
-    from .meshtastic import MeshtasticDecoder
+    try:
+        from .meshtastic import MeshtasticDecoder
+    except ImportError:
+        print_error("The 'meshtastic' library is required for this command.")
+        console.print("\n[yellow]Install it using:[/yellow]")
+        console.print("  pip install meshtastic")
+        sys.exit(1)
 
     try:
         decoder = MeshtasticDecoder(key=key)
@@ -1335,7 +1341,13 @@ def meshtastic_decode(input, key):
 )
 def meshtastic_live(device, baudrate, frequency, preset):
     """Live Meshtastic decoder - Capture and decode packets in real-time"""
-    from .meshtastic import MeshtasticLiveDecoder
+    try:
+        from .meshtastic import MeshtasticLiveDecoder
+    except ImportError:
+        print_error("The 'meshtastic' library is required for this command.")
+        console.print("\n[yellow]Install it using:[/yellow]")
+        console.print("  pip install meshtastic")
+        sys.exit(1)
 
     # Get device or exit with error
     dev = get_device_or_exit(device)
@@ -1419,8 +1431,15 @@ def meshtastic_live(device, baudrate, frequency, preset):
 def meshtastic_dashboard(device, baudrate, frequency, preset):
     """Meshtastic Chat TUI - Beautiful terminal dashboard for Meshtastic"""
     import asyncio
-    from .meshtastic.core import configure_meshtastic_radio
-    from .meshtastic import MeshtasticChatApp, Monitor
+
+    try:
+        from .meshtastic.core import configure_meshtastic_radio
+        from .meshtastic import MeshtasticChatApp, Monitor
+    except ImportError:
+        print_error("The 'meshtastic' library is required for this command.")
+        console.print("\n[yellow]Install it using:[/yellow]")
+        console.print("  pip install meshtastic")
+        sys.exit(1)
 
     # Get device or exit with error
     dev = get_device_or_exit(device)
@@ -1464,7 +1483,13 @@ def meshtastic_dashboard(device, baudrate, frequency, preset):
 @click.argument("file")
 def meshtastic_config(file):
     """Extract PSKs and config info from a Meshtastic JSONC config file"""
-    from .meshtastic import MeshtasticConfigExtractor
+    try:
+        from .meshtastic import MeshtasticConfigExtractor
+    except ImportError:
+        print_error("The 'meshtastic' library is required for this command.")
+        console.print("\n[yellow]Install it using:[/yellow]")
+        console.print("  pip install meshtastic")
+        sys.exit(1)
 
     extractor = MeshtasticConfigExtractor(file)
     if extractor.load():
