@@ -92,11 +92,7 @@ jobs:
           arch=('any')
           url="https://github.com/ElectronicCats/catsniffer-tools"
           license=('GPL3')
-          depends=('python' 'python-pyserial' 'python-pyusb' 'python-requests'
-                   'python-colorama' 'python-rich' 'python-pycryptodome'
-                   'python-cryptography' 'python-click' 'python-intelhex'
-                   'python-matplotlib' 'python-numpy' 'python-scapy'
-                   'python-textual' 'python-magic' 'libusb')
+          depends=('python' 'libusb')
           # Disable debug packages to prevent multiple .pkg.tar.zst files
           options=('!debug')
 
