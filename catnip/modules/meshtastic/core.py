@@ -7,7 +7,17 @@ from typing import Dict, List, Optional, Tuple
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from protocol.sniffer_sx import SnifferSx
-from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
+
+# Meshtastic is an optional dependency
+try:
+    from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
+
+    MESHTASTIC_AVAILABLE = True
+except ImportError:
+    MESHTASTIC_AVAILABLE = False
+    mesh_pb2 = None
+    admin_pb2 = None
+    telemetry_pb2 = None
 
 DEFAULT_KEYS = [
     "1PG7OiApB1nwvP+rz05pAQ==",

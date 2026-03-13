@@ -1,5 +1,6 @@
 import io
 import os
+import sys
 import json
 import time
 import hashlib
@@ -39,7 +40,18 @@ RELEASE_FOLDER_NAME = "release"
 RELEASE_METADATA_NAME = "releases.json"
 DESCRIPTIONS_FILE_NAME = "descriptions.json"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(CURRENT_DIR)
+# Define ROOT_DIR for firmware storage
+# We use a consistent path in the user's home directory across all platforms and execution modes.
+# This ensures that firmware images are shared between global and local executions.
+ROOT_DIR = os.path.expanduser(os.path.join("~", ".catnip"))
+
+# Ensure ROOT_DIR exists
+if not os.path.exists(ROOT_DIR):
+    try:
+        os.makedirs(ROOT_DIR, exist_ok=True)
+    except Exception as e:
+        # Fallback to current directory if home is not writable (rare e.g. restricted environments)
+        ROOT_DIR = os.getcwd()
 
 logger = logging.getLogger("rich")
 console = Console()

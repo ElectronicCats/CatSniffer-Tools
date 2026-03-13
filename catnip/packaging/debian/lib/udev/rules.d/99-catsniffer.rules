@@ -1,0 +1,5 @@
+# Permiso para VHCI (Bluetooth Virtual)
+SUBSYSTEM=="misc", KERNEL=="vhci", MODE="0660", GROUP="bluetooth", TAG+="uaccess"
+
+# Permiso para CatSniffer (Raspberry Pi RP2040)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="00c0", MODE="0660", GROUP="dialout", TAG+="uaccess"

@@ -1,0 +1,81 @@
+name: Build Debian Package
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - dev
+  release:
+    types: [created]
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Extract Package Version
+        id: get_version
+        run: |
+          # Automatically extract the version from the DEBIAN/control file
+          VERSION=$(grep -i '^Version:' catnip/packaging/debian/DEBIAN/control | awk '{print $2}')
+          if [ -z "$VERSION" ]; then
+            VERSION="latest"
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Prepare Packaging Environment
+        run: |
+          BUILD_DIR="build_deb"
+
+          # 1. Create base directory and copy Debian metadata
+          mkdir -p "$BUILD_DIR"
+          cp -a catnip/packaging/debian/* "$BUILD_DIR/"
+
+          # 2. Create the subfolders where the source code should live
+          PKG_DIR="${BUILD_DIR}/usr/lib/python3/dist-packages/catnip"
+          DIST_DIR="${BUILD_DIR}/usr/lib/python3/dist-packages"
+          mkdir -p "$PKG_DIR"
+
+          # 3. Copy fresh source code directly from the root repository to the packaging folder
+          cp -r catnip/modules/ "$PKG_DIR/"
+          cp catnip/catnip.py "$PKG_DIR/"
+          touch "$PKG_DIR/__init__.py"
+
+          # 4. Vendor all dependencies from requirements.txt
+          # This allows the tool to work out-of-the-box without user-managed venvs
+          mkdir -p "$PKG_DIR/vendor"
+          python3 -m pip install --target "$PKG_DIR/vendor" -r catnip/requirements.txt
+
+          # 5. Copy protocol/ as a top-level package (sibling of catnip/, not inside it)
+          #    This mirrors the project root layout where protocol/ sits next to modules/,
+          #    making "from protocol.X import Y" work both installed and via python catnip.py
+          cp -r catnip/protocol/ "$DIST_DIR/"
+
+          # 6. Ensure correct permissions for Debian
+          # (Scripts retain execute permissions, control should be 644)
+          find "$BUILD_DIR/DEBIAN" -type f -exec chmod 644 {} \;
+          [ -f "$BUILD_DIR/DEBIAN/postinst" ] && chmod 755 "$BUILD_DIR/DEBIAN/postinst"
+          [ -f "$BUILD_DIR/DEBIAN/prerm" ] && chmod 755 "$BUILD_DIR/DEBIAN/prerm"
+          [ -f "$BUILD_DIR/usr/bin/catnip" ] && chmod 755 "$BUILD_DIR/usr/bin/catnip"
+
+      - name: Build .deb Package
+        run: |
+          # Package by fixing root owner group to avoid user permission issues
+          dpkg-deb --build --root-owner-group build_deb/ "catnip-${{ env.VERSION }}.deb"
+
+      - name: Upload Action Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: catnip-debian-package
+          path: "*.deb"
+          retention-days: 30
+
+      - name: Upload to GitHub Releases (Only Releases)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: "catnip-${{ env.VERSION }}.deb"

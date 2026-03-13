@@ -42,9 +42,39 @@ import time
 from pathlib import Path
 
 # APP Information
-CLI_NAME = "Flasher CLI"
 VERSION_NUMBER = "3.3.0.0"
 COMPANY = "Electronic Cats - PWNLAB"
+_FUNNY_PHRASES = [
+    "Catching packets, not mice.",
+    "Your RF spy in the sky.",
+    "Sniffing the air so you don't have to.",
+    "Making invisible waves visible.",
+    "The only cat that loves antennas.",
+    "Packet sniffer. Not a drug.",
+    "Who said curiosity killed the cat?",
+    "Zigbee, Thread, LoRa — we don't discriminate.",
+    "Turning radio waves into trust issues.",
+    "Your neighbor's smart bulb has secrets.",
+    "Legally (probably) sniffing since 2024.",
+    "Because plaintext is a lifestyle choice.",
+    "RF doesn't lie. People do.",
+    "We sniff, you learn.",
+    "Not all heroes wear capes. Some carry antennas.",
+    "What even is encryption?",
+    "The air is full of data. Help yourself.",
+    "Meow. That was a Zigbee beacon.",
+    "If it transmits, we see it.",
+    "BLE, LoRa, Thread — all your protocols belong to us.",
+    "Your Meshtastic network is not as private as you think.",
+    "802.15.4 never had a chance.",
+    "From 433MHz to 2.4GHz, we catch them all.",
+    "LoRa? More like LoRa-caught.",
+    "Sub-GHz whisperer.",
+]
+
+import random as _random
+
+FUNNY_PHRASE = _random.choice(_FUNNY_PHRASES)
 
 # Defining styles for reuse
 STYLES = {
@@ -57,45 +87,43 @@ STYLES = {
     "prompt": Style(color="magenta", bold=True),
 }
 
-# Prompt
-PROMPT_ICON = "🐱"
-PROMPT_DESCRIPTION = (
-    "Flasher CLI - For sniffing the TI CC1352 device communication interfaces."
-)
-
 __version__ = "3.3.0.0"
 
-flasher = Flasher()
 wireshark = Wireshark()
 console = Console()
 
 logger = logging.getLogger("rich")
 FORMAT = "%(message)s"
 logging.basicConfig(
-    level="WARNING", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
+    level="WARNING", format=FORMAT, datefmt="[%X]", handlers=[RichHandler(markup=True)]
 )
 
 
-def print_header():
+def print_header(module=None):
     """Print the ASCII art header"""
+    if module:
+        label = f"catnip {module}"
+    elif platform.system() != "Windows" and os.geteuid() == 0:
+        label = "catnip: (root)"
+    else:
+        label = "catnip"
+
     ascii_art = f"""      :-:              :--       |
       ++++=.        .=++++       |
       =+++++===++===++++++       |
       -++++++++++++++++++-       |
- .:   =++---++++++++---++=   :.  |  Module:  {CLI_NAME}
- ::---+++.   -++++-   .+++---::  |  Version: {VERSION_NUMBER}
-::1..:-++++:   ++++   :++++-::.::|  Company: {COMPANY}
+ .:   =++---++++++++---++=   :.  |  {label}
+ ::---+++.   -++++-   .+++---::  |  v{VERSION_NUMBER}
+::1..:-++++:   ++++   :++++-::.::|  {FUNNY_PHRASE}
 .:...:=++++++++++++++++++=:...:. |
  :---.  -++++++++++++++-  .---:  |
  ..        .:------:.        ..  |"""
 
-    # Apply color to the ASCII art
     colored_ascii = f"[cyan bold]{ascii_art}[/cyan bold]"
 
-    # Create a panel for the header
     header_panel = Panel(
         colored_ascii,
-        title=PROMPT_DESCRIPTION,
+        title=f"[cyan]{COMPANY}[/cyan]",
         border_style=STYLES["header"],
         title_align="left",
         padding=(1, 2),
@@ -354,7 +382,7 @@ def find_extcap_plugin(plugin_name):
     return None
 
 
-@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+@click.group("catnip", context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("-v", "--verbose", is_flag=True, help="Show Verbose mode")
 def cli(verbose):
     """CatSniffer: All in one catnip tools environment."""
@@ -401,6 +429,7 @@ def sniff(verbose):
     help="Sniffle mode",
 )
 def sniff_ble(device, wireshark, channel, mode):
+    flasher = Flasher()
     """Sniffing BLE with Sniffle firmware"""
     dev = get_device_or_exit(device)
 
@@ -508,6 +537,7 @@ def sniff_ble(device, wireshark, channel, mode):
 )
 def sniff_zigbee(ws, channel, device):
     """Sniffing Zigbee with Sniffer TI firmware"""
+    flasher = Flasher()
     dev = get_device_or_exit(device)
     cat = Catnip(dev.bridge_port)
     # Verify firmware with metadata (preferred)
@@ -545,6 +575,7 @@ def sniff_zigbee(ws, channel, device):
 )
 def sniff_thread(ws, channel, device):
     """Sniffing Thread with Sniffer TI firmware"""
+    flasher = Flasher()
     dev = get_device_or_exit(device)
     cat = Catnip(dev.bridge_port)
     # Verify firmware with metadata (preferred)
@@ -659,6 +690,7 @@ def sniff_lora(
 @click.option("--putty", is_flag=True, help="Open PuTTY with serial configuration")
 def sniff_airtag_scanner(device, putty):
     """Sniffing Airtag Scanner firmware"""
+    flasher = Flasher()
     dev = get_device_or_exit(device)
 
     # Verify firmware
@@ -1247,7 +1279,18 @@ def meshtastic():
 )
 def meshtastic_decode(input, key):
     """Decrypt and decode a hex-encoded Meshtastic packet"""
-    from .meshtastic import MeshtasticDecoder
+    try:
+        from .meshtastic import MeshtasticDecoder
+    except ImportError as e:
+        print_error(
+            f"The 'meshtastic' library is required for this command. (Error: {e})"
+        )
+        console.print(
+            "\n[yellow]This library should be bundled with the package.[/yellow]"
+        )
+        console.print("If it's missing, you can install it manually:")
+        console.print("  pip install meshtastic protobuf pyyaml")
+        sys.exit(1)
 
     try:
         decoder = MeshtasticDecoder(key=key)
@@ -1303,7 +1346,18 @@ def meshtastic_decode(input, key):
 )
 def meshtastic_live(device, baudrate, frequency, preset):
     """Live Meshtastic decoder - Capture and decode packets in real-time"""
-    from .meshtastic import MeshtasticLiveDecoder
+    try:
+        from .meshtastic import MeshtasticLiveDecoder
+    except ImportError as e:
+        print_error(
+            f"The 'meshtastic' library is required for this command. (Error: {e})"
+        )
+        console.print(
+            "\n[yellow]This library should be bundled with the package.[/yellow]"
+        )
+        console.print("If it's missing, you can install it manually:")
+        console.print("  pip install meshtastic protobuf pyyaml")
+        sys.exit(1)
 
     # Get device or exit with error
     dev = get_device_or_exit(device)
@@ -1387,8 +1441,20 @@ def meshtastic_live(device, baudrate, frequency, preset):
 def meshtastic_dashboard(device, baudrate, frequency, preset):
     """Meshtastic Chat TUI - Beautiful terminal dashboard for Meshtastic"""
     import asyncio
-    from .meshtastic.core import configure_meshtastic_radio
-    from .meshtastic import MeshtasticChatApp, Monitor
+
+    try:
+        from .meshtastic.core import configure_meshtastic_radio
+        from .meshtastic import MeshtasticChatApp, Monitor
+    except ImportError as e:
+        print_error(
+            f"The 'meshtastic' library is required for this command. (Error: {e})"
+        )
+        console.print(
+            "\n[yellow]This library should be bundled with the package.[/yellow]"
+        )
+        console.print("If it's missing, you can install it manually:")
+        console.print("  pip install meshtastic protobuf pyyaml")
+        sys.exit(1)
 
     # Get device or exit with error
     dev = get_device_or_exit(device)
@@ -1432,7 +1498,18 @@ def meshtastic_dashboard(device, baudrate, frequency, preset):
 @click.argument("file")
 def meshtastic_config(file):
     """Extract PSKs and config info from a Meshtastic JSONC config file"""
-    from .meshtastic import MeshtasticConfigExtractor
+    try:
+        from .meshtastic import MeshtasticConfigExtractor
+    except ImportError as e:
+        print_error(
+            f"The 'meshtastic' library is required for this command. (Error: {e})"
+        )
+        console.print(
+            "\n[yellow]This library should be bundled with the package.[/yellow]"
+        )
+        console.print("If it's missing, you can install it manually:")
+        console.print("  pip install meshtastic protobuf pyyaml")
+        sys.exit(1)
 
     extractor = MeshtasticConfigExtractor(file)
     if extractor.load():
@@ -1507,6 +1584,228 @@ def lora_spectrum(device, baudrate, start_freq, end_freq, offset):
         scanner.stop_task()
 
 
+# ===================== VHCI Bridge Commands =====================
+
+
+@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+def vhci():
+    """VHCI Bridge - Expose CatSniffer as hciX.
+
+    Requires sudo and the hci_vhci kernel module.
+
+    \b
+        sudo modprobe hci_vhci
+        sudo python3 catnip.py vhci start
+    """
+    pass
+
+
+@vhci.command("start")
+@click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
+@click.option(
+    "--baud",
+    default=2000000,
+    type=int,
+    show_default=True,
+    help="Baud rate for serial port",
+)
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose (DEBUG) logging")
+def vhci_start(device, baud, verbose):
+    """Start the VHCI bridge — CatSniffer appears as hciX.
+
+    Requires root privileges and the hci_vhci kernel module:
+
+    \b
+        sudo modprobe hci_vhci
+        sudo catnip vhci start
+        hciconfig -a
+
+    Compatible tools: bluetoothctl, btmgmt, btmon, bleak, bettercap.
+    """
+    import signal
+    from .vhci import VHCIBridge
+
+    if os.geteuid() != 0 and not os.access("/dev/vhci", os.R_OK | os.W_OK):
+        print_warning(
+            "Insufficient permissions for /dev/vhci access. Try running with sudo or check group membership."
+        )
+
+    if not os.path.exists("/dev/vhci"):
+        print_error("/dev/vhci not found. Load the kernel module first:")
+        console.print("  sudo modprobe hci_vhci")
+        sys.exit(1)
+
+    # Resolve device
+    if device is not None:
+        dev = catnip_get_device(device)
+        if dev is None:
+            print_error(f"CatSniffer device #{device} not found.")
+            sys.exit(1)
+        if not dev.bridge_port:
+            print_error(f"Device #{device} has no Cat-Bridge port detected.")
+            sys.exit(1)
+        print_info(f"Using device {dev}, port: {dev.bridge_port}")
+    else:
+        devs = catnip_get_devices()
+        if devs and devs[0].bridge_port:
+            dev = devs[0]
+            print_info(f"Auto-detected CatSniffer: {dev}, port: {dev.bridge_port}")
+        else:
+            print_error("CatSniffer not found. Connect a device or specify -d.")
+            sys.exit(1)
+
+    # Firmware check
+    cat = Catnip(dev.bridge_port)
+    print_info("Checking for Sniffle firmware...")
+    if cat.check_firmware_by_metadata("sniffle", dev.shell_port):
+        print_success("Sniffle firmware found!")
+    else:
+        print_warning("Sniffle firmware not found — flashing now...")
+        flasher = Flasher()
+        if not flasher.find_flash_firmware("sniffle", dev):
+            print_error("Failed to flash Sniffle firmware. Aborting.")
+            sys.exit(1)
+        print_info("Waiting for device to initialize...")
+        time.sleep(1)
+        if cat.check_firmware_by_metadata("sniffle", dev.shell_port):
+            print_success("Sniffle firmware verified!")
+        else:
+            print_warning("Firmware verification failed, continuing anyway...")
+
+    # Logging
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(message)s",
+        handlers=[RichHandler(console=console, show_time=False)],
+    )
+    log = logging.getLogger("vhci")
+
+    bridge = VHCIBridge(dev.bridge_port, log)
+
+    def _shutdown(sig, frame):
+        console.print("\n[yellow]Shutting down VHCI bridge...[/yellow]")
+        bridge.stop()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    try:
+        bridge.start()
+    except Exception as e:
+        print_error(f"Failed to start bridge: {e}")
+        sys.exit(1)
+
+    console.print("[green]Bridge running. Device should appear as hciX.[/green]")
+    console.print("[dim]Check with: hciconfig -a   |   Press Ctrl+C to stop[/dim]")
+
+    try:
+        bridge.run()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        bridge.stop()
+
+
+@vhci.command("check")
+def vhci_check():
+    """Check VHCI bridge prerequisites (kernel module, /dev/vhci, root, packages)."""
+    import subprocess as _sp
+
+    all_ok = True
+
+    # Permissions check
+    if os.access("/dev/vhci", os.R_OK | os.W_OK):
+        console.print("[green]  permissions  : OK (access to /dev/vhci)[/green]")
+    elif os.geteuid() == 0:
+        console.print("[green]  root         : OK[/green]")
+    else:
+        console.print(
+            "[yellow]  permissions  : Insufficient — bridge may fail to open /dev/vhci[/yellow]"
+        )
+        all_ok = False
+
+    # Kernel module
+    try:
+        result = _sp.run(["lsmod"], capture_output=True, text=True, timeout=5)
+        if "hci_vhci" in result.stdout:
+            console.print("[green]  hci_vhci     : loaded[/green]")
+        else:
+            console.print(
+                "[yellow]  hci_vhci     : NOT loaded — run: sudo modprobe hci_vhci[/yellow]"
+            )
+            all_ok = False
+    except Exception:
+        console.print("[red]  hci_vhci     : could not run lsmod[/red]")
+        all_ok = False
+
+    # /dev/vhci
+    if os.path.exists("/dev/vhci"):
+        console.print("[green]  /dev/vhci    : exists[/green]")
+    else:
+        console.print(
+            "[yellow]  /dev/vhci    : missing — run: sudo modprobe hci_vhci[/yellow]"
+        )
+        all_ok = False
+
+    # BlueZ (bluetoothctl)
+    try:
+        _sp.run(["bluetoothctl", "--version"], capture_output=True, timeout=3)
+        console.print("[green]  bluetoothctl : found[/green]")
+    except FileNotFoundError:
+        console.print("[yellow]  bluetoothctl : not found — install bluez[/yellow]")
+        all_ok = False
+    except Exception:
+        console.print("[yellow]  bluetoothctl : check failed[/yellow]")
+
+    # btmon
+    try:
+        _sp.run(["btmon", "--version"], capture_output=True, timeout=3)
+        console.print("[green]  btmon        : found[/green]")
+    except FileNotFoundError:
+        console.print(
+            "[dim]  btmon        : not found (optional — install bluez-utils)[/dim]"
+        )
+    except Exception:
+        pass
+
+    # bleak (Python)
+    try:
+        import bleak  # noqa: F401
+
+        console.print("[green]  bleak        : installed[/green]")
+    except ImportError:
+        console.print(
+            "[dim]  bleak        : not installed (optional — pip install bleak)[/dim]"
+        )
+
+    # CatSniffer device
+    devs = catnip_get_devices()
+    if devs:
+        for dev in devs:
+            port = dev.bridge_port or "?"
+            console.print(f"[green]  CatSniffer   : {dev}  bridge={port}[/green]")
+    else:
+        console.print("[yellow]  CatSniffer   : no device detected[/yellow]")
+        all_ok = False
+
+    console.print("")
+    if all_ok:
+        if os.access("/dev/vhci", os.R_OK | os.W_OK):
+            print_success("All prerequisites met. Run: catnip vhci start")
+        else:
+            print_success("All prerequisites met. Run: sudo catnip vhci start")
+    else:
+        print_warning("Some prerequisites are missing. See above.")
+
+
 # ===================== Firmware Update Commands =====================
 
 
@@ -1568,11 +1867,287 @@ def update(device, force):
         console.print("\n[dim]Use 'catnip update --force' to force an update.[/dim]")
 
 
+# ===================== Shell Completion Commands =====================
+
+
+@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+def completion():
+    """Install shell tab completion for catnip."""
+    pass
+
+
+@completion.command("install")
+@click.option(
+    "--shell",
+    type=click.Choice(["bash", "zsh", "fish"]),
+    default=None,
+    help="Shell to install completion for (auto-detected if omitted)",
+)
+def completion_install(shell):
+    """Install tab completion for your shell.
+
+    Run this once, then restart your shell (or source your rc file).
+
+    \b
+        catnip completion install          # auto-detect shell
+        catnip completion install --shell zsh
+    """
+    if platform.system() == "Windows":
+        print_error("Shell completion is not supported on Windows.")
+        sys.exit(1)
+
+    import subprocess as _sp
+    from pathlib import Path
+
+    # Auto-detect shell
+    if shell is None:
+        shell_env = os.environ.get("SHELL", "")
+        if "zsh" in shell_env:
+            shell = "zsh"
+        elif "fish" in shell_env:
+            shell = "fish"
+        elif "bash" in shell_env:
+            shell = "bash"
+        else:
+            print_error("Could not detect shell. Use --shell bash|zsh|fish.")
+            sys.exit(1)
+        print_info(f"Detected shell: {shell}")
+
+    env_var = "_CATNIP_COMPLETE"
+
+    # Absolute path to this script and the Python interpreter running it.
+    # We always want completions to call "python /abs/path/to/catnip.py" so
+    # that they work regardless of whether catnip is on PATH.
+    script_abs = str(Path(sys.argv[0]).resolve())
+    python_abs = str(Path(sys.executable).resolve())
+    # The full command string that the completion script will execute
+    cmd_to_call = f"{python_abs} {script_abs}"
+
+    if shell == "bash":
+        target = (
+            Path.home()
+            / ".local"
+            / "share"
+            / "bash-completion"
+            / "completions"
+            / "catnip"
+        )
+        source_flag = "bash_source"
+        rc_note = None
+    elif shell == "zsh":
+        target = Path.home() / ".zfunc" / "_catnip"
+        source_flag = "zsh_source"
+        rc_note = "fpath=(~/.zfunc $fpath)\nautoload -Uz compinit && compinit"
+    elif shell == "fish":
+        target = Path.home() / ".config" / "fish" / "completions" / "catnip.fish"
+        source_flag = "fish_source"
+        rc_note = None
+
+    try:
+        result = _sp.run(
+            [python_abs, script_abs],
+            env={**os.environ, env_var: source_flag},
+            capture_output=True,
+            text=True,
+        )
+        script = result.stdout
+    except Exception as e:
+        print_error(f"Failed to generate completion script: {e}")
+        sys.exit(1)
+
+    if not script.strip():
+        print_error(
+            "Empty completion script generated.\n"
+            "Make sure you are running this command via:\n"
+            f"  python {script_abs} completion install"
+        )
+        sys.exit(1)
+
+    # ------------------------------------------------------------------ #
+    # Post-process: replace the bare 'catnip' program name that Click      #
+    # embeds in the script with the full "python /abs/path/catnip.py"      #
+    # invocation.  We handle every pattern Click 7.x / 8.x can emit.      #
+    # ------------------------------------------------------------------ #
+    if shell == "zsh":
+        # 1. #compdef directive — register for all the names a user might type
+        script = script.replace(
+            "#compdef catnip", "#compdef catnip catnip.py ./catnip.py"
+        )
+        # 2. The guard that aborts when the command is not found in $commands[].
+        #    We neutralise it because we use an absolute path, not a PATH entry.
+        script = script.replace(
+            "(( ! $+commands[catnip] ))",
+            "false",  # 'false' evaluates to 1 so the (( )) block never returns
+        )
+        # 3. The line that actually calls the program to obtain completions.
+        #    Click 8 emits:  _CATNIP_COMPLETE=zsh_complete catnip
+        script = script.replace(
+            f"{env_var}=zsh_complete catnip", f"{env_var}=zsh_complete {cmd_to_call}"
+        )
+        # 4. The compdef registration at the bottom of the script
+        script = script.replace(
+            "compdef _catnip_completion catnip",
+            f"compdef _catnip_completion catnip catnip.py ./catnip.py",
+        )
+
+        # 5. Append an explicit wrapper so that "python catnip.py <TAB>" and
+        #    "./catnip.py <TAB>" also trigger completion.  zsh matches on the
+        #    last component of $words[1], so we register a catch-all that
+        #    delegates to our function.
+        extra = (
+            "\n"
+            "# Enable completion when invoked as 'python catnip.py' or './catnip.py'\n"
+            "_catnip_completion_python_wrapper() {\n"
+            "  # $words[1] is 'python'/'python3', $words[2] is the script path\n"
+            "  local script_name=${words[2]:t}  # basename of the script argument\n"
+            "  if [[ $script_name == catnip.py ]]; then\n"
+            "    # Shift the completion context so Click sees sub-commands correctly\n"
+            '    words=(catnip "${words[@]:2}")\n'
+            "    (( CURRENT-- ))\n"
+            "    _catnip_completion\n"
+            "  fi\n"
+            "}\n"
+            "compdef _catnip_completion_python_wrapper python python3\n"
+        )
+        script += extra
+
+    elif shell == "bash":
+        # Click 8 emits:  _CATNIP_COMPLETE=bash_complete catnip
+        script = script.replace(
+            f"{env_var}=bash_complete catnip", f"{env_var}=bash_complete {cmd_to_call}"
+        )
+        # Register for both 'catnip' and 'catnip.py'
+        script = script.replace(
+            "complete -F _catnip_completion catnip",
+            "complete -F _catnip_completion catnip catnip.py",
+        )
+        # Append a wrapper that intercepts 'python catnip.py <TAB>'
+        extra = (
+            "\n"
+            "# Enable completion when invoked as 'python catnip.py'\n"
+            "_catnip_completion_python_wrapper() {\n"
+            "    local cur script_arg\n"
+            '    cur="${COMP_WORDS[COMP_CWORD]}"\n'
+            '    script_arg="${COMP_WORDS[1]}"\n'
+            '    if [[ "$(basename "$script_arg")" == "catnip.py" ]]; then\n'
+            "        # Rebuild COMP_WORDS without the leading 'python' / path\n"
+            '        local new_words=(catnip "${COMP_WORDS[@]:2}")\n'
+            '        COMP_WORDS=("${new_words[@]}")\n'
+            "        COMP_CWORD=$(( COMP_CWORD - 1 ))\n"
+            "        _catnip_completion\n"
+            "    fi\n"
+            "}\n"
+            "complete -F _catnip_completion_python_wrapper python python3\n"
+        )
+        script += extra
+
+    elif shell == "fish":
+        # Fish uses a different mechanism; just replace the bare program name
+        script = script.replace(
+            f"{env_var}=fish_complete catnip", f"{env_var}=fish_complete {cmd_to_call}"
+        )
+
+    # Write script
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(script)
+    print_success(f"Completion script written to: {target}")
+
+    # zsh needs fpath entry in .zshrc
+    if rc_note:
+        zshrc = Path.home() / ".zshrc"
+        existing = zshrc.read_text() if zshrc.exists() else ""
+        if "~/.zfunc" not in existing and ".zfunc" not in existing:
+            with zshrc.open("a") as f:
+                f.write(f"\n# catnip tab completion\n{rc_note}\n")
+            print_success(f"Added fpath entry to {zshrc}")
+        else:
+            console.print(
+                "[dim]  ~/.zfunc already in fpath — skipping .zshrc edit[/dim]"
+            )
+
+    console.print("")
+    if shell == "bash":
+        console.print("Restart your shell or run:")
+        console.print(f"  [green]source {target}[/green]")
+    elif shell == "zsh":
+        console.print("Restart your shell or run:")
+        console.print("  [green]source ~/.zshrc && compinit -u[/green]")
+    elif shell == "fish":
+        console.print("Completion is active immediately in new fish sessions.")
+
+
+@click.command("setup-env")
+def setup_env():
+    """Setup environment: install udev rules and add user to groups.
+
+    Requires root privileges (sudo). This command installs the necessary
+    udev rules for CatSniffer devices and VHCI, and adds the current
+    user to the 'dialout' and 'bluetooth' groups.
+    """
+    if platform.system() != "Windows" and os.geteuid() != 0:
+        print_error("Root privileges required. Please run with sudo:")
+        console.print(f"  sudo {sys.argv[0]} setup-env")
+        sys.exit(1)
+
+    # 1. Install udev rules
+    rules_content = """# Permission to VHCI (Bluetooth Virtual)
+KERNEL=="vhci", MODE="0660", GROUP="bluetooth", TAG+="uaccess"
+
+# Permission to CatSniffer (RP2040)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="00c0", MODE="0660", GROUP="dialout", TAG+="uaccess"
+"""
+    rules_path = Path("/etc/udev/rules.d/99-catsniffer.rules")
+    try:
+        rules_path.write_text(rules_content)
+        print_success(f"Udev rules installed to {rules_path}")
+    except Exception as e:
+        print_error(f"Failed to install udev rules: {e}")
+
+    # 2. Add user to groups
+    # Get the real user (since we are likely running with sudo)
+    real_user = os.environ.get("SUDO_USER")
+    if not real_user:
+        # Fallback if SUDO_USER is not set
+        import getpass
+
+        real_user = getpass.getuser()
+
+    groups = ["dialout", "bluetooth"]
+    for group in groups:
+        try:
+            subprocess.run(["usermod", "-aG", group, real_user], check=True)
+            print_success(f"User '{real_user}' added to group '{group}'")
+        except subprocess.CalledProcessError:
+            print_warning(
+                f"Could not add user '{real_user}' to group '{group}' (does it exist?)"
+            )
+        except Exception as e:
+            print_error(f"Error adding user to group {group}: {e}")
+
+    # 3. Reload udev rules
+    try:
+        subprocess.run(["udevadm", "control", "--reload-rules"], check=True)
+        subprocess.run(["udevadm", "trigger"], check=True)
+        print_success("Udev rules reloaded")
+    except Exception as e:
+        print_warning(f"Could not reload udev rules automatically: {e}")
+
+    console.print("\n[bold green]Environment setup complete![/bold green]")
+    console.print("Please log out and log back in for group changes to take effect.")
+
+
 def main_cli() -> None:
-    print_header()
+    if not os.environ.get("_CATNIP_COMPLETE"):
+        module = next((a for a in sys.argv[1:] if not a.startswith("-")), None)
+        print_header(module)
     cli.add_command(sniff)
     cli.add_command(cativity)
     cli.add_command(meshtastic)
     cli.add_command(lora)
+    if platform.system() == "Linux":
+        cli.add_command(vhci)
+        cli.add_command(setup_env)
     cli.add_command(verify)
-    cli()
+    if platform.system() in ["Linux", "Darwin"]:
+        cli.add_command(completion)
+    cli(prog_name="catnip")
