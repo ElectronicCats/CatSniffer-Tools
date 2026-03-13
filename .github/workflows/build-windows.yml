@@ -13,7 +13,11 @@ on:
       version:
         description: 'Version to build'
         required: true
-        default: '3.3.0.0'
+        default: '3.3.1.0'
+      release_tag:
+        description: 'Tag del release al que subir los assets (ej: v3.3.1.0)'
+        required: false
+        default: 'v3.3.1.0'
 
 jobs:
   build-windows:
@@ -88,13 +92,14 @@ jobs:
         path: catnip/dist/CatSniffer-Setup.exe
 
     - name: Rename Installer for Release
-      if: github.event_name == 'release'
+      if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
       working-directory: catnip
       run: |
         Copy-Item dist/CatSniffer-Setup.exe "dist/catnip-${{ env.VERSION }}.exe"
 
     - name: Upload to GitHub Releases (Only Releases)
-      if: github.event_name == 'release'
+      if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
       uses: softprops/action-gh-release@v1
       with:
+        tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
         files: catnip/dist/catnip-${{ env.VERSION }}.exe

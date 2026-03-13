@@ -42,7 +42,7 @@ import time
 from pathlib import Path
 
 # APP Information
-VERSION_NUMBER = "3.3.0.0"
+VERSION_NUMBER = "3.3.1.0"
 COMPANY = "Electronic Cats - PWNLAB"
 _FUNNY_PHRASES = [
     "Catching packets, not mice.",
@@ -87,7 +87,7 @@ STYLES = {
     "prompt": Style(color="magenta", bold=True),
 }
 
-__version__ = "3.3.0.0"
+__version__ = "3.3.1.0"
 
 wireshark = Wireshark()
 console = Console()

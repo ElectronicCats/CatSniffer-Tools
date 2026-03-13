@@ -8,6 +8,12 @@ on:
       - dev
   release:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Launch tag to upload assets to (ex: v3.3.1.0)'
+        required: true
+        default: 'v3.3.1.0'
 
 jobs:
   build-arch:
@@ -126,7 +132,8 @@ jobs:
           retention-days: 30
 
       - name: Upload to GitHub Releases (Only Releases)
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
           files: "catnip-${{ env.VERSION }}.pkg.tar.zst"

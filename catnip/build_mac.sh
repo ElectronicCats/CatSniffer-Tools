@@ -65,7 +65,7 @@ cp -R dist/lora_extcap "${PKG_ROOT}${INSTALL_LOCATION}/"
 ln -sf "${INSTALL_LOCATION}/catnip/catnip" "${PKG_ROOT}${BIN_DIR}/catnip"
 ln -sf "${INSTALL_LOCATION}/lora_extcap/lora_extcap" "${PKG_ROOT}${BIN_DIR}/lora_extcap"
 
-# Extract version from catnip.py or setup.py (assuming 3.3.0.0 from setup.py)
+# Extract version from catnip.py or setup.py (assuming 3.3.1.0 from setup.py)
 VERSION=$(grep -E "version=" setup.py | cut -d'"' -f2)
 if [ -z "$VERSION" ]; then
   VERSION="1.0.0"

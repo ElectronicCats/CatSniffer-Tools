@@ -3,7 +3,7 @@
 
 [Setup]
 AppName=CatSniffer Tools
-AppVersion=3.3.0.0
+AppVersion=3.3.1.0
 AppPublisher=Electronic Cats
 AppPublisherURL=https://github.com/ElectronicCats/CatSniffer-Tools
 AppSupportURL=https://github.com/ElectronicCats/CatSniffer-Tools

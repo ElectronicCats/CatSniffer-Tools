@@ -5,7 +5,7 @@ long_description = Path("README.md").read_text(encoding="utf-8")
 
 setup(
     name="catnip",
-    version="3.3.0.0",
+    version="3.3.1.0",
     packages=find_packages(include=["modules", "modules.*", "protocol", "protocol.*"]),
     description="All in one CatSniffer tools — multi-protocol RF sniffer CLI",
     long_description=long_description,
