@@ -1281,13 +1281,15 @@ def meshtastic_decode(input, key):
     """Decrypt and decode a hex-encoded Meshtastic packet"""
     try:
         from .meshtastic import MeshtasticDecoder
-    except ImportError:
-        print_error("The 'meshtastic' library is required for this command.")
+    except ImportError as e:
+        print_error(
+            f"The 'meshtastic' library is required for this command. (Error: {e})"
+        )
         console.print(
             "\n[yellow]This library should be bundled with the package.[/yellow]"
         )
-        console.print("If it's missing, you can install it as a workaround:")
-        console.print("  pip install meshtastic")
+        console.print("If it's missing, you can install it manually:")
+        console.print("  pip install meshtastic protobuf pyyaml")
         sys.exit(1)
 
     try:
@@ -1346,13 +1348,15 @@ def meshtastic_live(device, baudrate, frequency, preset):
     """Live Meshtastic decoder - Capture and decode packets in real-time"""
     try:
         from .meshtastic import MeshtasticLiveDecoder
-    except ImportError:
-        print_error("The 'meshtastic' library is required for this command.")
+    except ImportError as e:
+        print_error(
+            f"The 'meshtastic' library is required for this command. (Error: {e})"
+        )
         console.print(
             "\n[yellow]This library should be bundled with the package.[/yellow]"
         )
-        console.print("If it's missing, you can install it as a workaround:")
-        console.print("  pip install meshtastic")
+        console.print("If it's missing, you can install it manually:")
+        console.print("  pip install meshtastic protobuf pyyaml")
         sys.exit(1)
 
     # Get device or exit with error
@@ -1441,13 +1445,15 @@ def meshtastic_dashboard(device, baudrate, frequency, preset):
     try:
         from .meshtastic.core import configure_meshtastic_radio
         from .meshtastic import MeshtasticChatApp, Monitor
-    except ImportError:
-        print_error("The 'meshtastic' library is required for this command.")
+    except ImportError as e:
+        print_error(
+            f"The 'meshtastic' library is required for this command. (Error: {e})"
+        )
         console.print(
             "\n[yellow]This library should be bundled with the package.[/yellow]"
         )
-        console.print("If it's missing, you can install it as a workaround:")
-        console.print("  pip install meshtastic")
+        console.print("If it's missing, you can install it manually:")
+        console.print("  pip install meshtastic protobuf pyyaml")
         sys.exit(1)
 
     # Get device or exit with error
@@ -1494,13 +1500,15 @@ def meshtastic_config(file):
     """Extract PSKs and config info from a Meshtastic JSONC config file"""
     try:
         from .meshtastic import MeshtasticConfigExtractor
-    except ImportError:
-        print_error("The 'meshtastic' library is required for this command.")
+    except ImportError as e:
+        print_error(
+            f"The 'meshtastic' library is required for this command. (Error: {e})"
+        )
         console.print(
             "\n[yellow]This library should be bundled with the package.[/yellow]"
         )
-        console.print("If it's missing, you can install it as a workaround:")
-        console.print("  pip install meshtastic")
+        console.print("If it's missing, you can install it manually:")
+        console.print("  pip install meshtastic protobuf pyyaml")
         sys.exit(1)
 
     extractor = MeshtasticConfigExtractor(file)

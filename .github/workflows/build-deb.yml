@@ -45,10 +45,10 @@ jobs:
           cp catnip/catnip.py "$PKG_DIR/"
           touch "$PKG_DIR/__init__.py"
 
-          # 4. Vendor optional dependencies (like meshtastic)
+          # 4. Vendor all dependencies from requirements.txt
           # This allows the tool to work out-of-the-box without user-managed venvs
           mkdir -p "$PKG_DIR/vendor"
-          python3 -m pip install --target "$PKG_DIR/vendor" meshtastic
+          python3 -m pip install --target "$PKG_DIR/vendor" -r catnip/requirements.txt
 
           # 5. Copy protocol/ as a top-level package (sibling of catnip/, not inside it)
           #    This mirrors the project root layout where protocol/ sits next to modules/,

@@ -62,10 +62,10 @@ jobs:
           # 4. Copy protocol/ as a top-level package (sibling of catnip/, not inside it)
           cp -r catnip/protocol/ "$DIST_DIR/"
 
-          # 5. Vendor optional dependencies (like meshtastic)
+          # 5. Vendor all dependencies from requirements.txt
           # This allows the tool to work out-of-the-box without user-managed venvs
           mkdir -p "$PKG_DIR/vendor"
-          python -m pip install --target "$PKG_DIR/vendor" meshtastic
+          python -m pip install --target "$PKG_DIR/vendor" -r catnip/requirements.txt
 
           # 6. Install the launcher script
           mkdir -p "$BUILD_DIR/usr/bin"

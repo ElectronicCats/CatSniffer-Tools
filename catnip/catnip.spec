@@ -3,21 +3,25 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = []
 binaries = []
-hiddenimports = ['click', 'usb', 'usb.backend.libusb1', 'magic']
-tmp_ret = collect_all('scapy')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('textual')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('meshtastic')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('rich')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('matplotlib')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('cryptography')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('serial')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+hiddenimports = [
+    'click',
+    'usb',
+    'usb.backend.libusb1',
+    'magic',
+    'serial',
+    'serial.tools.list_ports',
+    'scapy.layers.all',
+    'charset_normalizer.md__mypyc',
+    'pycparser'
+]
+
+# Collect all data, binaries and hidden imports for major libraries
+for package in ['scapy', 'textual', 'meshtastic', 'rich', 'matplotlib',
+                'cryptography', 'numpy', 'intelhex', 'requests']:
+    tmp_ret = collect_all(package)
+    datas += tmp_ret[0]
+    binaries += tmp_ret[1]
+    hiddenimports += tmp_ret[2]
 
 
 a = Analysis(

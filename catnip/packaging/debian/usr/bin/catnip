@@ -4,11 +4,20 @@ import os
 import sys
 import catnip
 
-# Add vendor directory to sys.path for bundled dependencies
+# Get the package directory (e.g., /usr/lib/python3/dist-packages/catnip)
+pkg_dir = os.path.dirname(catnip.__file__)
+
+# 1. Add vendor directory for bundled dependencies (meshtastic, etc.)
 # This allows 'import meshtastic' to work when it's vendored into the package
-vendor_path = os.path.join(os.path.dirname(catnip.__file__), "vendor")
+vendor_path = os.path.join(pkg_dir, "vendor")
 if os.path.exists(vendor_path):
     sys.path.insert(0, vendor_path)
+
+# 2. Add the package directory itself to sys.path
+# This makes 'import modules.X' work in the installed version,
+# maintaining compatibility with the local development structure.
+if pkg_dir not in sys.path:
+    sys.path.insert(0, pkg_dir)
 
 # Internal
 from catnip.modules.cli import main_cli
