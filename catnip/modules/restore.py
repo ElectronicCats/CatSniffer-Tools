@@ -1,0 +1,455 @@
+"""
+CC1352 Restore Module for CatSniffer
+=====================================
+
+Recovers a CC1352 when the serial bootloader is broken (e.g., after
+flashing firmware without proper CCFG bootloader configuration).
+
+Uses the RP2040 as a CMSIS-DAP JTAG programmer via OpenOCD.
+
+Flow:
+    1. Put RP2040 into BOOTSEL mode (shell 'reboot' or manual)
+    2. Load free_dap CMSIS-DAP firmware onto RP2040
+    3. Use OpenOCD to flash CC1352 via JTAG
+    4. Put RP2040 into BOOTSEL again (manual — free_dap has no shell)
+    5. Restore RP2040 bridge firmware
+
+Requirements:
+    - OpenOCD installed (stock package includes CMSIS-DAP support)
+      Linux: sudo apt install openocd
+      macOS: brew install openocd
+      Windows: choco install openocd
+"""
+
+import os
+import sys
+import time
+import shutil
+import subprocess
+import tempfile
+import logging
+from typing import Optional
+
+import requests
+
+from .fw_update import (
+    find_rp2040_mount_point,
+    flash_rp2040_uf2,
+    enter_boot_mode,
+    find_uf2_firmware,
+)
+
+from rich.console import Console
+
+logger = logging.getLogger("rich")
+console = Console()
+
+# free_dap is in the same release as the bridge firmware (v3.1.0.0)
+FREE_DAP_RELEASE_URL = (
+    "https://api.github.com/repos/ElectronicCats/CatSniffer-Firmware"
+    "/releases/tags/v3.1.0.0"
+)
+FREE_DAP_FILENAME = "free_dap_catsniffer.uf2"
+
+# CC1352 JTAG TAPIDs
+TAPID_CC1352P7 = "0x1BB7702F"
+TAPID_CC1352P1 = "0x0BB4102F"
+
+# CMSIS-DAP USB identifiers
+CMSIS_DAP_VID_PID = "6666:9930"
+
+# Default CC1352 firmware to restore (from catnip release)
+DEFAULT_CC1352_FW = "sniffer_fw_Catsniffer_v3.x.hex"
+
+# OpenOCD settings
+OPENOCD_SPEED = 500  # kHz — tested working, higher may fail
+
+# Cache directory for downloaded firmware
+CACHE_DIR = os.path.join(os.path.expanduser("~"), ".catnip", "restore_cache")
+
+
+def check_openocd() -> Optional[str]:
+    """Check if OpenOCD is installed and return its path."""
+    path = shutil.which("openocd")
+    if not path:
+        return None
+    try:
+        result = subprocess.run(
+            [path, "--version"], capture_output=True, text=True, timeout=5
+        )
+        version_line = result.stderr.split("\n")[0] if result.stderr else "unknown"
+        console.print(f"[*] OpenOCD: {version_line}")
+        return path
+    except Exception:
+        return path
+
+
+def _download_asset(url: str, dest: str) -> bool:
+    """Download a file from URL."""
+    try:
+        console.print(f"[*] Downloading {os.path.basename(dest)}...")
+        response = requests.get(url, timeout=30, stream=True, allow_redirects=True)
+        response.raise_for_status()
+        with open(dest, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        size = os.path.getsize(dest)
+        console.print(f"[green]✓[/green] Downloaded ({size:,} bytes)")
+        return True
+    except Exception as e:
+        console.print(f"[red]✗[/red] Download failed: {e}")
+        return False
+
+
+def get_free_dap_path() -> Optional[str]:
+    """Get path to free_dap UF2, downloading from GitHub release if needed."""
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cached = os.path.join(CACHE_DIR, FREE_DAP_FILENAME)
+
+    if os.path.exists(cached) and os.path.getsize(cached) > 1000:
+        console.print(f"[*] Using cached {FREE_DAP_FILENAME}")
+        return cached
+
+    # Fetch download URL from release API
+    try:
+        resp = requests.get(FREE_DAP_RELEASE_URL, timeout=10)
+        resp.raise_for_status()
+        for asset in resp.json().get("assets", []):
+            if asset["name"] == FREE_DAP_FILENAME:
+                if _download_asset(asset["browser_download_url"], cached):
+                    return cached
+    except Exception as e:
+        console.print(f"[red]✗[/red] Cannot fetch free_dap release: {e}")
+
+    return None
+
+
+def get_bridge_uf2_path(flasher=None) -> Optional[str]:
+    """
+    Get path to bridge UF2 firmware.
+    First checks catnip's local release folder, then downloads if needed.
+    """
+    # Check catnip's release folder first
+    if flasher:
+        try:
+            release_path = flasher.get_releases_path()
+            if os.path.exists(release_path):
+                for f in os.listdir(release_path):
+                    if f.endswith(".uf2") and "catsniffer" in f.lower():
+                        path = os.path.join(release_path, f)
+                        console.print(f"[*] Bridge UF2: {f}")
+                        return path
+        except Exception:
+            pass
+
+    # Fallback: check cache
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    for f in os.listdir(CACHE_DIR):
+        if f.endswith(".uf2") and "catsniffer" in f.lower() and "free_dap" not in f:
+            return os.path.join(CACHE_DIR, f)
+
+    return None
+
+
+def get_default_cc1352_firmware(flasher=None) -> Optional[str]:
+    """Find the default CatSniffer CC1352 firmware from catnip's release folder."""
+    if flasher:
+        try:
+            release_path = flasher.get_releases_path()
+            path = os.path.join(release_path, DEFAULT_CC1352_FW)
+            if os.path.exists(path):
+                return path
+        except Exception:
+            pass
+
+    # Search in all release folders
+    catnip_dir = os.path.join(os.path.expanduser("~"), ".catnip")
+    if os.path.exists(catnip_dir):
+        for d in os.listdir(catnip_dir):
+            path = os.path.join(catnip_dir, d, DEFAULT_CC1352_FW)
+            if os.path.exists(path):
+                return path
+
+    return None
+
+
+def create_openocd_config(tapid: str = TAPID_CC1352P7) -> Optional[str]:
+    """Create a temporary OpenOCD target config with the correct TAPID."""
+    stock_cfg = None
+    for path in [
+        "/usr/share/openocd/scripts/target/ti_cc13x2.cfg",
+        "/usr/local/share/openocd/scripts/target/ti_cc13x2.cfg",
+        # macOS Homebrew
+        "/opt/homebrew/share/openocd/scripts/target/ti_cc13x2.cfg",
+    ]:
+        if os.path.exists(path):
+            stock_cfg = path
+            break
+
+    if not stock_cfg:
+        console.print("[red]✗[/red] Cannot find ti_cc13x2.cfg in OpenOCD scripts")
+        return None
+
+    with open(stock_cfg, "r") as f:
+        content = f.read()
+
+    # Replace default TAPID with the correct one
+    content = content.replace("0x0BB4102F", tapid)
+    content = content.replace("0x0bb4102f", tapid.lower())
+
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".cfg", prefix="ti_cc13x2_", delete=False
+    )
+    tmp.write(content)
+    tmp.close()
+    return tmp.name
+
+
+def flash_cc1352_jtag(hex_path: str, openocd_path: str, config_path: str) -> bool:
+    """Flash CC1352 firmware via OpenOCD JTAG using CMSIS-DAP probe."""
+    console.print(f"[*] Programming {os.path.basename(hex_path)}...")
+
+    cmd = [
+        openocd_path,
+        "-f",
+        "interface/cmsis-dap.cfg",
+        "-c",
+        "transport select jtag",
+        "-c",
+        f"adapter speed {OPENOCD_SPEED}",
+        "-f",
+        config_path,
+        "-c",
+        f"init; halt; program {hex_path} verify reset; shutdown",
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        output = result.stderr  # OpenOCD outputs to stderr
+
+        if "Verified OK" in output:
+            console.print("[green]✓[/green] CC1352 programmed and verified!")
+            return True
+        else:
+            for line in output.split("\n"):
+                if "Error" in line:
+                    console.print(f"[red]  {line.strip()}[/red]")
+            return False
+    except subprocess.TimeoutExpired:
+        console.print("[red]✗[/red] OpenOCD timed out (60s)")
+        return False
+    except Exception as e:
+        console.print(f"[red]✗[/red] {e}")
+        return False
+
+
+def wait_for_bootsel(timeout: int = 30) -> Optional[str]:
+    """Wait for RP2040 BOOTSEL drive to appear."""
+    console.print("[*] Waiting for BOOTSEL drive...")
+    for i in range(timeout):
+        mount = find_rp2040_mount_point()
+        if mount:
+            console.print(f"[green]✓[/green] BOOTSEL at {mount}")
+            return mount
+        time.sleep(1)
+        if i == 10:
+            console.print(
+                "[yellow]  Still waiting... make sure RP2040 is in BOOT mode[/yellow]"
+            )
+    console.print("[red]✗[/red] BOOTSEL not detected")
+    return None
+
+
+def wait_for_cmsis_dap(timeout: int = 10) -> bool:
+    """Wait for CMSIS-DAP device to appear on USB."""
+    console.print("[*] Waiting for CMSIS-DAP probe...")
+    for _ in range(timeout):
+        try:
+            # Linux/macOS
+            result = subprocess.run(
+                ["lsusb"], capture_output=True, text=True, timeout=5
+            )
+            if CMSIS_DAP_VID_PID in result.stdout:
+                console.print("[green]✓[/green] CMSIS-DAP probe ready")
+                return True
+        except FileNotFoundError:
+            # Windows — check with OpenOCD directly
+            return True  # Assume available, OpenOCD will error if not
+        except Exception:
+            pass
+        time.sleep(1)
+    console.print("[red]✗[/red] CMSIS-DAP not detected")
+    return False
+
+
+def restore_cc1352(
+    hex_path: Optional[str] = None,
+    device=None,
+    flasher=None,
+    tapid: str = TAPID_CC1352P7,
+) -> bool:
+    """
+    Full CC1352 restore procedure.
+
+    Args:
+        hex_path: Path to .hex firmware (None = use default CatSniffer firmware)
+        device: CatSnifferDevice (optional, for shell access to RP2040)
+        flasher: Flasher instance (optional, for finding bridge UF2)
+        tapid: JTAG TAPID for the CC1352 variant
+
+    Returns:
+        True if CC1352 was successfully restored
+    """
+    console.print("")
+    console.print("[bold]═══════════════════════════════════════════════════[/bold]")
+    console.print("[bold]  CatSniffer CC1352 Restore via JTAG[/bold]")
+    console.print("[bold]═══════════════════════════════════════════════════[/bold]")
+    console.print("")
+
+    # --- Prerequisites ---
+    openocd = check_openocd()
+    if not openocd:
+        console.print("[red]✗[/red] OpenOCD not installed.")
+        console.print("  Install: [bold]sudo apt install openocd[/bold] (Linux)")
+        console.print("           [bold]brew install openocd[/bold] (macOS)")
+        return False
+
+    if not hex_path:
+        hex_path = get_default_cc1352_firmware(flasher)
+        if hex_path:
+            console.print(f"[*] Using default firmware: {os.path.basename(hex_path)}")
+        else:
+            console.print("[red]✗[/red] No firmware specified and default not found.")
+            console.print(
+                "  Run [bold]catnip flash --list[/bold] to download firmware first,"
+            )
+            console.print(
+                "  or specify a .hex file: [bold]catnip restore firmware.hex[/bold]"
+            )
+            return False
+
+    if not os.path.exists(hex_path):
+        console.print(f"[red]✗[/red] File not found: {hex_path}")
+        return False
+
+    free_dap = get_free_dap_path()
+    if not free_dap:
+        return False
+
+    bridge_uf2 = get_bridge_uf2_path(flasher)
+
+    config = create_openocd_config(tapid)
+    if not config:
+        return False
+
+    # --- Step 1: Load CMSIS-DAP onto RP2040 ---
+    console.print("[bold]Step 1/3: Load JTAG programmer onto RP2040[/bold]")
+    console.print("")
+
+    # Try shell 'reboot' command first (works if bridge firmware is running)
+    shell_port = None
+    if device and hasattr(device, "shell_port") and device.shell_port:
+        shell_port = device.shell_port
+    else:
+        # Try to find shell port by scanning ACM ports
+        import serial
+        import glob
+
+        for port in sorted(glob.glob("/dev/ttyACM*")):
+            try:
+                s = serial.Serial(port, 115200, timeout=0.5)
+                s.write(b"help\r\n")
+                time.sleep(0.3)
+                resp = s.read(200).decode(errors="replace")
+                s.close()
+                if "reboot" in resp:
+                    shell_port = port
+                    break
+            except Exception:
+                pass
+
+    if shell_port:
+        console.print(f"[*] Sending 'reboot' to RP2040 via {shell_port}...")
+        try:
+            enter_boot_mode(shell_port)
+        except Exception:
+            pass
+        mount = wait_for_bootsel(timeout=15)
+    else:
+        console.print("[yellow]  Put RP2040 in BOOTSEL mode:[/yellow]")
+        console.print("    1. Hold [bold]BOOT[/bold] button on CatSniffer")
+        console.print("    2. Press and release [bold]RESET[/bold]")
+        console.print("    3. Release [bold]BOOT[/bold]")
+        console.print("")
+        mount = wait_for_bootsel(timeout=30)
+
+    if not mount:
+        _cleanup(config)
+        return False
+
+    console.print(f"[*] Copying CMSIS-DAP firmware to {mount}...")
+    try:
+        shutil.copy2(free_dap, os.path.join(mount, FREE_DAP_FILENAME))
+    except Exception as e:
+        console.print(f"[red]✗[/red] Copy failed: {e}")
+        _cleanup(config)
+        return False
+
+    time.sleep(3)
+    if not wait_for_cmsis_dap():
+        _cleanup(config)
+        return False
+
+    # --- Step 2: Flash CC1352 ---
+    console.print("")
+    console.print("[bold]Step 2/3: Flash CC1352 via JTAG[/bold]")
+
+    success = flash_cc1352_jtag(hex_path, openocd, config)
+    _cleanup(config)
+
+    if not success:
+        console.print("")
+        console.print("[red]CC1352 flash failed.[/red]")
+        console.print("  The RP2040 still has CMSIS-DAP firmware.")
+        console.print("  Put it in BOOTSEL and copy the bridge UF2 to restore.")
+        return False
+
+    # --- Step 3: Restore RP2040 bridge ---
+    console.print("")
+    console.print("[bold]Step 3/3: Restore RP2040 bridge firmware[/bold]")
+    console.print("")
+    console.print("[yellow]  Put RP2040 in BOOTSEL mode again:[/yellow]")
+    console.print("    1. [bold]Disconnect[/bold] USB cable")
+    console.print("    2. Hold [bold]BOOT[/bold] button")
+    console.print("    3. [bold]Reconnect[/bold] USB while holding BOOT")
+    console.print("    4. Release [bold]BOOT[/bold]")
+    console.print("")
+
+    mount = wait_for_bootsel(timeout=30)
+
+    if mount and bridge_uf2:
+        console.print(f"[*] Restoring bridge: {os.path.basename(bridge_uf2)}...")
+        try:
+            shutil.copy2(bridge_uf2, os.path.join(mount, os.path.basename(bridge_uf2)))
+            time.sleep(5)
+            console.print("[green]✓[/green] Bridge firmware restored!")
+            console.print("")
+            console.print("[bold green]✓ CC1352 restore complete![/bold green]")
+            return True
+        except Exception as e:
+            console.print(f"[red]✗[/red] Copy failed: {e}")
+
+    if not bridge_uf2:
+        console.print("[yellow]![/yellow] Bridge UF2 not found locally.")
+        console.print("  Run [bold]catnip update --force[/bold] after BOOTSEL restore.")
+
+    return success
+
+
+def _cleanup(config_path: Optional[str]):
+    """Remove temporary OpenOCD config file."""
+    if config_path:
+        try:
+            os.unlink(config_path)
+        except Exception:
+            pass

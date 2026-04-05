@@ -1867,6 +1867,59 @@ def update(device, force):
         console.print("\n[dim]Use 'catnip update --force' to force an update.[/dim]")
 
 
+# ===================== CC1352 Restore Command =====================
+
+
+@cli.command()
+@click.argument("firmware", required=False, default=None)
+@click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for shell access to trigger BOOTSEL)",
+)
+@click.option(
+    "--tapid",
+    default="0x1BB7702F",
+    help="CC1352 JTAG TAPID (default: CC1352P7)",
+)
+def restore(firmware, device, tapid):
+    """Restore CC1352 when bootloader is broken.
+
+    Uses RP2040 as CMSIS-DAP JTAG programmer via OpenOCD to flash
+    the CC1352 directly. Requires OpenOCD installed.
+
+    If no firmware is specified, uses the default CatSniffer firmware
+    from the catnip release.
+
+    \b
+    Example:
+        catnip restore                    # default CatSniffer firmware
+        catnip restore firmware.hex       # custom firmware
+        catnip restore firmware.hex -d 1  # specific device
+    """
+    from .restore import restore_cc1352
+
+    print_header("restore")
+
+    dev = None
+    if device is not None:
+        dev = catnip_get_device(device)
+
+    flasher_inst = Flasher()
+
+    success = restore_cc1352(
+        hex_path=firmware,
+        device=dev,
+        flasher=flasher_inst,
+        tapid=tapid,
+    )
+
+    if not success:
+        print_error("Restore failed. Check the output above for details.")
+
+
 # ===================== Shell Completion Commands =====================
 
 
