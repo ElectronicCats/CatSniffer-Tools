@@ -205,14 +205,20 @@ def create_openocd_config(tapid: str = TAPID_CC1352P7) -> Optional[str]:
     return tmp.name
 
 
-def flash_cc1352_jtag(hex_path: str, openocd_path: str, config_path: str) -> bool:
-    """Flash CC1352 firmware via OpenOCD JTAG using CMSIS-DAP probe."""
-    console.print(f"[*] Programming {os.path.basename(hex_path)}...")
+def erase_cc1352_jtag(openocd_path: str, config_path: str) -> bool:
+    """Erase CC1352 flash via JTAG, preserving bootloader (sector 0/CCFG).
+
+    Erases sectors 1-last so the serial bootloader in CCFG remains intact.
+    After this, catnip flash can program new firmware via serial.
+    """
+    console.print("[*] Erasing CC1352 flash (preserving bootloader)...")
 
     cmd = [
         openocd_path,
         "-f",
         "interface/cmsis-dap.cfg",
+        "-c",
+        "cmsis_dap_backend hid",
         "-c",
         "transport select jtag",
         "-c",
@@ -220,21 +226,21 @@ def flash_cc1352_jtag(hex_path: str, openocd_path: str, config_path: str) -> boo
         "-f",
         config_path,
         "-c",
-        f"init; halt; program {hex_path} verify reset; shutdown",
+        "init; halt; flash erase_sector 0 1 last; shutdown",
     ]
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        output = result.stderr  # OpenOCD outputs to stderr
+        output = result.stderr
 
-        if "Verified OK" in output:
-            console.print("[green]✓[/green] CC1352 programmed and verified!")
-            return True
-        else:
+        if "Error" in output and "erase" in output.lower():
             for line in output.split("\n"):
                 if "Error" in line:
                     console.print(f"[red]  {line.strip()}[/red]")
             return False
+
+        console.print("[green]✓[/green] CC1352 flash erased — bootloader preserved")
+        return True
     except subprocess.TimeoutExpired:
         console.print("[red]✗[/red] OpenOCD timed out (60s)")
         return False
@@ -400,23 +406,23 @@ def restore_cc1352(
         _cleanup(config)
         return False
 
-    # --- Step 2: Flash CC1352 ---
+    # --- Step 2: Erase CC1352 flash (preserve bootloader) ---
     console.print("")
-    console.print("[bold]Step 2/3: Flash CC1352 via JTAG[/bold]")
+    console.print("[bold]Step 2/4: Erase CC1352 flash via JTAG[/bold]")
 
-    success = flash_cc1352_jtag(hex_path, openocd, config)
+    success = erase_cc1352_jtag(openocd, config)
     _cleanup(config)
 
     if not success:
         console.print("")
-        console.print("[red]CC1352 flash failed.[/red]")
+        console.print("[red]CC1352 erase failed.[/red]")
         console.print("  The RP2040 still has CMSIS-DAP firmware.")
         console.print("  Put it in BOOTSEL and copy the bridge UF2 to restore.")
         return False
 
     # --- Step 3: Restore RP2040 bridge ---
     console.print("")
-    console.print("[bold]Step 3/3: Restore RP2040 bridge firmware[/bold]")
+    console.print("[bold]Step 3/4: Restore RP2040 bridge firmware[/bold]")
     console.print("")
     console.print("[yellow]  Put RP2040 in BOOTSEL mode again:[/yellow]")
     console.print("    1. [bold]Disconnect[/bold] USB cable")
@@ -427,23 +433,55 @@ def restore_cc1352(
 
     mount = wait_for_bootsel(timeout=30)
 
-    if mount and bridge_uf2:
-        console.print(f"[*] Restoring bridge: {os.path.basename(bridge_uf2)}...")
-        try:
-            shutil.copy2(bridge_uf2, os.path.join(mount, os.path.basename(bridge_uf2)))
-            time.sleep(5)
-            console.print("[green]✓[/green] Bridge firmware restored!")
+    if not mount or not bridge_uf2:
+        if not bridge_uf2:
+            console.print("[yellow]![/yellow] Bridge UF2 not found locally.")
+            console.print(
+                "  Run [bold]catnip update --force[/bold] after BOOTSEL restore."
+            )
+        return False
+
+    console.print(f"[*] Restoring bridge: {os.path.basename(bridge_uf2)}...")
+    try:
+        shutil.copy2(bridge_uf2, os.path.join(mount, os.path.basename(bridge_uf2)))
+        time.sleep(5)
+        console.print("[green]✓[/green] Bridge firmware restored!")
+    except Exception as e:
+        console.print(f"[red]✗[/red] Copy failed: {e}")
+        return False
+
+    # --- Step 4: Flash firmware via serial bootloader ---
+    console.print("")
+    console.print("[bold]Step 4/4: Flash CC1352 firmware via serial[/bold]")
+    console.print("[*] Waiting for CatSniffer to reconnect...")
+    time.sleep(5)
+
+    # Use catnip flash to program via serial bootloader
+    try:
+        from .catnip import catnip_get_device
+        from .flasher import Flasher
+
+        dev = catnip_get_device()
+        if not dev:
+            console.print("[yellow]![/yellow] CatSniffer not detected. Flash manually:")
+            console.print(f"  [bold]catnip flash {hex_path}[/bold]")
+            return True  # Erase succeeded, just need manual flash
+
+        console.print(f"[*] Flashing {os.path.basename(hex_path)} via serial...")
+        flasher = Flasher()
+        result = flasher.find_flash_firmware(hex_path, dev)
+        if result:
             console.print("")
             console.print("[bold green]✓ CC1352 restore complete![/bold green]")
             return True
-        except Exception as e:
-            console.print(f"[red]✗[/red] Copy failed: {e}")
-
-    if not bridge_uf2:
-        console.print("[yellow]![/yellow] Bridge UF2 not found locally.")
-        console.print("  Run [bold]catnip update --force[/bold] after BOOTSEL restore.")
-
-    return success
+        else:
+            console.print("[yellow]![/yellow] Serial flash may have failed.")
+            console.print(f"  Try manually: [bold]catnip flash {hex_path}[/bold]")
+            return True  # Erase worked
+    except Exception as e:
+        console.print(f"[yellow]![/yellow] Auto-flash failed: {e}")
+        console.print(f"  Flash manually: [bold]catnip flash {hex_path}[/bold]")
+        return True  # Erase + bridge restore succeeded
 
 
 def _cleanup(config_path: Optional[str]):
