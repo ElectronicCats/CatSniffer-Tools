@@ -4,6 +4,8 @@ set -e
 # Prerequisites (macOS): native libraries must be installed before running this script.
 #   brew install libusb libmagic
 # In CI these are installed by the GitHub Actions workflow before this script is called.
+# Note: openocd is NOT a build prerequisite — it is installed on the end user's machine
+# via the postinstall script bundled in the .pkg (packaging/macos/scripts/postinstall).
 
 echo "[*] Installing Python dependencies..."
 pip install -r requirements.txt
@@ -77,6 +79,7 @@ pkgbuild --root "${PKG_ROOT}" \
          --identifier "${IDENTIFIER}" \
          --version "${VERSION}" \
          --install-location "/" \
+         --scripts "packaging/macos/scripts" \
          "catnip-${VERSION}.pkg"
 
 echo "[+] Build successful. Installer created: catnip-${VERSION}.pkg"

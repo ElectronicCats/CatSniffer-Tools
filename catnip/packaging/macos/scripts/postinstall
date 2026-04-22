@@ -1,0 +1,39 @@
+#!/bin/sh
+# postinstall — install OpenOCD dependency via Homebrew
+#
+# pkgbuild runs postinstall as root; we need the real user's Homebrew.
+
+# Get the real logged-in user (works on macOS even when running as root)
+REAL_USER=$(stat -f '%Su' /dev/console 2>/dev/null || echo "")
+
+install_via_brew() {
+    local brew="$1"
+    echo "[catnip] Installing openocd via Homebrew..."
+    sudo -u "$REAL_USER" "$brew" install openocd || true
+}
+
+# openocd already present — nothing to do
+if command -v openocd >/dev/null 2>&1; then
+    echo "[catnip] openocd already installed: $(command -v openocd)"
+    exit 0
+fi
+
+if [ -z "$REAL_USER" ]; then
+    echo "[catnip] Warning: could not determine current user."
+    echo "[catnip] Install OpenOCD manually: brew install openocd"
+    exit 0
+fi
+
+# Apple Silicon path first, then Intel
+for BREW in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+    if [ -x "$BREW" ]; then
+        install_via_brew "$BREW"
+        exit 0
+    fi
+done
+
+echo "[catnip] Homebrew not found. Install OpenOCD manually:"
+echo "         brew install openocd"
+echo "         (visit https://brew.sh if Homebrew is not installed)"
+
+exit 0
