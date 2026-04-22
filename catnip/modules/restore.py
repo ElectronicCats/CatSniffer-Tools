@@ -404,26 +404,15 @@ def restore_cc1352(
     console.print("")
 
     # Try shell 'reboot' command first (works if bridge firmware is running)
+    # Auto-detect device if not provided
+    if device is None:
+        from .catnip import catnip_get_device as _get_device
+
+        device = _get_device()
+
     shell_port = None
     if device and hasattr(device, "shell_port") and device.shell_port:
         shell_port = device.shell_port
-    else:
-        # Try to find shell port by scanning ACM ports
-        import serial
-        import glob
-
-        for port in sorted(glob.glob("/dev/ttyACM*")):
-            try:
-                s = serial.Serial(port, 115200, timeout=0.5)
-                s.write(b"help\r\n")
-                time.sleep(0.3)
-                resp = s.read(200).decode(errors="replace")
-                s.close()
-                if "reboot" in resp:
-                    shell_port = port
-                    break
-            except Exception:
-                pass
 
     if shell_port:
         _print_info(f"Sending 'reboot' to RP2040 via {shell_port}...")
