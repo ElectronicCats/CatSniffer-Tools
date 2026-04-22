@@ -1878,6 +1878,10 @@ def restore(firmware, device, tapid):
     dev = None
     if device is not None:
         dev = catnip_get_device(device)
+        if dev is None:
+            print_warning(f"Device #{device} not found, will check for Boot Mode...")
+    else:
+        dev = catnip_get_device()
 
     flasher_inst = Flasher()
 
