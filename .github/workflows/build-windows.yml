@@ -77,6 +77,7 @@ jobs:
         Remove-Item openocd.zip -Force
         Remove-Item openocd_raw -Recurse -Force -ErrorAction SilentlyContinue
         Write-Host "OpenOCD ready:"
+        Get-ChildItem openocd_dist/ | Select-Object Name
         Get-ChildItem openocd_dist/bin/ | Select-Object Name
 
     - name: Inject Version into _version.py

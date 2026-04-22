@@ -88,13 +88,18 @@ if libusb_dll:
 _openocd_dist = 'openocd_dist'
 if os.path.exists(_openocd_dist):
     _openocd_bin = os.path.join(_openocd_dist, 'bin')
-    _openocd_scripts = os.path.join(_openocd_dist, 'share', 'openocd', 'scripts')
+    # xPack OpenOCD uses openocd/scripts; traditional POSIX installs use share/openocd/scripts
+    _openocd_scripts = os.path.join(_openocd_dist, 'openocd', 'scripts')
+    if not os.path.exists(_openocd_scripts):
+        _openocd_scripts = os.path.join(_openocd_dist, 'share', 'openocd', 'scripts')
     if os.path.exists(_openocd_bin):
         for _f in os.listdir(_openocd_bin):
             if _f.endswith('.exe') or _f.endswith('.dll'):
                 binaries.append((os.path.join(_openocd_bin, _f), '.'))
     if os.path.exists(_openocd_scripts):
         datas.append((_openocd_scripts, 'openocd_scripts'))
+    else:
+        print(f"WARNING: OpenOCD scripts not found in {_openocd_dist}. 'catnip restore' will not work.")
 
 # Analysis configuration
 a = Analysis(
