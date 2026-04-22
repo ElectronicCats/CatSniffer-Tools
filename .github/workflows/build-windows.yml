@@ -67,8 +67,8 @@ jobs:
     - name: Download OpenOCD for bundling
       working-directory: catnip
       run: |
-        $OPENOCD_VERSION = "0.12.0-4"
-        $OPENOCD_URL = "https://github.com/xpack-binaries/openocd/releases/download/v${OPENOCD_VERSION}/xpack-openocd-${OPENOCD_VERSION}-win32-x64.zip"
+        $OPENOCD_VERSION = "0.12.0-6"
+        $OPENOCD_URL = "https://github.com/xpack-dev-tools/openocd-xpack/releases/download/v${OPENOCD_VERSION}/xpack-openocd-${OPENOCD_VERSION}-win32-x64.zip"
         Write-Host "Downloading xPack OpenOCD ${OPENOCD_VERSION}..."
         Invoke-WebRequest -Uri $OPENOCD_URL -OutFile openocd.zip
         Expand-Archive -Path openocd.zip -DestinationPath openocd_raw -Force
