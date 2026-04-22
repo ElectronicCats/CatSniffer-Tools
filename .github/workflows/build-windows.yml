@@ -6,6 +6,7 @@ on:
       - main
       - master
       #- dev
+      - feature/restore-cc1352
   release:
     types: [created]
   workflow_dispatch:
