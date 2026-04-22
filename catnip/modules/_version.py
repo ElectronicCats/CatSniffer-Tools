@@ -1,8 +1,13 @@
 from importlib.metadata import version, PackageNotFoundError
 from pathlib import Path
 
-try:
-    __version__ = version("catnip")
-except PackageNotFoundError:
-    # Fallback for development (package not installed)
-    __version__ = (Path(__file__).parent.parent / "VERSION").read_text().strip()
+_version_file = Path(__file__).parent.parent / "VERSION"
+
+if _version_file.exists():
+    # En desarrollo, siempre usamos el archivo VERSION local si existe
+    __version__ = _version_file.read_text().strip()
+else:
+    try:
+        __version__ = version("catnip")
+    except PackageNotFoundError:
+        __version__ = "unknown"
