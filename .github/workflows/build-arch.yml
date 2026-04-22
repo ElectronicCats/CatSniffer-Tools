@@ -62,6 +62,7 @@ jobs:
           # 3. Copy fresh source code directly from the root repository to the packaging folder
           cp -r catnip/modules/ "$PKG_DIR/"
           cp catnip/catnip.py "$PKG_DIR/"
+          cp catnip/VERSION "$PKG_DIR/"
           touch "$PKG_DIR/__init__.py"
 
           # 4. Copy protocol/ as a top-level package (sibling of catnip/, not inside it)

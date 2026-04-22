@@ -78,6 +78,12 @@ jobs:
         Write-Host "OpenOCD ready:"
         Get-ChildItem openocd_dist/bin/ | Select-Object Name
 
+    - name: Inject Version into _version.py
+      working-directory: catnip
+      run: |
+        $version = (Get-Content "VERSION" -Raw).Trim()
+        Set-Content "modules\_version.py" "__version__ = '$version'"
+
     - name: Build with PyInstaller
       working-directory: catnip
       run: |

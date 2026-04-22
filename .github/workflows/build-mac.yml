@@ -47,6 +47,11 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Inject Version into _version.py
+        run: |
+          VERSION=$(cat catnip/VERSION | tr -d '[:space:]')
+          echo "__version__ = \"${VERSION}\"" > catnip/modules/_version.py
+
       - name: Build macOS Installer
         run: |
           cd catnip
