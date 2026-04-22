@@ -37,8 +37,7 @@ jobs:
       - name: Extract Package Version
         id: get_version
         run: |
-          # Automatically extract the version from the DEBIAN/control file
-          VERSION=$(grep -i '^Version:' catnip/packaging/debian/DEBIAN/control | awk '{print $2}')
+          VERSION=$(cat catnip/VERSION | tr -d '[:space:]')
           if [ -z "$VERSION" ]; then
             VERSION="latest"
           fi

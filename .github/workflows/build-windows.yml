@@ -38,10 +38,7 @@ jobs:
     - name: Extract Package Version
       id: get_version
       run: |
-        # Automatically extract the version from the DEBIAN/control file
-        # (same source of truth used by the Debian and Arch workflows)
-        $version = (Select-String -Path "catnip\packaging\debian\DEBIAN\control" `
-          -Pattern "^Version:\s*(.+)").Matches[0].Groups[1].Value.Trim()
+        $version = (Get-Content "catnip\VERSION" -Raw).Trim()
         if (-not $version) { $version = "latest" }
         echo "VERSION=$version" >> $env:GITHUB_ENV
 
