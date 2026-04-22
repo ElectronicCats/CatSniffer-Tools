@@ -22,6 +22,7 @@ Requirements:
 """
 
 import os
+import sys
 import time
 import shutil
 import subprocess
@@ -88,9 +89,27 @@ OPENOCD_SPEED = 500  # kHz — tested working, higher may fail
 CACHE_DIR = os.path.join(os.path.expanduser("~"), ".catnip", "restore_cache")
 
 
+def _bundled_openocd() -> Optional[str]:
+    """Return path to OpenOCD bundled inside a PyInstaller Windows package, or None."""
+    meipass = getattr(sys, "_MEIPASS", None)
+    if not meipass:
+        return None
+    candidate = os.path.join(meipass, "openocd.exe")
+    return candidate if os.path.exists(candidate) else None
+
+
+def _bundled_scripts_dir() -> Optional[str]:
+    """Return path to the OpenOCD scripts dir bundled inside a PyInstaller package, or None."""
+    meipass = getattr(sys, "_MEIPASS", None)
+    if not meipass:
+        return None
+    candidate = os.path.join(meipass, "openocd_scripts")
+    return candidate if os.path.exists(candidate) else None
+
+
 def check_openocd() -> Optional[str]:
-    """Check if OpenOCD is installed and return its path."""
-    path = shutil.which("openocd")
+    """Check if OpenOCD is available and return its path."""
+    path = _bundled_openocd() or shutil.which("openocd")
     if not path:
         return None
     try:
@@ -196,15 +215,24 @@ def get_default_cc1352_firmware(flasher=None) -> Optional[str]:
 def create_openocd_config(tapid: str = TAPID_CC1352P7) -> Optional[str]:
     """Create a temporary OpenOCD target config with the correct TAPID."""
     stock_cfg = None
-    for path in [
-        "/usr/share/openocd/scripts/target/ti_cc13x2.cfg",
-        "/usr/local/share/openocd/scripts/target/ti_cc13x2.cfg",
-        # macOS Homebrew
-        "/opt/homebrew/share/openocd/scripts/target/ti_cc13x2.cfg",
-    ]:
-        if os.path.exists(path):
-            stock_cfg = path
-            break
+
+    # Bundled scripts take priority (PyInstaller Windows package)
+    bundled = _bundled_scripts_dir()
+    if bundled:
+        candidate = os.path.join(bundled, "target", "ti_cc13x2.cfg")
+        if os.path.exists(candidate):
+            stock_cfg = candidate
+
+    if not stock_cfg:
+        for path in [
+            "/usr/share/openocd/scripts/target/ti_cc13x2.cfg",
+            "/usr/local/share/openocd/scripts/target/ti_cc13x2.cfg",
+            # macOS Homebrew
+            "/opt/homebrew/share/openocd/scripts/target/ti_cc13x2.cfg",
+        ]:
+            if os.path.exists(path):
+                stock_cfg = path
+                break
 
     if not stock_cfg:
         _print_error("Cannot find ti_cc13x2.cfg in OpenOCD scripts")
@@ -233,8 +261,13 @@ def erase_cc1352_jtag(openocd_path: str, config_path: str) -> bool:
     """
     _print_info("Erasing CC1352 flash (preserving bootloader)...")
 
-    cmd = [
-        openocd_path,
+    cmd = [openocd_path]
+    # When using the bundled OpenOCD, point it to the bundled scripts directory
+    # so it can resolve interface/cmsis-dap.cfg and target configs correctly.
+    scripts_dir = _bundled_scripts_dir()
+    if scripts_dir:
+        cmd += ["-s", scripts_dir]
+    cmd += [
         "-f",
         "interface/cmsis-dap.cfg",
         "-c",
