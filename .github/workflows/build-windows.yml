@@ -66,6 +66,21 @@ jobs:
         & "C:\Program Files\7-Zip\7z.exe" x libusb.7z
         cd ..
 
+    - name: Download OpenOCD for bundling
+      working-directory: catnip
+      run: |
+        $OPENOCD_VERSION = "0.12.0-4"
+        $OPENOCD_URL = "https://github.com/xpack-binaries/openocd/releases/download/v${OPENOCD_VERSION}/xpack-openocd-${OPENOCD_VERSION}-win32-x64.zip"
+        Write-Host "Downloading xPack OpenOCD ${OPENOCD_VERSION}..."
+        Invoke-WebRequest -Uri $OPENOCD_URL -OutFile openocd.zip
+        Expand-Archive -Path openocd.zip -DestinationPath openocd_raw -Force
+        $extracted = (Get-ChildItem openocd_raw -Directory | Select-Object -First 1).FullName
+        Move-Item $extracted openocd_dist
+        Remove-Item openocd.zip -Force
+        Remove-Item openocd_raw -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "OpenOCD ready:"
+        Get-ChildItem openocd_dist/bin/ | Select-Object Name
+
     - name: Build with PyInstaller
       working-directory: catnip
       run: |
