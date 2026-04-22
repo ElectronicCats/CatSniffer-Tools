@@ -6,10 +6,10 @@
 
 ## Table of Contents
 
-- [CatSniffer V3 Tools – Complete User Guide](#catnip-v3-tools--complete-user-guide)
+- [CatSniffer V3 Tools – Complete User Guide](#catsniffer-v3-tools--complete-user-guide)
   - [Table of Contents](#table-of-contents)
   - [Introduction](#introduction)
-    - [What is CatSniffer V3 Tools?](#what-is-catnip-v3-tools)
+    - [What is CatSniffer V3 Tools?](#what-is-catsniffer-v3-tools)
     - [Who is this tool for?](#who-is-this-tool-for)
   - [Project Architecture](#project-architecture)
     - [Directory Structure](#directory-structure)
@@ -28,7 +28,7 @@
     - [First Execution](#first-execution)
     - [Available Commands](#available-commands)
     - [Verifying Connected Devices](#verifying-connected-devices)
-      - [CatSniffer Port Architecture](#catnip-port-architecture)
+      - [CatSniffer Port Architecture](#catsniffer-port-architecture)
       - [Example with Multiple Devices](#example-with-multiple-devices)
   - [Firmware Management](#firmware-management)
     - [Viewing Available Firmware](#viewing-available-firmware)
@@ -2237,5 +2237,5 @@ This project is licensed under the terms specified in the official repository. C
 ## Credits
 
 - **Developed by**: Electronic Cats - PWNLAB
-- **Version**: 3.3.0.0
+- **Version**: 3.3.1.0
 - **Last Updated**: 2026

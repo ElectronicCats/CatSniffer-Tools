@@ -45,11 +45,10 @@ from .catnip import (
 
 from rich.console import Console
 
+from ._version import __version__ as TOOL_VERSION
+
 logger = logging.getLogger("rich")
 console = Console()
-
-# Tool version — must match cli.py VERSION_NUMBER
-TOOL_VERSION = "3.3.1.0"
 
 # GitHub API URL for the latest CatSniffer-Tools software release
 GITHUB_TOOLS_RELEASE_URL = (

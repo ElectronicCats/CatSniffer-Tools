@@ -14,6 +14,7 @@ import sys
 import queue
 
 # Internal
+from ._version import __version__
 from .flasher import Flasher
 from .verify import run_verification
 from .pipes import Wireshark
@@ -42,7 +43,7 @@ import time
 from pathlib import Path
 
 # APP Information
-VERSION_NUMBER = "3.3.1.0"
+VERSION_NUMBER = __version__
 COMPANY = "Electronic Cats - PWNLAB"
 _FUNNY_PHRASES = [
     "Catching packets, not mice.",
@@ -87,7 +88,6 @@ STYLES = {
     "prompt": Style(color="magenta", bold=True),
 }
 
-__version__ = "3.3.1.0"
 
 wireshark = Wireshark()
 console = Console()
