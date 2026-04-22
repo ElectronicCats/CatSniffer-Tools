@@ -108,16 +108,16 @@ def print_header(module=None):
     else:
         label = "catnip"
 
-    ascii_art = f"""      :-:              :--       |
-      ++++=.        .=++++       |
-      =+++++===++===++++++       |
-      -++++++++++++++++++-       |
- .:   =++---++++++++---++=   :.  |  {label}
- ::---+++.   -++++-   .+++---::  |  v{VERSION_NUMBER}
-::1..:-++++:   ++++   :++++-::.::|  {FUNNY_PHRASE}
-.:...:=++++++++++++++++++=:...:. |
- :---.  -++++++++++++++-  .---:  |
- ..        .:------:.        ..  |"""
+    ascii_art = f"""      :=--             --=-       |
+      -====-         -=====       |
+      :===================-       |
+       ===================:       |
+  -   :==--===========--==-   -   |  {label}
+ -===:===-   :=====-   -==-.-=--  |  v{VERSION_NUMBER}
+--    ====-   :===-   -====    -- |  {FUNNY_PHRASE}
+-=:   :===================-   .=- |
+ ---=-- -===============-  -=---  |
+ ---       --=======--        --  |"""
 
     colored_ascii = f"[cyan bold]{ascii_art}[/cyan bold]"
 
@@ -1204,7 +1204,7 @@ def verify(test_all, device, quiet):
         sys.exit(1)
 
 
-@cli.command()
+@click.command()
 @click.option(
     "--device",
     "-d",
@@ -1869,8 +1869,7 @@ def update(device, force):
 
 # ===================== CC1352 Restore Command =====================
 
-
-@cli.command()
+@click.command()
 @click.argument("firmware", required=False, default=None)
 @click.option(
     "--device",
@@ -1900,8 +1899,6 @@ def restore(firmware, device, tapid):
         catnip restore firmware.hex -d 1  # specific device
     """
     from .restore import restore_cc1352
-
-    print_header("restore")
 
     dev = None
     if device is not None:
@@ -2051,13 +2048,14 @@ def completion_install(shell):
             "\n"
             "# Enable completion when invoked as 'python catnip.py' or './catnip.py'\n"
             "_catnip_completion_python_wrapper() {\n"
-            "  # $words[1] is 'python'/'python3', $words[2] is the script path\n"
             "  local script_name=${words[2]:t}  # basename of the script argument\n"
             "  if [[ $script_name == catnip.py ]]; then\n"
-            "    # Shift the completion context so Click sees sub-commands correctly\n"
+            f"    (( ! $+functions[_catnip_completion] )) && source {target}\n"
             '    words=(catnip "${words[@]:2}")\n'
             "    (( CURRENT-- ))\n"
             "    _catnip_completion\n"
+            "  else\n"
+            "    _files\n"
             "  fi\n"
             "}\n"
             "compdef _catnip_completion_python_wrapper python python3\n"
@@ -2196,6 +2194,7 @@ def main_cli() -> None:
     cli.add_command(sniff)
     cli.add_command(cativity)
     cli.add_command(meshtastic)
+    cli.add_command(restore)
     cli.add_command(lora)
     if platform.system() == "Linux":
         cli.add_command(vhci)
