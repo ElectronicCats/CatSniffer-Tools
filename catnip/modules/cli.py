@@ -1869,6 +1869,7 @@ def update(device, force):
 
 # ===================== CC1352 Restore Command =====================
 
+
 @click.command()
 @click.argument("firmware", required=False, default=None)
 @click.option(

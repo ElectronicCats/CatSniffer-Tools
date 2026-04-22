@@ -22,27 +22,47 @@ Requirements:
 """
 
 import os
-import sys
 import time
 import shutil
 import subprocess
 import tempfile
-import logging
 from typing import Optional
 
 import requests
 
 from .fw_update import (
     find_rp2040_mount_point,
-    flash_rp2040_uf2,
     enter_boot_mode,
-    find_uf2_firmware,
 )
 
 from rich.console import Console
+from rich.style import Style
 
-logger = logging.getLogger("rich")
 console = Console()
+
+_STYLES = {
+    "success": Style(color="green", bold=True),
+    "warning": Style(color="yellow", bold=True),
+    "error": Style(color="red", bold=True),
+    "info": Style(color="blue", bold=True),
+}
+
+
+def _print_success(message):
+    console.print(f"[green]✓[/green] {message}", style=_STYLES["success"])
+
+
+def _print_warning(message):
+    console.print(f"[yellow]⚠[/yellow] {message}", style=_STYLES["warning"])
+
+
+def _print_error(message):
+    console.print(f"[red]✗[/red] {message}", style=_STYLES["error"])
+
+
+def _print_info(message):
+    console.print(f"[blue]ℹ[/blue] {message}", style=_STYLES["info"])
+
 
 # free_dap is in the same release as the bridge firmware (v3.1.0.0)
 FREE_DAP_RELEASE_URL = (
@@ -78,7 +98,7 @@ def check_openocd() -> Optional[str]:
             [path, "--version"], capture_output=True, text=True, timeout=5
         )
         version_line = result.stderr.split("\n")[0] if result.stderr else "unknown"
-        console.print(f"[*] OpenOCD: {version_line}")
+        _print_info(f"OpenOCD: {version_line}")
         return path
     except Exception:
         return path
@@ -87,17 +107,17 @@ def check_openocd() -> Optional[str]:
 def _download_asset(url: str, dest: str) -> bool:
     """Download a file from URL."""
     try:
-        console.print(f"[*] Downloading {os.path.basename(dest)}...")
+        _print_info(f"Downloading {os.path.basename(dest)}...")
         response = requests.get(url, timeout=30, stream=True, allow_redirects=True)
         response.raise_for_status()
         with open(dest, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
         size = os.path.getsize(dest)
-        console.print(f"[green]✓[/green] Downloaded ({size:,} bytes)")
+        _print_success(f"Downloaded ({size:,} bytes)")
         return True
     except Exception as e:
-        console.print(f"[red]✗[/red] Download failed: {e}")
+        _print_error(f"Download failed: {e}")
         return False
 
 
@@ -107,7 +127,7 @@ def get_free_dap_path() -> Optional[str]:
     cached = os.path.join(CACHE_DIR, FREE_DAP_FILENAME)
 
     if os.path.exists(cached) and os.path.getsize(cached) > 1000:
-        console.print(f"[*] Using cached {FREE_DAP_FILENAME}")
+        _print_info(f"Using cached {FREE_DAP_FILENAME}")
         return cached
 
     # Fetch download URL from release API
@@ -119,7 +139,7 @@ def get_free_dap_path() -> Optional[str]:
                 if _download_asset(asset["browser_download_url"], cached):
                     return cached
     except Exception as e:
-        console.print(f"[red]✗[/red] Cannot fetch free_dap release: {e}")
+        _print_error(f"Cannot fetch free_dap release: {e}")
 
     return None
 
@@ -137,7 +157,7 @@ def get_bridge_uf2_path(flasher=None) -> Optional[str]:
                 for f in os.listdir(release_path):
                     if f.endswith(".uf2") and "catsniffer" in f.lower():
                         path = os.path.join(release_path, f)
-                        console.print(f"[*] Bridge UF2: {f}")
+                        _print_info(f"Bridge UF2: {f}")
                         return path
         except Exception:
             pass
@@ -187,7 +207,7 @@ def create_openocd_config(tapid: str = TAPID_CC1352P7) -> Optional[str]:
             break
 
     if not stock_cfg:
-        console.print("[red]✗[/red] Cannot find ti_cc13x2.cfg in OpenOCD scripts")
+        _print_error("Cannot find ti_cc13x2.cfg in OpenOCD scripts")
         return None
 
     with open(stock_cfg, "r") as f:
@@ -211,7 +231,7 @@ def erase_cc1352_jtag(openocd_path: str, config_path: str) -> bool:
     Erases sectors 1-last so the serial bootloader in CCFG remains intact.
     After this, catnip flash can program new firmware via serial.
     """
-    console.print("[*] Erasing CC1352 flash (preserving bootloader)...")
+    _print_info("Erasing CC1352 flash (preserving bootloader)...")
 
     cmd = [
         openocd_path,
@@ -239,36 +259,34 @@ def erase_cc1352_jtag(openocd_path: str, config_path: str) -> bool:
                     console.print(f"[red]  {line.strip()}[/red]")
             return False
 
-        console.print("[green]✓[/green] CC1352 flash erased — bootloader preserved")
+        _print_success("CC1352 flash erased — bootloader preserved")
         return True
     except subprocess.TimeoutExpired:
-        console.print("[red]✗[/red] OpenOCD timed out (60s)")
+        _print_error("OpenOCD timed out (60s)")
         return False
     except Exception as e:
-        console.print(f"[red]✗[/red] {e}")
+        _print_error(str(e))
         return False
 
 
 def wait_for_bootsel(timeout: int = 30) -> Optional[str]:
     """Wait for RP2040 BOOTSEL drive to appear."""
-    console.print("[*] Waiting for BOOTSEL drive...")
+    _print_info("Waiting for BOOTSEL drive...")
     for i in range(timeout):
         mount = find_rp2040_mount_point()
         if mount:
-            console.print(f"[green]✓[/green] BOOTSEL at {mount}")
+            _print_success(f"BOOTSEL at {mount}")
             return mount
         time.sleep(1)
         if i == 10:
-            console.print(
-                "[yellow]  Still waiting... make sure RP2040 is in BOOT mode[/yellow]"
-            )
-    console.print("[red]✗[/red] BOOTSEL not detected")
+            _print_warning("Still waiting... make sure RP2040 is in BOOT mode")
+    _print_error("BOOTSEL not detected")
     return None
 
 
 def wait_for_cmsis_dap(timeout: int = 10) -> bool:
     """Wait for CMSIS-DAP device to appear on USB."""
-    console.print("[*] Waiting for CMSIS-DAP probe...")
+    _print_info("Waiting for CMSIS-DAP probe...")
     for _ in range(timeout):
         try:
             # Linux/macOS
@@ -276,7 +294,7 @@ def wait_for_cmsis_dap(timeout: int = 10) -> bool:
                 ["lsusb"], capture_output=True, text=True, timeout=5
             )
             if CMSIS_DAP_VID_PID in result.stdout:
-                console.print("[green]✓[/green] CMSIS-DAP probe ready")
+                _print_success("CMSIS-DAP probe ready")
                 return True
         except FileNotFoundError:
             # Windows — check with OpenOCD directly
@@ -284,7 +302,7 @@ def wait_for_cmsis_dap(timeout: int = 10) -> bool:
         except Exception:
             pass
         time.sleep(1)
-    console.print("[red]✗[/red] CMSIS-DAP not detected")
+    _print_error("CMSIS-DAP not detected")
     return False
 
 
@@ -315,7 +333,7 @@ def restore_cc1352(
     # --- Prerequisites ---
     openocd = check_openocd()
     if not openocd:
-        console.print("[red]✗[/red] OpenOCD not installed.")
+        _print_error("OpenOCD not installed.")
         console.print("  Install: [bold]sudo apt install openocd[/bold] (Linux)")
         console.print("           [bold]brew install openocd[/bold] (macOS)")
         return False
@@ -323,9 +341,9 @@ def restore_cc1352(
     if not hex_path:
         hex_path = get_default_cc1352_firmware(flasher)
         if hex_path:
-            console.print(f"[*] Using default firmware: {os.path.basename(hex_path)}")
+            _print_info(f"Using default firmware: {os.path.basename(hex_path)}")
         else:
-            console.print("[red]✗[/red] No firmware specified and default not found.")
+            _print_error("No firmware specified and default not found.")
             console.print(
                 "  Run [bold]catnip flash --list[/bold] to download firmware first,"
             )
@@ -335,7 +353,7 @@ def restore_cc1352(
             return False
 
     if not os.path.exists(hex_path):
-        console.print(f"[red]✗[/red] File not found: {hex_path}")
+        _print_error(f"File not found: {hex_path}")
         return False
 
     free_dap = get_free_dap_path()
@@ -349,7 +367,7 @@ def restore_cc1352(
         return False
 
     # --- Step 1: Load CMSIS-DAP onto RP2040 ---
-    console.print("[bold]Step 1/3: Load JTAG programmer onto RP2040[/bold]")
+    console.print("[bold]Step 1/4: Load JTAG programmer onto RP2040[/bold]")
     console.print("")
 
     # Try shell 'reboot' command first (works if bridge firmware is running)
@@ -375,7 +393,7 @@ def restore_cc1352(
                 pass
 
     if shell_port:
-        console.print(f"[*] Sending 'reboot' to RP2040 via {shell_port}...")
+        _print_info(f"Sending 'reboot' to RP2040 via {shell_port}...")
         try:
             enter_boot_mode(shell_port)
         except Exception:
@@ -393,11 +411,11 @@ def restore_cc1352(
         _cleanup(config)
         return False
 
-    console.print(f"[*] Copying CMSIS-DAP firmware to {mount}...")
+    _print_info(f"Copying CMSIS-DAP firmware to {mount}...")
     try:
         shutil.copy2(free_dap, os.path.join(mount, FREE_DAP_FILENAME))
     except Exception as e:
-        console.print(f"[red]✗[/red] Copy failed: {e}")
+        _print_error(f"Copy failed: {e}")
         _cleanup(config)
         return False
 
@@ -415,7 +433,7 @@ def restore_cc1352(
 
     if not success:
         console.print("")
-        console.print("[red]CC1352 erase failed.[/red]")
+        _print_error("CC1352 erase failed.")
         console.print("  The RP2040 still has CMSIS-DAP firmware.")
         console.print("  Put it in BOOTSEL and copy the bridge UF2 to restore.")
         return False
@@ -435,51 +453,53 @@ def restore_cc1352(
 
     if not mount or not bridge_uf2:
         if not bridge_uf2:
-            console.print("[yellow]![/yellow] Bridge UF2 not found locally.")
+            _print_warning("Bridge UF2 not found locally.")
             console.print(
                 "  Run [bold]catnip update --force[/bold] after BOOTSEL restore."
             )
         return False
 
-    console.print(f"[*] Restoring bridge: {os.path.basename(bridge_uf2)}...")
+    _print_info(f"Restoring bridge: {os.path.basename(bridge_uf2)}...")
     try:
         shutil.copy2(bridge_uf2, os.path.join(mount, os.path.basename(bridge_uf2)))
         time.sleep(5)
-        console.print("[green]✓[/green] Bridge firmware restored!")
+        _print_success("Bridge firmware restored!")
     except Exception as e:
-        console.print(f"[red]✗[/red] Copy failed: {e}")
+        _print_error(f"Copy failed: {e}")
         return False
 
     # --- Step 4: Flash firmware via serial bootloader ---
     console.print("")
     console.print("[bold]Step 4/4: Flash CC1352 firmware via serial[/bold]")
-    console.print("[*] Waiting for CatSniffer to reconnect...")
+    _print_info("Waiting for CatSniffer to reconnect...")
     time.sleep(5)
 
     # Use catnip flash to program via serial bootloader
     try:
         from .catnip import catnip_get_device
-        from .flasher import Flasher
 
         dev = catnip_get_device()
         if not dev:
-            console.print("[yellow]![/yellow] CatSniffer not detected. Flash manually:")
+            _print_warning("CatSniffer not detected. Flash manually:")
             console.print(f"  [bold]catnip flash {hex_path}[/bold]")
             return True  # Erase succeeded, just need manual flash
 
-        console.print(f"[*] Flashing {os.path.basename(hex_path)} via serial...")
-        flasher = Flasher()
+        _print_info(f"Flashing {os.path.basename(hex_path)} via serial...")
+        if flasher is None:
+            from .flasher import Flasher
+
+            flasher = Flasher()
         result = flasher.find_flash_firmware(hex_path, dev)
         if result:
             console.print("")
-            console.print("[bold green]✓ CC1352 restore complete![/bold green]")
+            _print_success("CC1352 restore complete!")
             return True
         else:
-            console.print("[yellow]![/yellow] Serial flash may have failed.")
+            _print_warning("Serial flash may have failed.")
             console.print(f"  Try manually: [bold]catnip flash {hex_path}[/bold]")
             return True  # Erase worked
     except Exception as e:
-        console.print(f"[yellow]![/yellow] Auto-flash failed: {e}")
+        _print_warning(f"Auto-flash failed: {e}")
         console.print(f"  Flash manually: [bold]catnip flash {hex_path}[/bold]")
         return True  # Erase + bridge restore succeeded
 
