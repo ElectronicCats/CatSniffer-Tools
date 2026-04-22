@@ -28,10 +28,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from vhci.bridge import VHCIBridge
 from vhci.constants import *
 
-from rich.console import Console
 from rich.logging import RichHandler
-
-console = Console()
+from output import console
 
 
 def find_catsniffer():

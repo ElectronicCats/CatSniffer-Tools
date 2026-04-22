@@ -18,14 +18,12 @@ try:
 except ImportError:
     HAS_USB = False
 
-from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from .catnip import CatSnifferDevice
-
-console = Console()
+from .output import console
 
 # Constants for CatSniffer USB identification
 CATSNIFFER_VID = 0x1209

@@ -43,12 +43,10 @@ from .catnip import (
     CATSNIFFER_PID,
 )
 
-from rich.console import Console
-
 from ._version import __version__ as TOOL_VERSION
+from .output import console
 
 logger = logging.getLogger("rich")
-console = Console()
 
 # GitHub API URL for the latest CatSniffer-Tools software release
 GITHUB_TOOLS_RELEASE_URL = (

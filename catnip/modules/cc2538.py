@@ -45,7 +45,7 @@ import os
 import struct
 import binascii
 import serial
-from rich.console import Console
+from .output import console
 
 try:
     import magic
@@ -67,8 +67,6 @@ __version__ = "2.1"
 
 # Verbose level
 QUIET = 5
-
-console = Console()
 
 
 def mdebug(level, message, attr="\n"):

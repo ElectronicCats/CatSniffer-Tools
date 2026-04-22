@@ -31,11 +31,18 @@ from .catnip import (
 # External
 import click
 from rich.logging import RichHandler
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich import box
-from rich.style import Style
+
+from .output import (
+    console,
+    STYLES,
+    print_success,
+    print_warning,
+    print_error,
+    print_info,
+)
 
 import subprocess
 import platform
@@ -77,20 +84,7 @@ import random as _random
 
 FUNNY_PHRASE = _random.choice(_FUNNY_PHRASES)
 
-# Defining styles for reuse
-STYLES = {
-    "header": Style(color="cyan", bold=True),
-    "success": Style(color="green", bold=True),
-    "warning": Style(color="yellow", bold=True),
-    "error": Style(color="red", bold=True),
-    "info": Style(color="blue", bold=True),
-    "device": Style(color="cyan"),
-    "prompt": Style(color="magenta", bold=True),
-}
-
-
 wireshark = Wireshark()
-console = Console()
 
 logger = logging.getLogger("rich")
 FORMAT = "%(message)s"
@@ -129,26 +123,6 @@ def print_header(module=None):
         padding=(1, 2),
     )
     console.print(header_panel)
-
-
-def print_success(message):
-    """Print a success message"""
-    console.print(f"[green]✓[/green] {message}", style=STYLES["success"])
-
-
-def print_warning(message):
-    """Print a warning message"""
-    console.print(f"[yellow]⚠[/yellow] {message}", style=STYLES["warning"])
-
-
-def print_error(message):
-    """Print an error message"""
-    console.print(f"[red]✗[/red] {message}", style=STYLES["error"])
-
-
-def print_info(message):
-    """Print an info message"""
-    console.print(f"[blue]ℹ[/blue] {message}", style=STYLES["info"])
 
 
 def get_device_or_exit(device_id=None):

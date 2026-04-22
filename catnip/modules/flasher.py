@@ -25,8 +25,8 @@ from .cc2538 import (
 
 # External
 import requests
-from rich.console import Console
 from rich.table import Table
+from .output import console
 
 GITHUB_RELEASE_URL = (
     "https://api.github.com/repos/ElectronicCats/CatSniffer-Firmware/releases/latest"
@@ -54,7 +54,6 @@ if not os.path.exists(ROOT_DIR):
         ROOT_DIR = os.getcwd()
 
 logger = logging.getLogger("rich")
-console = Console()
 
 
 class CCLoader:

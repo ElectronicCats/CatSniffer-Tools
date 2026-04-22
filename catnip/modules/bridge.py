@@ -16,9 +16,8 @@ from protocol.sniffer_ti import SnifferTI, PacketCategory
 from protocol.common import START_OF_FRAME, END_OF_FRAME, get_global_header
 
 # External
-from rich.console import Console
+from .output import console
 
-console = Console()
 sniffer = SnifferTI()
 snifferSx = SnifferSx()
 snifferTICmd = sniffer.Commands()
