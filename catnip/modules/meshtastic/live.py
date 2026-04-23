@@ -33,33 +33,38 @@ from modules.output import (
     print_warning,
     print_error,
     print_info,
+    print_empty_line,
+    print_separator,
+    print_raw,
 )
 from protocol.sniffer_sx import SnifferSx
 
 
 def print_packet_info(fields, decrypted, key_index=None):
     """Print packet information"""
-    console.print("\n" + "=" * 60)
-    console.print(
+    print_empty_line()
+    print_separator("=", 60)
+    print_raw(
         f"   Packet from {msb2lsb(fields['sender'].hex())} to {msb2lsb(fields['dest'].hex())}"
     )
-    console.print(f"   Packet ID: {msb2lsb(fields['packet_id'].hex())}")
-    console.print(f"   Channel: {fields['channel'][0] if 'channel' in fields else 0}")
+    print_raw(f"   Packet ID: {msb2lsb(fields['packet_id'].hex())}")
+    print_raw(f"   Channel: {fields['channel'][0] if 'channel' in fields else 0}")
 
     flags = fields["flags"][0]
-    console.print(f"   Flags: 0x{flags:02X}")
-    console.print(f"     ├─ Hop limit: {(flags >> 5) & 0b111}")
-    console.print(f"     ├─ Want ACK:  {(flags >> 4) & 1}")
-    console.print(f"     ├─ Via MQTT:  {(flags >> 3) & 1}")
-    console.print(f"     └─ Hop Start: {flags & 0b111}")
+    print_raw(f"   Flags: 0x{flags:02X}")
+    print_raw(f"     ├─ Hop limit: {(flags >> 5) & 0b111}")
+    print_raw(f"     ├─ Want ACK:  {(flags >> 4) & 1}")
+    print_raw(f"     ├─ Via MQTT:  {(flags >> 3) & 1}")
+    print_raw(f"     └─ Hop Start: {flags & 0b111}")
 
     if key_index is not None:
-        console.print(f"      Decrypted with key #{key_index}")
+        print_raw(f"      Decrypted with key #{key_index}")
 
-    console.print("\n   Decrypted payload (hex):")
-    console.print("   " + " ".join(f"{b:02X}" for b in decrypted[:32]))
+    print_empty_line()
+    print_raw("   Decrypted payload (hex):")
+    print_raw("   " + " ".join(f"{b:02X}" for b in decrypted[:32]))
     if len(decrypted) > 32:
-        console.print("   ...")
+        print_raw("   ...")
 
 
 class MeshtasticLiveDecoder:
@@ -112,7 +117,7 @@ class MeshtasticLiveDecoder:
             ]
 
             for cmd in commands:
-                console.print(f"  > {cmd}")
+                print_raw(f"  > {cmd}")
                 self.shell.send_command(cmd)
                 time.sleep(0.1)
 
@@ -120,7 +125,7 @@ class MeshtasticLiveDecoder:
             print_info("Current LoRa configuration:")
             response = self.shell.send_command("lora_config")
             if response:
-                console.print(response)
+                print_raw(response)
 
             self.shell.disconnect()
             print_success("Radio configured successfully")
@@ -212,7 +217,7 @@ class MeshtasticLiveDecoder:
                                 )
                                 if decoded:
                                     print_packet_info(fields, decrypted, idx)
-                                    console.print(decoded)
+                                    print_raw(decoded)
                                     self.stats["decrypted"] += 1
                                     decrypted_success = True
                                     break
@@ -227,7 +232,7 @@ class MeshtasticLiveDecoder:
                                     "utf-8", errors="ignore"
                                 )
                                 if plain_text.isprintable() and len(plain_text) > 0:
-                                    console.print(
+                                    print_raw(
                                         f"[PLAIN] {fields['sender'].hex()}: {plain_text}"
                                     )
                                     self.stats["decrypted"] += 1

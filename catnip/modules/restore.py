@@ -44,6 +44,9 @@ from .output import (
     print_info,
     print_step,
     print_section,
+    print_empty_line,
+    print_instruction_block,
+    print_detail_message,
 )
 
 
@@ -345,8 +348,8 @@ def restore_cc1352(
     openocd = check_openocd()
     if not openocd:
         print_error("OpenOCD not installed.")
-        console.print("  Install: [bold]sudo apt install openocd[/bold] (Linux)")
-        console.print("           [bold]brew install openocd[/bold] (macOS)")
+        print_detail_message("Install: sudo apt install openocd (Linux)")
+        print_detail_message("         brew install openocd (macOS)")
         return False
 
     if not hex_path:
@@ -355,12 +358,8 @@ def restore_cc1352(
             print_info(f"Using default firmware: {os.path.basename(hex_path)}")
         else:
             print_error("No firmware specified and default not found.")
-            console.print(
-                "  Run [bold]catnip flash --list[/bold] to download firmware first,"
-            )
-            console.print(
-                "  or specify a .hex file: [bold]catnip restore firmware.hex[/bold]"
-            )
+            print_detail_message("Run: catnip flash --list to download firmware first,")
+            print_detail_message("or specify a .hex file: catnip restore firmware.hex")
             return False
 
     if not os.path.exists(hex_path):
@@ -379,7 +378,7 @@ def restore_cc1352(
 
     # --- Step 1: Load CMSIS-DAP onto RP2040 ---
     print_step(1, 4, "Load JTAG programmer onto RP2040")
-    console.print("")
+    print_empty_line()
 
     # Try shell 'reboot' command first (works if bridge firmware is running)
     # Auto-detect device if not provided
@@ -400,11 +399,15 @@ def restore_cc1352(
             pass
         mount = wait_for_bootsel(timeout=15)
     else:
-        console.print("[yellow]  Put RP2040 in BOOTSEL mode:[/yellow]")
-        console.print("    1. Hold [bold]BOOT[/bold] button on CatSniffer")
-        console.print("    2. Press and release [bold]RESET[/bold]")
-        console.print("    3. Release [bold]BOOT[/bold]")
-        console.print("")
+        print_instruction_block(
+            "Put RP2040 in BOOTSEL mode:",
+            [
+                "1. Hold BOOT button on CatSniffer",
+                "2. Press and release RESET",
+                "3. Release BOOT",
+            ],
+        )
+        print_empty_line()
         mount = wait_for_bootsel(timeout=30)
 
     if not mount:
@@ -425,38 +428,40 @@ def restore_cc1352(
         return False
 
     # --- Step 2: Erase CC1352 flash (preserve bootloader) ---
-    console.print("")
+    print_empty_line()
     print_step(2, 4, "Erase CC1352 flash via JTAG")
 
     success = erase_cc1352_jtag(openocd, config)
     _cleanup(config)
 
     if not success:
-        console.print("")
+        print_empty_line()
         print_error("CC1352 erase failed.")
-        console.print("  The RP2040 still has CMSIS-DAP firmware.")
-        console.print("  Put it in BOOTSEL and copy the bridge UF2 to restore.")
+        print_detail_message("The RP2040 still has CMSIS-DAP firmware.")
+        print_detail_message("Put it in BOOTSEL and copy the bridge UF2 to restore.")
         return False
 
     # --- Step 3: Restore RP2040 bridge ---
-    console.print("")
+    print_empty_line()
     print_step(3, 4, "Restore RP2040 bridge firmware")
-    console.print("")
-    console.print("[yellow]  Put RP2040 in BOOTSEL mode again:[/yellow]")
-    console.print("    1. [bold]Disconnect[/bold] USB cable")
-    console.print("    2. Hold [bold]BOOT[/bold] button")
-    console.print("    3. [bold]Reconnect[/bold] USB while holding BOOT")
-    console.print("    4. Release [bold]BOOT[/bold]")
-    console.print("")
+    print_empty_line()
+    print_instruction_block(
+        "Put RP2040 in BOOTSEL mode again:",
+        [
+            "1. Disconnect USB cable",
+            "2. Hold BOOT button",
+            "3. Reconnect USB while holding BOOT",
+            "4. Release BOOT",
+        ],
+    )
+    print_empty_line()
 
     mount = wait_for_bootsel(timeout=30)
 
     if not mount or not bridge_uf2:
         if not bridge_uf2:
             print_warning("Bridge UF2 not found locally.")
-            console.print(
-                "  Run [bold]catnip update --force[/bold] after BOOTSEL restore."
-            )
+            print_detail_message("Run: catnip update --force after BOOTSEL restore.")
         return False
 
     print_info(f"Restoring bridge: {os.path.basename(bridge_uf2)}...")
@@ -469,7 +474,7 @@ def restore_cc1352(
         return False
 
     # --- Step 4: Flash firmware via serial bootloader ---
-    console.print("")
+    print_empty_line()
     print_step(4, 4, "Flash CC1352 firmware via serial")
     print_info("Waiting for CatSniffer to reconnect...")
     time.sleep(5)
@@ -481,7 +486,7 @@ def restore_cc1352(
         dev = catnip_get_device()
         if not dev:
             print_warning("CatSniffer not detected. Flash manually:")
-            console.print(f"  [bold]catnip flash {hex_path}[/bold]")
+            print_detail_message(f"catnip flash {hex_path}")
             return True  # Erase succeeded, just need manual flash
 
         print_info(f"Flashing {os.path.basename(hex_path)} via serial...")
@@ -491,16 +496,16 @@ def restore_cc1352(
             flasher = Flasher()
         result = flasher.find_flash_firmware(hex_path, dev)
         if result:
-            console.print("")
+            print_empty_line()
             print_success("CC1352 restore complete!")
             return True
         else:
             print_warning("Serial flash may have failed.")
-            console.print(f"  Try manually: [bold]catnip flash {hex_path}[/bold]")
+            print_detail_message(f"Try manually: catnip flash {hex_path}")
             return True  # Erase worked
     except Exception as e:
         print_warning(f"Auto-flash failed: {e}")
-        console.print(f"  Flash manually: [bold]catnip flash {hex_path}[/bold]")
+        print_detail_message(f"Flash manually: catnip flash {hex_path}")
         return True  # Erase + bridge restore succeeded
 
 

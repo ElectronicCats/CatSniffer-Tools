@@ -23,13 +23,22 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from .catnip import CatSnifferDevice
-from .output import console
+from .output import (
+    console,
+    set_quiet_mode,
+    is_quiet_mode,
+    print_test_header,
+    print_test_step,
+    print_test_pass,
+    print_test_fail,
+    print_test_summary,
+    print_error,
+    print_warning,
+)
 
 # Constants for CatSniffer USB identification
 CATSNIFFER_VID = 0x1209
 CATSNIFFER_PID = 0xBABB
-
-QUIET_MODE = False
 
 
 class VerificationDevice:
@@ -188,15 +197,10 @@ def print_device_table(
 
 def test_basic_commands(device: VerificationDevice) -> bool:
     """Test basic shell commands."""
-    console.print(
-        Panel(
-            f"[bold cyan]Testing {device} - Basic Commands[/bold cyan]",
-            border_style="cyan",
-        )
-    )
+    print_test_header(f"Testing {device} - Basic Commands")
 
     if not device.shell_port:
-        console.print("[red]✗ Shell port not available[/red]")
+        print_error("Shell port not available")
         return False
 
     tests = [
@@ -210,27 +214,15 @@ def test_basic_commands(device: VerificationDevice) -> bool:
     results = []
 
     for test_name, cmd, expected, description in tests:
-        if not QUIET_MODE:
-            console.print(f"\n[blue][{test_name.upper()}][/blue] {description}...")
+        print_test_step(test_name, description)
 
         response = device.send_command(device.shell_port, cmd, timeout=2.0)
 
         if response and expected in response:
-            if not QUIET_MODE:
-                console.print("[green]  ✓ PASS[/green]")
-            if len(response) > 100:
-                if not QUIET_MODE:
-                    console.print(f"[dim]  Response: {response[:100]}...[/dim]")
-            else:
-                if not QUIET_MODE:
-                    console.print(f"[dim]  Response: {response}[/dim]")
+            print_test_pass(response)
             results.append(True)
         else:
-            console.print(f"[red]  ✗ FAIL[/red]")
-            if response:
-                console.print(f"[red]  Got: {response[:100]}[/red]")
-            else:
-                console.print("[red]  No response[/red]")
+            print_test_fail(response or "No response")
             results.append(False)
 
     # Return to command mode if we switched to stream
@@ -240,23 +232,16 @@ def test_basic_commands(device: VerificationDevice) -> bool:
     passed = sum(results)
     total = len(results)
 
-    console.print(
-        f"\n[bold]Summary:[/bold] [green]{passed}/{total}[/green] tests passed"
-    )
+    print_test_summary(passed, total)
     return passed == total
 
 
 def test_lora_configuration(device: VerificationDevice) -> bool:
     """Test LoRa configuration commands."""
-    console.print(
-        Panel(
-            f"[bold cyan]Testing {device} - LoRa Configuration[/bold cyan]",
-            border_style="cyan",
-        )
-    )
+    print_test_header(f"Testing {device} - LoRa Configuration")
 
     if not device.shell_port:
-        console.print("[red]✗ Shell port not available[/red]")
+        print_error("Shell port not available")
         return False
 
     tests = [
@@ -271,8 +256,7 @@ def test_lora_configuration(device: VerificationDevice) -> bool:
     results = []
 
     for test_name, cmd, expected_list, description in tests:
-        if not QUIET_MODE:
-            console.print(f"\n[blue][{test_name.upper()}][/blue] {description}...")
+        print_test_step(test_name, description)
 
         response = device.send_command(device.shell_port, cmd, timeout=3.0)
 
@@ -282,16 +266,13 @@ def test_lora_configuration(device: VerificationDevice) -> bool:
             )
 
             if found:
-                if not QUIET_MODE:
-                    console.print("[green]  ✓ PASS[/green]")
+                print_test_pass(response)
                 results.append(True)
             else:
-                if not QUIET_MODE:
-                    console.print(f"[red]  ✗ FAIL - Unexpected response[/red]")
-                    console.print(f"[dim]  Response: {response[:100]}...[/dim]")
+                print_test_fail(response)
                 results.append(False)
         else:
-            console.print("[red]  ✗ FAIL - No response[/red]")
+            print_test_fail("No response")
             results.append(False)
 
         time.sleep(0.5)
@@ -299,38 +280,29 @@ def test_lora_configuration(device: VerificationDevice) -> bool:
     passed = sum(results)
     total = len(results)
 
-    console.print(
-        f"\n[bold]Summary:[/bold] [green]{passed}/{total}[/green] configuration tests passed"
-    )
+    print_test_summary(passed, total, "configuration")
     return passed >= 4  # Require at least 4 out of 6
 
 
 def test_lora_communication(device: VerificationDevice) -> bool:
     """Test LoRa communication."""
-    console.print(
-        Panel(
-            f"[bold cyan]Testing {device} - LoRa Communication[/bold cyan]",
-            border_style="cyan",
-        )
-    )
+    print_test_header(f"Testing {device} - LoRa Communication")
 
     if not device.lora_port or not device.shell_port:
-        console.print("[red]✗ LoRa or Shell port not available[/red]")
+        print_error("LoRa or Shell port not available")
         return False
 
     results = []
 
     # Switch to command mode
-    if not QUIET_MODE:
-        console.print("\n[blue][SETUP][/blue] Switching to command mode...")
+    print_test_step("SETUP", "Switching to command mode")
     response = device.send_command(device.shell_port, "lora_mode command", timeout=2.0)
 
     if response and "COMMAND" in response:
-        if not QUIET_MODE:
-            console.print("[green]  ✓ Command mode enabled[/green]")
+        print_test_pass(response)
         time.sleep(0.5)
     else:
-        console.print("[red]  ✗ Failed to switch to command mode[/red]")
+        print_test_fail("Failed to switch to command mode")
         return False
 
     def send_lora_listen_shell(
@@ -340,10 +312,7 @@ def test_lora_communication(device: VerificationDevice) -> bool:
         timeout: float = 3.0,
     ) -> bool:
         """Send command to LoRa port and listen for response on Shell port."""
-        if not QUIET_MODE:
-            console.print(
-                f"\n[blue][{test_name}][/blue] Sending '{lora_cmd}' to LoRa port..."
-            )
+        print_test_step(test_name, f"Sending '{lora_cmd}' to LoRa port")
 
         try:
             shell_ser = serial.Serial(device.shell_port, 115200, timeout=0.5)
@@ -360,9 +329,6 @@ def test_lora_communication(device: VerificationDevice) -> bool:
             lora_ser.write(cmd_bytes)
             lora_ser.flush()
 
-            if not QUIET_MODE:
-                console.print(f"[dim]  Sent {len(cmd_bytes)} bytes to LoRa port[/dim]")
-
             response = b""
             start_time = time.time()
 
@@ -378,36 +344,20 @@ def test_lora_communication(device: VerificationDevice) -> bool:
             response_str = response.decode("ascii", errors="ignore").strip()
 
             if response_str:
-                if len(response_str) > 100:
-                    if not QUIET_MODE:
-                        console.print(
-                            f"[dim]  Shell response: {response_str[:100]}...[/dim]"
-                        )
-                else:
-                    if not QUIET_MODE:
-                        console.print(f"[dim]  Shell response: {response_str}[/dim]")
-
                 found = any(keyword in response_str for keyword in expected_keywords)
 
                 if found:
-                    if not QUIET_MODE:
-                        console.print(
-                            "[green]  ✓ Response received and validated[/green]"
-                        )
+                    print_test_pass(response_str)
                     return True
                 else:
-                    if not QUIET_MODE:
-                        console.print(
-                            "[yellow]  ⚠ Response received but didn't match expected pattern[/yellow]"
-                        )
+                    print_test_fail(response_str)
                     return False
             else:
-                if not QUIET_MODE:
-                    console.print("[red]  ✗ No response from Shell[/red]")
+                print_test_fail("No response from Shell")
                 return False
 
         except Exception as e:
-            console.print(f"[red]  ✗ Error: {e}[/red]")
+            print_error(f"Error: {e}")
             return False
 
     # Communication tests
@@ -424,8 +374,7 @@ def test_lora_communication(device: VerificationDevice) -> bool:
         time.sleep(1)
 
     # Check LoRa port for data
-    if not QUIET_MODE:
-        console.print("\n[blue][CHECK][/blue] Checking for data on LoRa port...")
+    print_test_step("CHECK", "Checking for data on LoRa port")
 
     try:
         with serial.Serial(device.lora_port, 115200, timeout=1) as lora_ser:
@@ -434,36 +383,28 @@ def test_lora_communication(device: VerificationDevice) -> bool:
 
             if lora_ser.in_waiting > 0:
                 data = lora_ser.read(lora_ser.in_waiting)
-                if not QUIET_MODE:
-                    console.print(
-                        f"[green]  ✓ Data available on LoRa port: {data.hex()[:50]}...[/green]"
-                    )
+                print_test_pass(f"Data available: {data.hex()[:50]}")
                 results.append(True)
             else:
-                if not QUIET_MODE:
-                    console.print("[dim]  No data on LoRa port (normal)[/dim]")
+                print_test_pass("No data on LoRa port (normal)")
                 results.append(True)
     except Exception as e:
-        console.print(f"[red]  ✗ Error checking LoRa port: {e}[/red]")
+        print_error(f"Error checking LoRa port: {e}")
         results.append(False)
 
     # Return to stream mode
-    if not QUIET_MODE:
-        console.print("\n[blue][CLEANUP][/blue] Switching back to stream mode...")
+    print_test_step("CLEANUP", "Switching back to stream mode")
     response = device.send_command(device.shell_port, "lora_mode stream", timeout=2.0)
 
     if response and "STREAM" in response:
-        if not QUIET_MODE:
-            console.print("[green]  ✓ Stream mode restored[/green]")
+        print_test_pass(response)
     else:
-        console.print("[yellow]  ⚠ Could not restore stream mode[/yellow]")
+        print_warning("Could not restore stream mode")
 
     passed = sum(results)
     total = len(results)
 
-    console.print(
-        f"\n[bold]Summary:[/bold] [green]{passed}/{total}[/green] communication tests passed"
-    )
+    print_test_summary(passed, total, "communication")
     return passed >= 4  # Require at least 4 out of 6
 
 
@@ -482,9 +423,7 @@ def run_verification(
         Tuple of (success, results_dict)
     """
 
-    # Global variables
-    global QUIET_MODE
-    QUIET_MODE = quiet
+    set_quiet_mode(quiet)
 
     if not quiet:
         console.print("[cyan]Starting device verification...[/cyan]")
@@ -557,13 +496,7 @@ def run_verification(
 
     # Print summary
     if not quiet:
-        console.print(
-            Panel(
-                "[bold cyan]Verification Summary[/bold cyan]",
-                border_style="cyan",
-                padding=(1, 2),
-            )
-        )
+        print_test_header("Verification Summary")
 
     from rich import box
 

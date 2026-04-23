@@ -42,6 +42,12 @@ from .output import (
     print_warning,
     print_error,
     print_info,
+    print_dim,
+    print_empty_line,
+    print_title,
+    print_subtitle,
+    print_example,
+    print_alias_item,
 )
 
 import subprocess
@@ -130,13 +136,13 @@ def get_device_or_exit(device_id=None):
     device = catnip_get_device(device_id)
     if device is None:
         print_error("No CatSniffer device found!")
-        console.print("    Make sure your CatSniffer is connected.")
+        print_dim("Make sure your CatSniffer is connected.")
         exit(1)
     if not device.is_valid():
         print_warning(f"Not all ports detected for {device}")
-        console.print(f"    Bridge: {device.bridge_port}")
-        console.print(f"    LoRa:   {device.lora_port}")
-        console.print(f"    Shell:  {device.shell_port}")
+        print_dim(f"Bridge: {device.bridge_port}")
+        print_dim(f"LoRa:   {device.lora_port}")
+        print_dim(f"Shell:  {device.shell_port}")
     return device
 
 
@@ -635,11 +641,11 @@ def sniff_lora(
     bw_int = int(bandwidth)
 
     print_info(f"[{dev}] Sniffing LoRa with configuration:")
-    console.print(f"  Frequency:       {frequency} Hz ({frequency / 1000000:.3f} MHz)")
-    console.print(f"  Bandwidth:       {bw_int} kHz")
-    console.print(f"  Spreading Factor: SF{spread_factor}")
-    console.print(f"  Coding Rate:     4/{coding_rate}")
-    console.print(f"  TX Power:        {tx_power} dBm")
+    print_dim(f"Frequency:        {frequency} Hz ({frequency / 1000000:.3f} MHz)")
+    print_dim(f"Bandwidth:        {bw_int} kHz")
+    print_dim(f"Spreading Factor: SF{spread_factor}")
+    print_dim(f"Coding Rate:      4/{coding_rate}")
+    print_dim(f"TX Power:         {tx_power} dBm")
 
     run_sx_bridge(
         dev,
@@ -794,7 +800,7 @@ def flash(firmware, device, list, full) -> None:
 
     # If listing available firmwares is requested
     if list:
-        console.print("\n[cyan bold]Available Firmware Images:[/cyan bold]\n")
+        print_title("Available Firmware Images:")
 
         try:
             # Get the list of local firmwares
@@ -802,9 +808,8 @@ def flash(firmware, device, list, full) -> None:
 
             if not firmwares:
                 print_warning("No firmware images found locally.")
-                console.print(
-                    "\nRun the CLI once to download the latest firmware images."
-                )
+                print_empty_line()
+                print_info("Run the CLI once to download the latest firmware images.")
                 return
 
             # Create table to display firmwares
@@ -924,49 +929,33 @@ def flash(firmware, device, list, full) -> None:
             console.print(table)
 
             # Show most useful aliases
-            console.print("\n[cyan bold]Recommended Aliases by Protocol:[/cyan bold]")
+            print_title("Recommended Aliases by Protocol:")
 
-            console.print("\n  [yellow]BLE:[/yellow]")
-            console.print(
-                "    [green]ble[/green] / [green]sniffle[/green]     → Sniffle BLE sniffer"
-            )
-            console.print("    [green]airtag-scanner[/green] → Apple Airtag Scanner")
-            console.print("    [green]airtag-spoofer[/green] → Apple Airtag Spoofer")
-            console.print("    [green]justworks[/green]     → JustWorks scanner")
+            print_subtitle("BLE:")
+            print_alias_item("ble / sniffle", "Sniffle BLE sniffer", pad=18)
+            print_alias_item("airtag-scanner", "Apple Airtag Scanner", pad=18)
+            print_alias_item("airtag-spoofer", "Apple Airtag Spoofer", pad=18)
+            print_alias_item("justworks", "JustWorks scanner", pad=18)
 
-            console.print("\n  [yellow]Zigbee/Thread/15.4 (TI Sniffer):[/yellow]")
-            console.print(
-                "    [green]zigbee[/green]  → Texas Instruments multiprotocol sniffer"
+            print_subtitle("Zigbee/Thread/15.4 (TI Sniffer):")
+            print_alias_item(
+                "zigbee", "Texas Instruments multiprotocol sniffer", pad=18
             )
-            console.print(
-                "    [green]thread[/green]  → (same as zigbee - supports both)"
-            )
-            console.print(
-                "    [green]15.4[/green]    → (same as zigbee - supports 802.15.4)"
-            )
-            console.print("    [green]ti[/green]      → Texas Instruments sniffer")
-            console.print(
-                "    [green]multiprotocol[/green] → TI multiprotocol firmware"
-            )
+            print_alias_item("thread", "(same as zigbee - supports both)", pad=18)
+            print_alias_item("15.4", "(same as zigbee - supports 802.15.4)", pad=18)
+            print_alias_item("ti", "Texas Instruments sniffer", pad=18)
+            print_alias_item("multiprotocol", "TI multiprotocol firmware", pad=18)
 
             # Use Information
-            console.print("\n[cyan bold]Usage Examples:[/cyan bold]")
-            console.print(
-                "  [green]catnip.py flash zigbee[/green]          (TI multiprotocol sniffer)"
+            print_title("Usage Examples:")
+            print_example(
+                "catnip.py flash zigbee", "         (TI multiprotocol sniffer)"
             )
-            console.print(
-                "  [green]catnip.py flash thread[/green]         (same TI firmware)"
-            )
-            console.print(
-                "  [green]catnip.py flash ble[/green]            (Sniffle BLE)"
-            )
-            console.print(
-                "  [green]catnip.py flash lora-sniffer[/green]   (LoRa Sniffer)"
-            )
-            console.print(
-                "  [green]catnip.py flash airtag-scanner[/green] (Apple Airtag)"
-            )
-            console.print("  [green]catnip.py flash --device 1 zigbee[/green]")
+            print_example("catnip.py flash thread", "        (same TI firmware)")
+            print_example("catnip.py flash ble", "           (Sniffle BLE)")
+            print_example("catnip.py flash lora-sniffer", "  (LoRa Sniffer)")
+            print_example("catnip.py flash airtag-scanner", "(Apple Airtag)")
+            print_example("catnip.py flash --device 1 zigbee")
 
             return
 
@@ -980,12 +969,11 @@ def flash(firmware, device, list, full) -> None:
     # If flash is requested but no firmware is specified
     if firmware is None:
         print_error("No firmware specified!")
-        console.print(
-            "\nUse 'catnip flash --list' to see available firmware images and aliases."
+        print_empty_line()
+        print_info(
+            "Use 'catnip flash --list' to see available firmware images and aliases."
         )
-        console.print(
-            "Or specify a firmware name: catnip flash <firmware_name_or_alias>"
-        )
+        print_info("Or specify a firmware name: catnip flash <firmware_name_or_alias>")
         exit(1)
 
     # If the input is a valid file path, we skip alias resolution to avoid confusion
@@ -1002,7 +990,7 @@ def flash(firmware, device, list, full) -> None:
         devs = catnip_get_devices()
         if not devs:
             print_error("No CatSniffer devices found!")
-            console.print("    Make sure your CatSniffer is connected.")
+            print_dim("Make sure your CatSniffer is connected.")
             exit(1)
 
         # Select the first device by default
@@ -1013,15 +1001,15 @@ def flash(firmware, device, list, full) -> None:
         dev = catnip_get_device(device)
         if dev is None:
             print_error(f"CatSniffer device with ID {device} not found!")
-            console.print("    Use 'devices' command to list available devices.")
+            print_dim("Use 'devices' command to list available devices.")
             exit(1)
 
     # Verify that the device is valid
     if not dev.is_valid():
         print_warning(f"Not all ports detected for {dev}")
-        console.print(f"    Bridge: {dev.bridge_port}")
-        console.print(f"    LoRa:   {dev.lora_port}")
-        console.print(f"    Shell:  {dev.shell_port}")
+        print_dim(f"Bridge: {dev.bridge_port}")
+        print_dim(f"LoRa:   {dev.lora_port}")
+        print_dim(f"Shell:  {dev.shell_port}")
 
     print_info(f"Flashing firmware: {firmware} to device: {dev}")
 
@@ -1029,15 +1017,13 @@ def flash(firmware, device, list, full) -> None:
 
     if not flash_result:
         print_error(f"Error flashing: {firmware}")
-        console.print(f"\n[yellow]Troubleshooting tips:[/yellow]")
-        console.print(
-            f"1. Use [green]catnip flash --list[/green] to see all available firmwares"
+        print_warning("Troubleshooting tips:")
+        print_dim("1. Use 'catnip flash --list' to see all available firmwares")
+        print_dim(
+            "2. Available aliases: ble, zigbee, thread, lora-sniffer, airtag-scanner"
         )
-        console.print(
-            f"2. Available aliases: ble, zigbee, thread, lora-sniffer, airtag-scanner"
-        )
-        console.print(f"3. Use the exact filename from the list")
-        console.print(f"4. Note: 'zigbee' alias maps to TI multiprotocol firmware")
+        print_dim("3. Use the exact filename from the list")
+        print_dim("4. Note: 'zigbee' alias maps to TI multiprotocol firmware")
         return
 
     print_info("Waiting for device to restart...")
@@ -1070,7 +1056,7 @@ def devices() -> None:
 
         table.add_row(str(dev), bridge_status, lora_status, shell_status)
 
-    console.print()
+    print_empty_line()
     console.print(table)
 
 
@@ -1145,8 +1131,8 @@ def verify(test_all, device, quiet):
         import serial
     except ImportError as e:
         print_error(f"Dependency missing: {e}")
-        console.print("\n[yellow]Install missing dependencies:[/yellow]")
-        console.print("  pip install pyusb pyserial")
+        print_warning("Install missing dependencies:")
+        print_dim("pip install pyusb pyserial")
         return 1
 
     # Run verification
@@ -1158,23 +1144,21 @@ def verify(test_all, device, quiet):
     if success:
         print_success("Verification completed successfully!")
         if test_all:
-            console.print(
-                "\n[green]✓ All devices are fully functional and ready for use![/green]"
-            )
+            print_success("All devices are fully functional and ready for use!")
         else:
-            console.print(
-                "\n[green]✓ Basic functionality verified. Use --test-all for comprehensive testing.[/green]"
+            print_success(
+                "Basic functionality verified. Use --test-all for comprehensive testing."
             )
         sys.exit(0)
     else:
         print_error("Verification failed!")
-        console.print("\n[yellow]Troubleshooting tips:[/yellow]")
-        console.print(
+        print_warning("Troubleshooting tips:")
+        print_dim(
             "1. Make sure all 3 USB endpoints are connected (Bridge, LoRa, Shell)"
         )
-        console.print("2. Try reconnecting the USB cable")
-        console.print("3. Check if the correct firmware is flashed")
-        console.print("4. Verify serial port permissions (Linux/Mac)")
+        print_dim("2. Try reconnecting the USB cable")
+        print_dim("3. Check if the correct firmware is flashed")
+        print_dim("4. Verify serial port permissions (Linux/Mac)")
         sys.exit(1)
 
 
@@ -1259,11 +1243,10 @@ def meshtastic_decode(input, key):
         print_error(
             f"The 'meshtastic' library is required for this command. (Error: {e})"
         )
-        console.print(
-            "\n[yellow]This library should be bundled with the package.[/yellow]"
-        )
-        console.print("If it's missing, you can install it manually:")
-        console.print("  pip install meshtastic protobuf pyyaml")
+        print_empty_line()
+        print_warning("This library should be bundled with the package.")
+        print_info("If it's missing, you can install it manually:")
+        print_dim("pip install meshtastic protobuf pyyaml")
         sys.exit(1)
 
     try:
@@ -1326,11 +1309,10 @@ def meshtastic_live(device, baudrate, frequency, preset):
         print_error(
             f"The 'meshtastic' library is required for this command. (Error: {e})"
         )
-        console.print(
-            "\n[yellow]This library should be bundled with the package.[/yellow]"
-        )
-        console.print("If it's missing, you can install it manually:")
-        console.print("  pip install meshtastic protobuf pyyaml")
+        print_empty_line()
+        print_warning("This library should be bundled with the package.")
+        print_info("If it's missing, you can install it manually:")
+        print_dim("pip install meshtastic protobuf pyyaml")
         sys.exit(1)
 
     # Get device or exit with error
@@ -1423,11 +1405,10 @@ def meshtastic_dashboard(device, baudrate, frequency, preset):
         print_error(
             f"The 'meshtastic' library is required for this command. (Error: {e})"
         )
-        console.print(
-            "\n[yellow]This library should be bundled with the package.[/yellow]"
-        )
-        console.print("If it's missing, you can install it manually:")
-        console.print("  pip install meshtastic protobuf pyyaml")
+        print_empty_line()
+        print_warning("This library should be bundled with the package.")
+        print_info("If it's missing, you can install it manually:")
+        print_dim("pip install meshtastic protobuf pyyaml")
         sys.exit(1)
 
     # Get device or exit with error
@@ -1478,11 +1459,10 @@ def meshtastic_config(file):
         print_error(
             f"The 'meshtastic' library is required for this command. (Error: {e})"
         )
-        console.print(
-            "\n[yellow]This library should be bundled with the package.[/yellow]"
-        )
-        console.print("If it's missing, you can install it manually:")
-        console.print("  pip install meshtastic protobuf pyyaml")
+        print_empty_line()
+        print_warning("This library should be bundled with the package.")
+        print_info("If it's missing, you can install it manually:")
+        print_dim("pip install meshtastic protobuf pyyaml")
         sys.exit(1)
 
     extractor = MeshtasticConfigExtractor(file)
@@ -1612,7 +1592,7 @@ def vhci_start(device, baud, verbose):
 
     if not os.path.exists("/dev/vhci"):
         print_error("/dev/vhci not found. Load the kernel module first:")
-        console.print("  sudo modprobe hci_vhci")
+        print_dim("sudo modprobe hci_vhci")
         sys.exit(1)
 
     # Resolve device
@@ -1664,7 +1644,7 @@ def vhci_start(device, baud, verbose):
     bridge = VHCIBridge(dev.bridge_port, log)
 
     def _shutdown(sig, frame):
-        console.print("\n[yellow]Shutting down VHCI bridge...[/yellow]")
+        print_warning("Shutting down VHCI bridge...")
         bridge.stop()
         sys.exit(0)
 
@@ -1677,8 +1657,8 @@ def vhci_start(device, baud, verbose):
         print_error(f"Failed to start bridge: {e}")
         sys.exit(1)
 
-    console.print("[green]Bridge running. Device should appear as hciX.[/green]")
-    console.print("[dim]Check with: hciconfig -a   |   Press Ctrl+C to stop[/dim]")
+    print_success("Bridge running. Device should appear as hciX.")
+    print_dim("Check with: hciconfig -a   |   Press Ctrl+C to stop")
 
     try:
         bridge.run()
@@ -1697,12 +1677,12 @@ def vhci_check():
 
     # Permissions check
     if os.access("/dev/vhci", os.R_OK | os.W_OK):
-        console.print("[green]  permissions  : OK (access to /dev/vhci)[/green]")
+        print_success("  permissions  : OK (access to /dev/vhci)")
     elif os.geteuid() == 0:
-        console.print("[green]  root         : OK[/green]")
+        print_success("  root         : OK")
     else:
-        console.print(
-            "[yellow]  permissions  : Insufficient — bridge may fail to open /dev/vhci[/yellow]"
+        print_warning(
+            "  permissions  : Insufficient — bridge may fail to open /dev/vhci"
         )
         all_ok = False
 
@@ -1710,43 +1690,37 @@ def vhci_check():
     try:
         result = _sp.run(["lsmod"], capture_output=True, text=True, timeout=5)
         if "hci_vhci" in result.stdout:
-            console.print("[green]  hci_vhci     : loaded[/green]")
+            print_success("  hci_vhci     : loaded")
         else:
-            console.print(
-                "[yellow]  hci_vhci     : NOT loaded — run: sudo modprobe hci_vhci[/yellow]"
-            )
+            print_warning("  hci_vhci     : NOT loaded — run: sudo modprobe hci_vhci")
             all_ok = False
     except Exception:
-        console.print("[red]  hci_vhci     : could not run lsmod[/red]")
+        print_error("  hci_vhci     : could not run lsmod")
         all_ok = False
 
     # /dev/vhci
     if os.path.exists("/dev/vhci"):
-        console.print("[green]  /dev/vhci    : exists[/green]")
+        print_success("  /dev/vhci    : exists")
     else:
-        console.print(
-            "[yellow]  /dev/vhci    : missing — run: sudo modprobe hci_vhci[/yellow]"
-        )
+        print_warning("  /dev/vhci    : missing — run: sudo modprobe hci_vhci")
         all_ok = False
 
     # BlueZ (bluetoothctl)
     try:
         _sp.run(["bluetoothctl", "--version"], capture_output=True, timeout=3)
-        console.print("[green]  bluetoothctl : found[/green]")
+        print_success("  bluetoothctl : found")
     except FileNotFoundError:
-        console.print("[yellow]  bluetoothctl : not found — install bluez[/yellow]")
+        print_warning("  bluetoothctl : not found — install bluez")
         all_ok = False
     except Exception:
-        console.print("[yellow]  bluetoothctl : check failed[/yellow]")
+        print_warning("  bluetoothctl : check failed")
 
     # btmon
     try:
         _sp.run(["btmon", "--version"], capture_output=True, timeout=3)
-        console.print("[green]  btmon        : found[/green]")
+        print_success("  btmon        : found")
     except FileNotFoundError:
-        console.print(
-            "[dim]  btmon        : not found (optional — install bluez-utils)[/dim]"
-        )
+        print_dim("  btmon        : not found (optional — install bluez-utils)")
     except Exception:
         pass
 
@@ -1754,23 +1728,21 @@ def vhci_check():
     try:
         import bleak  # noqa: F401
 
-        console.print("[green]  bleak        : installed[/green]")
+        print_success("  bleak        : installed")
     except ImportError:
-        console.print(
-            "[dim]  bleak        : not installed (optional — pip install bleak)[/dim]"
-        )
+        print_dim("  bleak        : not installed (optional — pip install bleak)")
 
     # CatSniffer device
     devs = catnip_get_devices()
     if devs:
         for dev in devs:
             port = dev.bridge_port or "?"
-            console.print(f"[green]  CatSniffer   : {dev}  bridge={port}[/green]")
+            print_success(f"  CatSniffer   : {dev}  bridge={port}")
     else:
-        console.print("[yellow]  CatSniffer   : no device detected[/yellow]")
+        print_warning("  CatSniffer   : no device detected")
         all_ok = False
 
-    console.print("")
+    print_empty_line()
     if all_ok:
         if os.access("/dev/vhci", os.R_OK | os.W_OK):
             print_success("All prerequisites met. Run: catnip vhci start")
@@ -1814,7 +1786,7 @@ def update(device, force):
     )
 
     print_info(f"CatSniffer Firmware Update - Tool v{get_tool_version()}")
-    console.print("")
+    print_empty_line()
 
     # Initialize Flasher for release management
     flasher_inst = Flasher()
@@ -1838,7 +1810,8 @@ def update(device, force):
         print_success("Firmware update check complete!")
     else:
         print_error("Firmware update could not be completed.")
-        console.print("\n[dim]Use 'catnip update --force' to force an update.[/dim]")
+        print_empty_line()
+        print_dim("Use 'catnip update --force' to force an update.")
 
 
 # ===================== CC1352 Restore Command =====================
@@ -2091,19 +2064,17 @@ def completion_install(shell):
                 f.write(f"\n# catnip tab completion\n{rc_note}\n")
             print_success(f"Added fpath entry to {zshrc}")
         else:
-            console.print(
-                "[dim]  ~/.zfunc already in fpath — skipping .zshrc edit[/dim]"
-            )
+            print_dim("~/.zfunc already in fpath — skipping .zshrc edit")
 
-    console.print("")
+    print_empty_line()
     if shell == "bash":
-        console.print("Restart your shell or run:")
-        console.print(f"  [green]source {target}[/green]")
+        print_info("Restart your shell or run:")
+        print_example(f"source {target}")
     elif shell == "zsh":
-        console.print("Restart your shell or run:")
-        console.print("  [green]source ~/.zshrc && compinit -u[/green]")
+        print_info("Restart your shell or run:")
+        print_example("source ~/.zshrc && compinit -u")
     elif shell == "fish":
-        console.print("Completion is active immediately in new fish sessions.")
+        print_info("Completion is active immediately in new fish sessions.")
 
 
 @click.command("setup-env")
@@ -2116,7 +2087,7 @@ def setup_env():
     """
     if platform.system() != "Windows" and os.geteuid() != 0:
         print_error("Root privileges required. Please run with sudo:")
-        console.print(f"  sudo {sys.argv[0]} setup-env")
+        print_dim(f"sudo {sys.argv[0]} setup-env")
         sys.exit(1)
 
     # 1. Install udev rules
@@ -2162,8 +2133,8 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="00c0", MODE="0660"
     except Exception as e:
         print_warning(f"Could not reload udev rules automatically: {e}")
 
-    console.print("\n[bold green]Environment setup complete![/bold green]")
-    console.print("Please log out and log back in for group changes to take effect.")
+    print_success("Environment setup complete!")
+    print_info("Please log out and log back in for group changes to take effect.")
 
 
 def main_cli() -> None:

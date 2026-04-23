@@ -16,7 +16,14 @@ from protocol.sniffer_ti import SnifferTI, PacketCategory
 from protocol.common import START_OF_FRAME, END_OF_FRAME, get_global_header
 
 # External
-from .output import console
+from .output import (
+    console,
+    print_success,
+    print_warning,
+    print_error,
+    print_info,
+    print_dim,
+)
 
 sniffer = SnifferTI()
 snifferSx = SnifferSx()
@@ -69,10 +76,10 @@ def _configure_lora(
     for label, cmd in steps:
         response = shell.send_command(cmd, timeout=1.5)
         if response is None:
-            console.print(f"  [yellow][!] No response while setting {label}[/yellow]")
+            print_warning(f"No response while setting {label}")
             all_ok = False
         else:
-            console.print(f"  [dim]{label}: {response[:80]}[/dim]")
+            print_dim(f"{label}: {response[:80]}")
         time.sleep(_SHELL_CMD_DELAY)
 
     return all_ok
@@ -87,17 +94,17 @@ def _stop_lora_capture(
     Switch the RP2040 back to command mode, close ports, and remove the pipe.
     Called from both the normal exit path and any early error path.
     """
-    console.print("[cyan][*] Switching RP2040 back to command mode...[/cyan]")
+    print_info("Switching RP2040 back to command mode...")
     try:
         if shell.connection is None:
             shell.connect()
         resp = shell.send_command(snifferSxCmd.start_command(), timeout=2.0)
         if resp is not None and "COMMAND" in resp.upper():
-            console.print("[green][✓] Command mode restored[/green]")
+            print_success("Command mode restored")
         else:
-            console.print(f"[yellow][!] Response to stop: {resp!r}[/yellow]")
+            print_warning(f"Response to stop: {resp!r}")
     except Exception as exc:
-        console.print(f"[yellow][!] Could not restore command mode: {exc}[/yellow]")
+        print_warning(f"Could not restore command mode: {exc}")
     finally:
         for conn in (shell, lora):
             try:
@@ -155,12 +162,10 @@ def run_sx_bridge(
 
     # ── 1. Validate ports ────────────────────────────────────────────────────
     if not device.shell_port:
-        console.print("[red][X] No shell_port on device — cannot configure LoRa[/red]")
+        print_error("No shell_port on device — cannot configure LoRa")
         return
     if not device.lora_port:
-        console.print(
-            "[red][X] No lora_port on device — cannot receive LoRa stream[/red]"
-        )
+        print_error("No lora_port on device — cannot receive LoRa stream")
         return
 
     # ── 2. Set up PCAP pipe ───────────────────────────────────────────────────
@@ -173,28 +178,26 @@ def run_sx_bridge(
     # ── 3. Open shell and configure ───────────────────────────────────────────
     shell = ShellConnection(port=device.shell_port)
     if not shell.connect():
-        console.print(f"[red][X] Cannot open shell port: {device.shell_port}[/red]")
+        print_error(f"Cannot open shell port: {device.shell_port}")
         pipe.remove()
         return
 
-    console.print(f"\n[cyan][*] Configuring LoRa via {device.shell_port}...[/cyan]")
-    console.print(f"    Frequency:        {frequency / 1e6:.3f} MHz")
-    console.print(f"    Bandwidth:        {bandwidth} kHz")
-    console.print(f"    Spreading Factor: SF{spread_factor}")
-    console.print(f"    Coding Rate:      4/{coding_rate}")
-    console.print(f"    TX Power:         {tx_power} dBm\n")
+    print_info(f"Configuring LoRa via {device.shell_port}...")
+    print_dim(f"Frequency:        {frequency / 1e6:.3f} MHz")
+    print_dim(f"Bandwidth:        {bandwidth} kHz")
+    print_dim(f"Spreading Factor: SF{spread_factor}")
+    print_dim(f"Coding Rate:      4/{coding_rate}")
+    print_dim(f"TX Power:         {tx_power} dBm")
 
     if not _configure_lora(
         shell, frequency, bandwidth, spread_factor, coding_rate, tx_power
     ):
-        console.print(
-            "[yellow][!] Some config commands had no response — continuing[/yellow]"
-        )
+        print_warning("Some config commands had no response — continuing")
 
     # ── 4. Open Cat-LoRa data port ────────────────────────────────────────────
     lora = LoRaConnection(port=device.lora_port)
     if not lora.connect():
-        console.print(f"[red][X] Cannot open LoRa port: {device.lora_port}[/red]")
+        print_error(f"Cannot open LoRa port: {device.lora_port}")
         shell.disconnect()
         pipe.remove()
         return
@@ -207,14 +210,12 @@ def run_sx_bridge(
         pass
 
     # ── 5. Switch to stream mode ──────────────────────────────────────────────
-    console.print(f"[cyan][*] Switching RP2040 to stream mode...[/cyan]")
+    print_info("Switching RP2040 to stream mode...")
     stream_resp = shell.send_command(snifferSxCmd.start_streaming(), timeout=2.0)
     if stream_resp and "STREAM" in stream_resp.upper():
-        console.print("[green][✓] Stream mode active[/green]")
+        print_success("Stream mode active")
     else:
-        console.print(
-            f"[yellow][!] Unexpected stream response: {stream_resp!r} — continuing[/yellow]"
-        )
+        print_warning(f"Unexpected stream response: {stream_resp!r} — continuing")
 
     # ── 6. Keepalive thread ───────────────────────────────────────────────────
     # The RP2040's lora_thread only calls lora_start_rx_async() when the
@@ -237,11 +238,9 @@ def run_sx_bridge(
 
     # ── 7. Wait for Wireshark ─────────────────────────────────────────────────
     if wireshark:
-        console.print(
-            f"[cyan][*] Waiting for Wireshark (timeout {_WIRESHARK_PIPE_TIMEOUT}s)...[/cyan]"
-        )
+        print_info(f"Waiting for Wireshark (timeout {_WIRESHARK_PIPE_TIMEOUT}s)...")
         if not pipe.ready_event.wait(timeout=_WIRESHARK_PIPE_TIMEOUT):
-            console.print("[red][X] Timed out waiting for Wireshark — aborting[/red]")
+            print_error("Timed out waiting for Wireshark — aborting")
             _keepalive_stop.set()
             _stop_lora_capture(shell, lora, pipe)
             return
@@ -259,7 +258,7 @@ def run_sx_bridge(
     show_output = verbose or not wireshark
 
     if show_output:
-        console.print("\n[green][*] Capture running — press Ctrl+C to stop[/green]\n")
+        print_success("Capture running — press Ctrl+C to stop")
 
     header_written = False
     packet_count = 0
@@ -280,9 +279,7 @@ def run_sx_bridge(
                 continue
             if not stripped.startswith(_LORA_LINE_PREFIX):
                 if not any(stripped.startswith(p) for p in _IGNORE_PREFIXES):
-                    console.print(
-                        f"[dim]  (device) {stripped.decode('ascii', errors='replace')}[/dim]"
-                    )
+                    print_dim(f"(device) {stripped.decode('ascii', errors='replace')}")
                 continue
 
             try:
@@ -307,20 +304,14 @@ def run_sx_bridge(
 
             except ValueError as exc:
                 error_count += 1
-                console.print(
-                    f"[yellow][!] Parse error #{error_count}: {exc} "
-                    f"— raw: {raw[:80]!r}[/yellow]"
-                )
+                print_warning(f"Parse error #{error_count}: {exc} — raw: {raw[:80]!r}")
             except Exception as exc:
                 error_count += 1
-                console.print(
-                    f"[yellow][!] Unexpected error #{error_count}: {exc}[/yellow]"
-                )
+                print_warning(f"Unexpected error #{error_count}: {exc}")
 
     except KeyboardInterrupt:
-        console.print(
-            f"\n[cyan][*] Capture stopped — "
-            f"{packet_count} packet(s), {error_count} error(s)[/cyan]"
+        print_info(
+            f"Capture stopped — {packet_count} packet(s), {error_count} error(s)"
         )
     finally:
         _keepalive_stop.set()
@@ -355,7 +346,7 @@ def run_bridge(
         time.sleep(0.1)
 
     if wireshark:
-        console.print("[*] Waiting for Wireshark to open the pipe...")
+        print_info("Waiting for Wireshark to open the pipe...")
         pipe.ready_event.wait()
 
     header_flag = False
@@ -372,7 +363,7 @@ def run_bridge(
                     pipe.write_packet(ti_packet.pcap)
             time.sleep(0.1)
         except KeyboardInterrupt:
-            console.print("\n[*] Stopping TI capture...")
+            print_info("Stopping TI capture...")
             pipe.remove()
             opening_worker.join(timeout=1)
             serial_worker.write(snifferTICmd.stop())
@@ -396,7 +387,7 @@ def run_sx_bridge_legacy(
     wireshark: bool = False,
 ):
     """Legacy bridge — deprecated. Use run_sx_bridge(CatSnifferDevice, ...)."""
-    console.print("[yellow][!] Warning: legacy bridge mode (deprecated)[/yellow]")
+    print_warning("Warning: legacy bridge mode (deprecated)")
 
     pipe = WindowsPipe() if platform.system() == "Windows" else UnixPipe()
     threading.Thread(target=pipe.open, daemon=True).start()
@@ -413,7 +404,7 @@ def run_sx_bridge_legacy(
     serial_worker.write(bytes(f"set_rx\r\n", "utf-8"))
 
     if wireshark:
-        console.print("[*] Waiting for Wireshark to open the pipe...")
+        print_info("Waiting for Wireshark to open the pipe...")
         pipe.ready_event.wait()
 
     header_flag = False

@@ -29,7 +29,15 @@ from vhci.bridge import VHCIBridge
 from vhci.constants import *
 
 from rich.logging import RichHandler
-from output import console
+from output import (
+    console,
+    print_warning,
+    print_error,
+    print_success,
+    print_dim,
+    print_empty_line,
+    print_detail_message,
+)
 
 
 def find_catsniffer():
@@ -96,19 +104,17 @@ After starting, use standard tools:
 
     # Check root
     if os.geteuid() != 0:
-        console.print(
-            "[yellow]Warning: Root privileges required for VHCI access[/yellow]"
-        )
-        console.print("[yellow]Run with sudo[/yellow]")
+        print_warning("Root privileges required for VHCI access")
+        print_warning("Run with sudo")
 
     # Find port
     if args.auto or not args.port:
         port = find_catsniffer()
         if not port:
-            console.print("[red]Error: CatSniffer not found[/red]")
-            console.print("Specify port with -p or check connection")
+            print_error("CatSniffer not found")
+            print_detail_message("Specify port with -p or check connection")
             sys.exit(1)
-        console.print(f"[green]Found CatSniffer: {port}[/green]")
+        print_success(f"Found CatSniffer: {port}")
     else:
         port = args.port
 
@@ -120,7 +126,8 @@ After starting, use standard tools:
 
     # Signal handlers
     def signal_handler(sig, frame):
-        console.print("\n[yellow]Shutting down...[/yellow]")
+        print_empty_line()
+        print_warning("Shutting down...")
         bridge.stop()
         sys.exit(0)
 
@@ -131,14 +138,14 @@ After starting, use standard tools:
     try:
         bridge.start()
     except Exception as e:
-        console.print(f"[red]Failed to start bridge: {e}[/red]")
+        print_error(f"Failed to start bridge: {e}")
         sys.exit(1)
 
-    console.print(f"[green]Bridge running![/green]")
-    console.print(f"[green]Device should appear as hciX[/green]")
-    console.print(f"[green]Check with: hciconfig -a[/green]")
-    console.print("")
-    console.print("[dim]Press Ctrl+C to stop[/dim]")
+    print_success("Bridge running!")
+    print_success("Device should appear as hciX")
+    print_success("Check with: hciconfig -a")
+    print_empty_line()
+    print_dim("Press Ctrl+C to stop")
 
     # Main loop
     try:

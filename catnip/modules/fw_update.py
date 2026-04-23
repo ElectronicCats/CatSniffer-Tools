@@ -44,7 +44,19 @@ from .catnip import (
 )
 
 from ._version import __version__ as TOOL_VERSION
-from .output import console, print_success, print_warning, print_error, print_info
+from .output import (
+    console,
+    print_success,
+    print_warning,
+    print_error,
+    print_info,
+    print_dim,
+    print_empty_line,
+    print_title,
+    print_error_section,
+    print_success_section,
+    print_instruction_step,
+)
 
 logger = logging.getLogger("rich")
 
@@ -360,7 +372,7 @@ def flash_rp2040_uf2(uf2_path: str) -> bool:
     mount_point = find_rp2040_mount_point()
     if not mount_point:
         print_error("RP2040 boot device not found!")
-        console.print("[yellow]    The device must be in UF2 Boot Mode.[/yellow]")
+        print_warning("The device must be in UF2 Boot Mode.")
         return False
 
     try:
@@ -421,39 +433,32 @@ def enter_boot_mode(shell_port: str) -> bool:
 
 def _print_boot_mode_instructions():
     """Print instructions for manually entering RP2040 boot mode."""
-    console.print("")
-    console.print(
-        "[bold red]═══════════════════════════════════════════════════[/bold red]"
+    print_error_section("DEVICE NOT DETECTED — Manual Action Required")
+    print_warning("The CatSniffer USB endpoints were not found.")
+    print_warning("This may indicate corrupted or missing firmware.")
+    print_empty_line()
+    print_title("To recover the device, follow these steps:")
+    print_empty_line()
+    print_instruction_step(
+        1,
+        "[bold]Hold down[/bold] the button [bold cyan]RESET1[/bold cyan] on the CatSniffer",
     )
-    console.print(
-        "[bold red]  ⚠  DEVICE NOT DETECTED — Manual Action Required[/bold red]"
+    print_instruction_step(
+        2, "Press [bold cyan]SW1[/bold cyan] button on the CatSniffer"
     )
-    console.print(
-        "[bold red]═══════════════════════════════════════════════════[/bold red]"
+    print_instruction_step(
+        3,
+        "While holding [bold cyan]SW1[/bold cyan], [bold]release[/bold] [bold cyan]RESET1[/bold cyan] on the CatSniffer",
     )
-    console.print("")
-    console.print("[yellow]The CatSniffer USB endpoints were not found.[/yellow]")
-    console.print("[yellow]This may indicate corrupted or missing firmware.[/yellow]")
-    console.print("")
-    console.print("[cyan bold]To recover the device, follow these steps:[/cyan bold]")
-    console.print("")
-    console.print(
-        "  [white]1.[/white] [bold]Hold down[/bold] the button [bold cyan]RESET1[/bold cyan] on the CatSniffer"
+    print_instruction_step(4, "Release the [bold cyan]SW1[/bold cyan] button")
+    print_instruction_step(
+        5, "The CatSniffer should appear as a USB drive named [bold]RPI-RP2[/bold]"
     )
-    console.print(
-        "  [white]2.[/white] Press [bold cyan]SW1[/bold cyan] button on the CatSniffer"
+    print_instruction_step(
+        6,
+        "[bold]Copy[/bold] the [bold green].uf2[/bold green] file directly to the RPI-RP2 drive.",
     )
-    console.print(
-        "  [white]3.[/white] While holding [bold cyan]SW1[/bold cyan], [bold]release[/bold] [bold cyan]RESET1[/bold cyan] on the CatSniffer"
-    )
-    console.print("  [white]4.[/white] Release the [bold cyan]SW1[/bold cyan] button")
-    console.print(
-        "  [white]5.[/white] The CatSniffer should appear as a USB drive named [bold]RPI-RP2[/bold]"
-    )
-    console.print(
-        "  [white]6.[/white] [bold]Copy[/bold] the [bold green].uf2[/bold green] file directly to the RPI-RP2 drive."
-    )
-    console.print("")
+    print_empty_line()
 
 
 def check_and_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bool:
@@ -488,23 +493,19 @@ def check_and_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bo
             print_warning(
                 f"Development version detected! Local: {tool_ver} > Latest release: {remote_sw_ver}"
             )
-            console.print(
-                "[yellow]    This build is ahead of the latest release and may be unstable.[/yellow]"
+            print_warning(
+                "This build is ahead of the latest release and may be unstable."
             )
-            console.print(
-                "[yellow]    Use it for testing only — firmware compatibility is not guaranteed.[/yellow]"
+            print_warning(
+                "Use it for testing only — firmware compatibility is not guaranteed."
             )
         else:
             print_warning(
                 f"Tool is outdated! Local: {tool_ver} → Latest: {remote_sw_ver}"
             )
-            console.print(
-                "[yellow]    Please update the CatSniffer-Tools to ensure compatibility.[/yellow]"
-            )
+            print_warning("Please update the CatSniffer-Tools to ensure compatibility.")
     else:
-        console.print(
-            "[dim]    Could not check latest software version (offline?)[/dim]"
-        )
+        print_dim("Could not check latest software version (offline?)")
 
     # Step 2: Get expected firmware version from CatSniffer-Firmware release
     if flasher is None:
@@ -515,19 +516,19 @@ def check_and_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bo
     expected_fw_tag = get_expected_fw_tag(flasher)
     if not expected_fw_tag:
         print_warning("Could not determine expected firmware version")
-        console.print("[dim]    Release metadata may not be loaded.[/dim]")
+        print_dim("Release metadata may not be loaded.")
         return False
 
     print_info(f"Expected Firmware Version: {expected_fw_tag}")
 
     # Show compatibility pairing
-    console.print("")
-    console.print("[bold]Compatibility Check:[/bold]")
-    console.print(
-        f"    Software: [cyan]{remote_sw_ver or tool_ver}[/cyan] ↔ "
+    print_empty_line()
+    print_title("Compatibility Check:")
+    print_dim(
+        f"Software: [cyan]{remote_sw_ver or tool_ver}[/cyan] ↔ "
         f"Firmware: [cyan]{expected_fw_tag}[/cyan]"
     )
-    console.print("")
+    print_empty_line()
 
     # Step 3: Detect device
     if device is None:
@@ -552,9 +553,9 @@ def check_and_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bo
             return False
 
     print_success(f"Device detected: {device}")
-    console.print(f"    Bridge: {device.bridge_port}")
-    console.print(f"    LoRa:   {device.lora_port}")
-    console.print(f"    Shell:  {device.shell_port}")
+    print_dim(f"Bridge: {device.bridge_port}")
+    print_dim(f"LoRa:   {device.lora_port}")
+    print_dim(f"Shell:  {device.shell_port}")
 
     # Step 4: Query device FW version
     if not device.shell_port:
@@ -566,14 +567,14 @@ def check_and_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bo
 
     if device_fw is None:
         print_warning("Could not read firmware version from device")
-        console.print("[dim]    The device may have corrupted firmware.[/dim]")
+        print_dim("The device may have corrupted firmware.")
         return False
 
     print_info(f"Device FW Version: {device_fw.get('fw', 'unknown')}")
     if device_fw.get("git"):
-        console.print(f"    Git: {device_fw['git']}")
+        print_dim(f"Git: {device_fw['git']}")
     if device_fw.get("built"):
-        console.print(f"    Built: {device_fw['built']}")
+        print_dim(f"Built: {device_fw['built']}")
 
     # Step 5: Compare device FW against expected firmware release
     if is_fw_compatible(device_fw, expected_fw_tag):
@@ -648,9 +649,7 @@ def _perform_rp2040_update(device: CatSnifferDevice, flasher) -> bool:
     uf2_path = find_uf2_firmware(flasher)
     if not uf2_path:
         print_error("No UF2 firmware found in release folder!")
-        console.print(
-            "[dim]    Run the CLI to download the latest release first.[/dim]"
-        )
+        print_dim("Run the CLI to download the latest release first.")
         return False
 
     print_info(f"UF2 firmware: {os.path.basename(uf2_path)}")
@@ -675,7 +674,7 @@ def _perform_rp2040_update(device: CatSnifferDevice, flasher) -> bool:
         if mount_point:
             break
         if i % 3 == 2:
-            console.print(f"[dim]    Still waiting... ({i + 1}s)[/dim]")
+            print_dim(f"Still waiting... ({i + 1}s)")
 
     if not mount_point:
         print_error("RP2040 boot device did not appear!")
@@ -686,19 +685,9 @@ def _perform_rp2040_update(device: CatSnifferDevice, flasher) -> bool:
 
     # Flash UF2
     if flash_rp2040_uf2(uf2_path):
-        console.print("")
-        console.print(
-            "[green bold]═══════════════════════════════════════[/green bold]"
-        )
-        console.print(
-            "[green bold]  ✓  RP2040 Firmware Updated Successfully![/green bold]"
-        )
-        console.print(
-            "[green bold]═══════════════════════════════════════[/green bold]"
-        )
-        console.print("")
-        console.print("[dim]The device will reboot automatically.[/dim]")
-        console.print("[dim]Wait a few seconds before using other commands.[/dim]")
+        print_success_section("RP2040 Firmware Updated Successfully!")
+        print_dim("The device will reboot automatically.")
+        print_dim("Wait a few seconds before using other commands.")
         return True
     else:
         return False
