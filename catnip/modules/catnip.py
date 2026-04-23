@@ -236,7 +236,11 @@ class SerialConnection:
 
     def connect(self) -> bool:
         try:
-            self.connection = serial.Serial(self.port, self.baudrate, timeout=2)
+            self.connection = serial.Serial(
+                self.port, self.baudrate, timeout=2, dsrdtr=False, rtscts=False
+            )
+            self.connection.setDTR(False)
+            self.connection.setRTS(False)
             return True
         except Exception:
             return False
@@ -290,8 +294,15 @@ class ShellConnection:
     def connect(self) -> bool:
         try:
             self.connection = serial.Serial(
-                self.port, self.baudrate, timeout=self.timeout
+                self.port,
+                self.baudrate,
+                timeout=self.timeout,
+                dsrdtr=False,
+                rtscts=False,
             )
+            self.connection.setDTR(False)
+            self.connection.setRTS(False)
+            time.sleep(0.05)
             return True
         except Exception:
             return False
@@ -624,7 +635,11 @@ class LoRaConnection(SerialConnection):
                 self.port,
                 self.baudrate,
                 timeout=self.STREAM_TIMEOUT,
+                dsrdtr=False,
+                rtscts=False,
             )
+            self.connection.setDTR(False)
+            self.connection.setRTS(False)
             return True
         except Exception:
             return False

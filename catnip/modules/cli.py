@@ -745,7 +745,11 @@ def send_identify_command(device):
     print_info(f"Sending identification command to {device}...")
 
     try:
-        with serial.Serial(device.shell_port, 115200, timeout=1.0) as ser:
+        with serial.Serial(
+            device.shell_port, 115200, timeout=1.0, dsrdtr=False, rtscts=False
+        ) as ser:
+            ser.setDTR(False)
+            ser.setRTS(False)
             ser.reset_input_buffer()
             ser.reset_output_buffer()
 
@@ -753,11 +757,27 @@ def send_identify_command(device):
             ser.write(cmd_bytes)
             ser.flush()
 
-            time.sleep(0.3)
+            # 150 ms silence detector replaces the fixed time.sleep(0.3).
+            # On Windows, the USB CDC driver delivers the response in bursts;
+            # a fixed sleep either cuts the response short or wastes time.
+            response = b""
+            deadline = time.time() + 1.0
+            last_rx = None
+
+            while time.time() < deadline:
+                waiting = ser.in_waiting
+                if waiting:
+                    chunk = ser.read(waiting)
+                    response += chunk
+                    last_rx = time.time()
+                    time.sleep(0.02)
+                else:
+                    if last_rx and (time.time() - last_rx) >= 0.15:
+                        break
+                    time.sleep(0.02)
 
             # Read any response (optional)
-            if ser.in_waiting:
-                response = ser.read(ser.in_waiting)
+            if response:
                 response_str = response.decode("ascii", errors="ignore").strip()
                 if response_str:
                     print_info(f"Device response: {response_str}")
@@ -1081,7 +1101,11 @@ def identify(device) -> None:
     print_info(f"Sending 'Identify' command to {dev} on port {dev.shell_port}...")
 
     try:
-        with serial.Serial(dev.shell_port, 115200, timeout=1.0) as ser:
+        with serial.Serial(
+            dev.shell_port, 115200, timeout=1.0, dsrdtr=False, rtscts=False
+        ) as ser:
+            ser.setDTR(False)
+            ser.setRTS(False)
             ser.reset_input_buffer()
             ser.reset_output_buffer()
 
@@ -1089,11 +1113,25 @@ def identify(device) -> None:
             ser.write(cmd_bytes)
             ser.flush()
 
-            time.sleep(0.3)
+            # 150 ms silence detector replaces the fixed time.sleep(0.3).
+            response = b""
+            deadline = time.time() + 1.0
+            last_rx = None
+
+            while time.time() < deadline:
+                waiting = ser.in_waiting
+                if waiting:
+                    chunk = ser.read(waiting)
+                    response += chunk
+                    last_rx = time.time()
+                    time.sleep(0.02)
+                else:
+                    if last_rx and (time.time() - last_rx) >= 0.15:
+                        break
+                    time.sleep(0.02)
 
             # Read any response (optional, not required)
-            if ser.in_waiting:
-                response = ser.read(ser.in_waiting)
+            if response:
                 response_str = response.decode("ascii", errors="ignore").strip()
                 if response_str:
                     print_info(f"Response: {response_str}")

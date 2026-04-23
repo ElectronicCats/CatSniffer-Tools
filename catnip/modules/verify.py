@@ -61,7 +61,9 @@ class VerificationDevice:
             return None
 
         try:
-            with serial.Serial(port, 115200, timeout=timeout) as ser:
+            with serial.Serial(port, 115200, timeout=timeout, dsrdtr=False, rtscts=False) as ser:
+                ser.setDTR(False)
+                ser.setRTS(False)
                 ser.reset_input_buffer()
                 ser.reset_output_buffer()
 
@@ -315,28 +317,45 @@ def test_lora_communication(device: VerificationDevice) -> bool:
         print_test_step(test_name, f"Sending '{lora_cmd}' to LoRa port")
 
         try:
-            shell_ser = serial.Serial(device.shell_port, 115200, timeout=0.5)
-            lora_ser = serial.Serial(device.lora_port, 115200, timeout=0.5)
+            shell_ser = serial.Serial(
+                device.shell_port, 115200, timeout=0.5, dsrdtr=False, rtscts=False
+            )
+            shell_ser.setDTR(False)
+            shell_ser.setRTS(False)
+
+            lora_ser = serial.Serial(
+                device.lora_port, 115200, timeout=0.5, dsrdtr=False, rtscts=False
+            )
+            lora_ser.setDTR(False)
+            lora_ser.setRTS(False)
 
             shell_ser.reset_input_buffer()
             shell_ser.reset_output_buffer()
             lora_ser.reset_input_buffer()
             lora_ser.reset_output_buffer()
 
-            time.sleep(0.1)
-
             cmd_bytes = (lora_cmd + "\r\n").encode("ascii")
             lora_ser.write(cmd_bytes)
             lora_ser.flush()
 
+            # 150 ms silence detector — same pattern as send_command() above.
+            # The fixed 0.1 s poll interval caused early exits on Windows because
+            # USB CDC delivers shell responses in bursts separated by short gaps.
             response = b""
-            start_time = time.time()
+            deadline = time.time() + timeout
+            last_rx = None
 
-            while time.time() - start_time < timeout:
-                if shell_ser.in_waiting > 0:
-                    chunk = shell_ser.read(shell_ser.in_waiting)
+            while time.time() < deadline:
+                waiting = shell_ser.in_waiting
+                if waiting:
+                    chunk = shell_ser.read(waiting)
                     response += chunk
-                time.sleep(0.1)
+                    last_rx = time.time()
+                    time.sleep(0.02)
+                else:
+                    if last_rx and (time.time() - last_rx) >= 0.15:
+                        break
+                    time.sleep(0.02)
 
             lora_ser.close()
             shell_ser.close()
@@ -377,7 +396,11 @@ def test_lora_communication(device: VerificationDevice) -> bool:
     print_test_step("CHECK", "Checking for data on LoRa port")
 
     try:
-        with serial.Serial(device.lora_port, 115200, timeout=1) as lora_ser:
+        with serial.Serial(
+            device.lora_port, 115200, timeout=1, dsrdtr=False, rtscts=False
+        ) as lora_ser:
+            lora_ser.setDTR(False)
+            lora_ser.setRTS(False)
             lora_ser.reset_input_buffer()
             time.sleep(0.5)
 
