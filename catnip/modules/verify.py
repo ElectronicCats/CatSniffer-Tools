@@ -116,28 +116,30 @@ def find_verification_devices() -> List[VerificationDevice]:
     if not cat_ports:
         return []
 
-    # Group ports by physical device using USB location (most reliable cross-platform)
+    # Group ports by physical device using serial number (primary) or
+    # USB location prefix (fallback when serial is absent).
     devices = {}
 
     for port in cat_ports:
-        device_key = None
+        device_key = "unknown"
 
-        # Priority 1: USB hub location stripped of interface designator.
-        # "1-2.1:1.0" → "1-2.1"  (same for all interfaces of the same device)
-        if port.location:
+        # Priority 1: serial number (shared by all interfaces of one device)
+        if port.hwid:
+            match = re.search(r"SER[=:]([A-Fa-f0-9]+)", port.hwid)
+            if match:
+                device_key = match.group(1)
+            elif port.serial_number:
+                device_key = port.serial_number
+        elif port.serial_number:
+            device_key = port.serial_number
+
+        # Priority 2: USB location prefix — only when value contains a colon
+        # ("path:config.interface" format), which ensures all interfaces of the
+        # same device share the prefix after splitting.  On Windows, pyserial
+        # may not populate location for every interface, so location is only
+        # used as fallback to avoid splitting one device across multiple groups.
+        if device_key == "unknown" and port.location and ":" in port.location:
             device_key = port.location.split(":")[0]
-
-        # Priority 2: Serial number from hwid
-        if not device_key:
-            if port.hwid:
-                match = re.search(r"SER[=:]([A-Fa-f0-9]+)", port.hwid)
-                if match:
-                    device_key = f"ser-{match.group(1)}"
-            if not device_key and port.serial_number:
-                device_key = f"ser-{port.serial_number}"
-
-        if not device_key:
-            device_key = "unknown"
 
         if device_key not in devices:
             devices[device_key] = []
@@ -182,13 +184,20 @@ def find_verification_devices() -> List[VerificationDevice]:
                     except (ValueError, IndexError):
                         pass
 
-        # 3. Positional fallback (used only when location is unavailable)
+        # 3. Positional fallback (used only when location is unavailable for some ports).
+        # Guard against assigning a COM port that is already mapped to another role.
         if len(ports_dict) < 3:
             fallback_map = {0: "Cat-Bridge", 1: "Cat-LoRa", 2: "Cat-Shell"}
+            already_assigned = set(ports_dict.values())
             for i, port in enumerate(ports[:3]):
                 name = fallback_map.get(i)
-                if name and name not in ports_dict:
+                if (
+                    name
+                    and name not in ports_dict
+                    and port.device not in already_assigned
+                ):
                     ports_dict[name] = port.device
+                    already_assigned.add(port.device)
 
         if len(ports_dict) == 3:
             device = VerificationDevice(device_id, ports_dict)

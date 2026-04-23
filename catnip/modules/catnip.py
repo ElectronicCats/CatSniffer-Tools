@@ -74,36 +74,41 @@ class CatSnifferDevice:
 
 def _identify_ports_by_serial(cat_ports):
     """
-    Group ports by device using USB location or serial number.
+    Group ports by device using serial number or USB location prefix.
     Returns a dict mapping device_key -> list of ports for that device.
 
-    USB location is preferred over serial number because it uniquely identifies
-    the physical USB device regardless of serial number uniqueness.  The
-    location string format is "bus-port:config.interface" (e.g. "1-2.1:1.0").
-    Stripping the ":config.interface" suffix yields a per-device key that is
-    stable across all platforms (Linux, Windows, macOS).
+    Serial number is tried first because it is present and unique for all
+    three interfaces of the same device.  USB location (stripped of its
+    ":config.interface" suffix) is used as a fallback when the serial number
+    is absent — but ONLY when the location string contains a colon, confirming
+    the "bus-hub.port:config.interface" format.  Using the full location
+    (including interface number) would create one group per port instead of
+    one group per device.
     """
     devices = {}
 
     for port in cat_ports:
-        device_key = None
+        device_key = "unknown"
 
-        # Priority 1: USB hub location stripped of interface designator.
-        # "1-2.1:1.0" → "1-2.1"  (same for all interfaces of the same device)
-        if port.location:
+        # Priority 1: serial number (shared by all interfaces of one device)
+        if port.hwid:
+            match = re.search(r"SER[=:]([A-Fa-f0-9]+)", port.hwid)
+            if match:
+                device_key = match.group(1)
+            elif port.serial_number:
+                device_key = port.serial_number
+        elif port.serial_number:
+            device_key = port.serial_number
+
+        # Priority 2: USB location prefix — only when the value contains a
+        # colon, confirming it is in "path:config.interface" format.
+        # Splitting on ":" discards the interface designator so all ports of
+        # the same physical device share the same prefix key.
+        # On Windows, pyserial may not populate location for every interface;
+        # mixing present/absent location values across the same device would
+        # create split groups, so we only fall back here if serial is absent.
+        if device_key == "unknown" and port.location and ":" in port.location:
             device_key = port.location.split(":")[0]
-
-        # Priority 2: Serial number from hwid (SER= or SER:)
-        if not device_key:
-            if port.hwid:
-                match = re.search(r"SER[=:]([A-Fa-f0-9]+)", port.hwid)
-                if match:
-                    device_key = f"ser-{match.group(1)}"
-            if not device_key and port.serial_number:
-                device_key = f"ser-{port.serial_number}"
-
-        if not device_key:
-            device_key = "unknown"
 
         if device_key not in devices:
             devices[device_key] = []
@@ -167,15 +172,21 @@ def _map_ports_intelligent(ports):
                     pass
 
     # Strategy 4: Fallback to positional ordering (sorted by device name).
-    # Used only when location is unavailable (rare).
-    # Standard order on Linux with udev: Bridge (0), LoRa (1), Shell (2).
+    # Used only when location is unavailable for some ports.
+    # On Windows, interface 0 may lack a location string; since Windows enumerates
+    # interfaces in order (0→1→2), the missing interface gets the lowest COM number
+    # after sorting, so positional assignment is still correct in practice.
+    # Guard: skip any port already assigned to a different role to prevent
+    # one COM port appearing under two role keys (which would cause len == 3
+    # but with a duplicate value).
     if len(ports_dict) < 3:
         fallback_map = {0: "Cat-Bridge", 1: "Cat-LoRa", 2: "Cat-Shell"}
-
+        already_assigned = set(ports_dict.values())
         for i, port in enumerate(ports[:3]):
             name = fallback_map.get(i)
-            if name and name not in ports_dict:
+            if name and name not in ports_dict and port.device not in already_assigned:
                 ports_dict[name] = port.device
+                already_assigned.add(port.device)
 
     return ports_dict
 
