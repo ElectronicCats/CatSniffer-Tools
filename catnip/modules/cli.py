@@ -1848,13 +1848,24 @@ def restore(firmware, device, tapid):
     """
     from .restore import restore_cc1352
 
-    dev = None
-    if device is not None:
+    # If no device is specified, get all connected devices
+    if device is None:
+        devs = catnip_get_devices()
+        if not devs:
+            print_error("No CatSniffer devices found!")
+            print_dim("Make sure your CatSniffer is connected.")
+            exit(1)
+
+        # Select the first device by default
+        dev = devs[0]
+        print_warning(f"No device specified. Using first device: {dev}")
+    else:
+        # If an ID is specified, get that specific device
         dev = catnip_get_device(device)
         if dev is None:
-            print_warning(f"Device #{device} not found, will check for Boot Mode...")
-    else:
-        dev = catnip_get_device()
+            print_error(f"CatSniffer device with ID {device} not found!")
+            print_dim("Use 'devices' command to list available devices.")
+            exit(1)
 
     flasher_inst = Flasher()
 
