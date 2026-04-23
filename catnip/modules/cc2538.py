@@ -192,15 +192,6 @@ class CommandInterface(object):
     NACK_BYTE = 0x33
 
     def open(self, aport=None, abaudrate=500000):
-        # Try to create the object using serial_for_url(), or fall back to the
-        # old serial.Serial() where serial_for_url() is not supported.
-        # serial_for_url() is a factory class and will return a different
-        # object based on the URL. For example serial_for_url("/dev/tty.<xyz>")
-        # will return a serialposix.Serial object for Ubuntu or Mac OS;
-        # serial_for_url("COMx") will return a serialwin32.Serial oject for Windows OS.
-        # For that reason, we need to make sure the port doesn't get opened at
-        # this stage: We need to set its attributes up depending on what object
-        # we get.
         try:
             self.sp = serial.serial_for_url(
                 aport, do_not_open=True, timeout=10, write_timeout=10
@@ -209,18 +200,30 @@ class CommandInterface(object):
             self.sp = serial.Serial(port=None, timeout=10, write_timeout=10)
             self.sp.port = aport
 
-        if (os.name == "nt" and isinstance(self.sp, serial.serialwin32.Serial)) or (
-            os.name == "posix" and isinstance(self.sp, serial.serialposix.Serial)
-        ):
-            self.sp.baudrate = abaudrate  # baudrate
-            self.sp.bytesize = 8  # number of databits
-            self.sp.parity = serial.PARITY_NONE  # parity
-            self.sp.stopbits = 1  # stop bits
-            self.sp.xonxoff = 0  # s/w (XON/XOFF) flow control
-            self.sp.rtscts = 0  # h/w (RTS/CTS) flow control
-            self.sp.timeout = 0.5  # set the timeout value
+        # Apply settings unconditionally — the isinstance check was fragile and
+        # could silently skip all of these on some pyserial/platform combinations.
+        self.sp.baudrate = abaudrate
+        self.sp.bytesize = 8
+        self.sp.parity = serial.PARITY_NONE
+        self.sp.stopbits = 1
+        self.sp.xonxoff = False
+        self.sp.rtscts = False
+        # dsrdtr=False prevents the Windows CDC driver from asserting DTR on
+        # port open, which can inadvertently reset the CC1352 before the
+        # bootloader entry command is sent.
+        self.sp.dsrdtr = False
+        self.sp.timeout = 0.5
+        self.sp.write_timeout = 10
 
         self.sp.open()
+
+        # Explicitly de-assert control lines and clear driver buffers.
+        # On Windows, opening a COM port may briefly assert DTR/RTS even with
+        # dsrdtr=False, so we force them low immediately after open.
+        self.sp.setDTR(False)
+        self.sp.setRTS(False)
+        self.sp.reset_input_buffer()
+        self.sp.reset_output_buffer()
 
     def invoke_bootloader(self, dtr_active_high=False, inverted=False):
         # Use the DTR and RTS lines to control bootloader and the !RESET pin.
@@ -370,14 +373,26 @@ class CommandInterface(object):
     def sendSynch(self):
         cmd = 0x55
 
-        # flush serial input buffer for first ACK reception
-        self.sp.flushInput()
-        self.sp.flush()
+        for attempt in range(3):
+            # reset_input_buffer/reset_output_buffer are the modern equivalents
+            # of the deprecated flushInput()/flush() and work correctly on
+            # Windows CDC serial ports.
+            self.sp.reset_input_buffer()
+            self.sp.reset_output_buffer()
+            # Brief pause so the Windows CDC driver finishes draining before
+            # we write — without this, stale bytes can corrupt the ACK window.
+            time.sleep(0.05)
 
-        mdebug(10, "*** sending synch sequence")
-        self._write(cmd)  # send U
-        self._write(cmd)  # send U
-        return self._wait_for_ack("Synch (0x55 0x55)", 2)
+            mdebug(10, "*** sending synch sequence")
+            self._write(cmd)  # send U
+            self._write(cmd)  # send U
+            try:
+                return self._wait_for_ack("Synch (0x55 0x55)", 2)
+            except CmdException:
+                if attempt == 2:
+                    raise
+                mdebug(10, f"*** Synch attempt {attempt + 1} timed out, retrying")
+                time.sleep(0.5)
 
     def checkLastCmd(self):
         stat = self.cmdGetStatus()

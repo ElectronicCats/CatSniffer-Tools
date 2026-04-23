@@ -60,19 +60,24 @@ class VerificationDevice:
                 ser.write(cmd_bytes)
                 ser.flush()
 
-                time.sleep(0.2)
-
+                # Wait until 150 ms of silence after the last received byte.
+                # A fixed pre-sleep + break-on-empty causes partial reads on
+                # Windows where the USB CDC driver delivers data in bursts.
                 response = b""
-                start_time = time.time()
-                while time.time() - start_time < timeout:
-                    if ser.in_waiting:
-                        chunk = ser.read(ser.in_waiting)
+                deadline = time.time() + timeout
+                last_rx = None
+
+                while time.time() < deadline:
+                    waiting = ser.in_waiting
+                    if waiting:
+                        chunk = ser.read(waiting)
                         response += chunk
-                        time.sleep(0.05)
+                        last_rx = time.time()
+                        time.sleep(0.02)
                     else:
-                        if response:
+                        if last_rx and (time.time() - last_rx) >= 0.15:
                             break
-                        time.sleep(0.05)
+                        time.sleep(0.02)
 
                 return response.decode("ascii", errors="ignore").strip()
         except Exception as e:

@@ -105,7 +105,10 @@ class CCLoader:
                         self.shell.connection.reset_output_buffer()
 
                 result = self.shell.enter_bootloader()
-                time.sleep(0.2)
+                # 1 s gives the CC1352 time to reset and set up its UART
+                # bootloader. 200 ms was enough on Linux but causes synch
+                # timeouts on Windows due to higher USB CDC latency.
+                time.sleep(1.0)
                 if result:
                     console.print("[*] Boot command sent successfully")
                 else:
@@ -147,11 +150,19 @@ class CCLoader:
 
     def sync_device(self) -> None:
         logger.info("[*] Connecting to target...")
-        if not self.cmd.sendSynch():
-            logger.error(
-                "[X] Error: Can't connect to target. Ensure boot loader is started. (no answer on synch sequence)",
-            )
-            self.close_exit()
+        for attempt in range(3):
+            try:
+                if self.cmd.sendSynch():
+                    return
+            except CmdException:
+                pass
+            if attempt < 2:
+                logger.warning(f"[!] Synch attempt {attempt + 1}/3 failed, retrying...")
+                time.sleep(0.5)
+        logger.error(
+            "[X] Error: Can't connect to target. Ensure boot loader is started. (no answer on synch sequence)",
+        )
+        self.close_exit()
 
     def close(self) -> None:
         self.cmd.close()

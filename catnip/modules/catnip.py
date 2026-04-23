@@ -311,30 +311,32 @@ class ShellConnection:
             timeout = self.timeout
 
         try:
-            # Flush any pending data
             self.connection.reset_input_buffer()
             self.connection.reset_output_buffer()
 
-            # Send command
             cmd_bytes = (command + "\r\n").encode("ascii")
             self.connection.write(cmd_bytes)
             self.connection.flush()
 
-            # Wait a bit for response
-            time.sleep(0.2)
-
-            # Read response
+            # Read until 150 ms of silence after the last byte.  The old
+            # approach (fixed 200 ms pre-sleep + break-on-empty) caused early
+            # exits on Windows where USB CDC delivers data in bursts with gaps
+            # between them, causing partial responses to be returned.
             response = b""
-            start_time = time.time()
-            while time.time() - start_time < timeout:
-                if self.connection.in_waiting:
-                    chunk = self.connection.read(self.connection.in_waiting)
+            deadline = time.time() + timeout
+            last_rx = None
+
+            while time.time() < deadline:
+                waiting = self.connection.in_waiting
+                if waiting:
+                    chunk = self.connection.read(waiting)
                     response += chunk
-                    time.sleep(0.05)
+                    last_rx = time.time()
+                    time.sleep(0.02)
                 else:
-                    if response:
+                    if last_rx and (time.time() - last_rx) >= 0.15:
                         break
-                    time.sleep(0.05)
+                    time.sleep(0.02)
 
             return response.decode("ascii", errors="ignore").strip()
         except Exception:
