@@ -61,7 +61,9 @@ class VerificationDevice:
             return None
 
         try:
-            with serial.Serial(port, 115200, timeout=timeout, dsrdtr=False, rtscts=False) as ser:
+            with serial.Serial(
+                port, 115200, timeout=timeout, dsrdtr=False, rtscts=False
+            ) as ser:
                 ser.setDTR(False)
                 ser.setRTS(False)
                 ser.reset_input_buffer()
@@ -114,26 +116,37 @@ def find_verification_devices() -> List[VerificationDevice]:
     if not cat_ports:
         return []
 
-    # Group by device using serial number
+    # Group ports by physical device using USB location (most reliable cross-platform)
     devices = {}
 
     for port in cat_ports:
-        serial_num = "unknown"
-        if port.hwid:
-            match = re.search(r"SER=([A-Fa-f0-9]+)", port.hwid)
-            if match:
-                serial_num = match.group(1)
-            elif port.location:
-                serial_num = f"loc-{port.location}"
+        device_key = None
 
-        if serial_num not in devices:
-            devices[serial_num] = []
-        devices[serial_num].append(port)
+        # Priority 1: USB hub location stripped of interface designator.
+        # "1-2.1:1.0" → "1-2.1"  (same for all interfaces of the same device)
+        if port.location:
+            device_key = port.location.split(":")[0]
+
+        # Priority 2: Serial number from hwid
+        if not device_key:
+            if port.hwid:
+                match = re.search(r"SER[=:]([A-Fa-f0-9]+)", port.hwid)
+                if match:
+                    device_key = f"ser-{match.group(1)}"
+            if not device_key and port.serial_number:
+                device_key = f"ser-{port.serial_number}"
+
+        if not device_key:
+            device_key = "unknown"
+
+        if device_key not in devices:
+            devices[device_key] = []
+        devices[device_key].append(port)
 
     catnips = []
     device_id = 1
 
-    for serial_num, ports in devices.items():
+    for _key, ports in devices.items():
         if len(ports) < 3:
             continue  # Skip incomplete devices
 
@@ -143,7 +156,7 @@ def find_verification_devices() -> List[VerificationDevice]:
         # Intelligent mapping
         ports_dict = {}
 
-        # 1. By description (more reliable)
+        # 1. By description string (works when driver provides interface names)
         for port in ports:
             desc = (port.description or "").lower()
             if "shell" in desc:
@@ -153,7 +166,23 @@ def find_verification_devices() -> List[VerificationDevice]:
             elif "bridge" in desc:
                 ports_dict["Cat-Bridge"] = port.device
 
-        # 2. By order (fallback)
+        # 2. USB interface number from location field (reliable on Linux and Windows).
+        # Location format: "bus-port:config.interface" (e.g. "1-2.1:1.0").
+        # Interface 0 = Bridge, 1 = LoRa, 2 = Shell.
+        if len(ports_dict) < 3:
+            intf_role = {0: "Cat-Bridge", 1: "Cat-LoRa", 2: "Cat-Shell"}
+            for port in ports:
+                if port.location and ":" in port.location:
+                    try:
+                        intf_part = port.location.split(":")[1]
+                        intf_num = int(intf_part.split(".")[-1])
+                        role = intf_role.get(intf_num)
+                        if role and role not in ports_dict:
+                            ports_dict[role] = port.device
+                    except (ValueError, IndexError):
+                        pass
+
+        # 3. Positional fallback (used only when location is unavailable)
         if len(ports_dict) < 3:
             fallback_map = {0: "Cat-Bridge", 1: "Cat-LoRa", 2: "Cat-Shell"}
             for i, port in enumerate(ports[:3]):

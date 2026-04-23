@@ -74,27 +74,40 @@ class CatSnifferDevice:
 
 def _identify_ports_by_serial(cat_ports):
     """
-    Group ports by device using serial number.
-    Returns a dict mapping serial_num -> list of ports for that device.
+    Group ports by device using USB location or serial number.
+    Returns a dict mapping device_key -> list of ports for that device.
+
+    USB location is preferred over serial number because it uniquely identifies
+    the physical USB device regardless of serial number uniqueness.  The
+    location string format is "bus-port:config.interface" (e.g. "1-2.1:1.0").
+    Stripping the ":config.interface" suffix yields a per-device key that is
+    stable across all platforms (Linux, Windows, macOS).
     """
     devices = {}
 
     for port in cat_ports:
-        serial_num = "unknown"
+        device_key = None
 
-        # Try to extract serial number from hwid
-        if port.hwid:
-            match = re.search(r"SER=([A-Fa-f0-9]+)", port.hwid)
-            if match:
-                serial_num = match.group(1)
-            elif port.serial_number:
-                serial_num = port.serial_number
-            elif port.location:
-                serial_num = f"loc-{port.location}"
+        # Priority 1: USB hub location stripped of interface designator.
+        # "1-2.1:1.0" → "1-2.1"  (same for all interfaces of the same device)
+        if port.location:
+            device_key = port.location.split(":")[0]
 
-        if serial_num not in devices:
-            devices[serial_num] = []
-        devices[serial_num].append(port)
+        # Priority 2: Serial number from hwid (SER= or SER:)
+        if not device_key:
+            if port.hwid:
+                match = re.search(r"SER[=:]([A-Fa-f0-9]+)", port.hwid)
+                if match:
+                    device_key = f"ser-{match.group(1)}"
+            if not device_key and port.serial_number:
+                device_key = f"ser-{port.serial_number}"
+
+        if not device_key:
+            device_key = "unknown"
+
+        if device_key not in devices:
+            devices[device_key] = []
+        devices[device_key].append(port)
 
     return devices
 
@@ -134,8 +147,28 @@ def _map_ports_intelligent(ports):
         except Exception:
             pass
 
-    # Strategy 3: Fallback to positional ordering
-    # Standard order: Bridge (0), LoRa (1), Shell (2)
+    # Strategy 3: USB interface number from location field.
+    # Location format: "bus-port:config.interface" (e.g. "1-2.1:1.0").
+    # Interface 0 = Bridge, 1 = LoRa, 2 = Shell.
+    # This is reliable on Linux and Windows because the interface number in the
+    # location string always matches the USB interface descriptor index, regardless
+    # of the COM/ttyACM number assigned by the OS.
+    if len(ports_dict) < 3:
+        intf_role = {0: "Cat-Bridge", 1: "Cat-LoRa", 2: "Cat-Shell"}
+        for port in ports:
+            if port.location and ":" in port.location:
+                try:
+                    intf_part = port.location.split(":")[1]  # e.g. "1.0"
+                    intf_num = int(intf_part.split(".")[-1])
+                    role = intf_role.get(intf_num)
+                    if role and role not in ports_dict:
+                        ports_dict[role] = port.device
+                except (ValueError, IndexError):
+                    pass
+
+    # Strategy 4: Fallback to positional ordering (sorted by device name).
+    # Used only when location is unavailable (rare).
+    # Standard order on Linux with udev: Bridge (0), LoRa (1), Shell (2).
     if len(ports_dict) < 3:
         fallback_map = {0: "Cat-Bridge", 1: "Cat-LoRa", 2: "Cat-Shell"}
 
@@ -410,18 +443,10 @@ class Catnip(SerialConnection):
         """
         from .fw_metadata import FirmwareMetadata
 
-        # If shell_port is not provided, try to infer it
+        # shell_port must be provided; inferring it from bridge_port is unreliable
+        # cross-platform (COM numbers on Windows are not contiguous by interface).
         if shell_port is None:
-            # Assume shell_port is 2 positions after bridge_port
-            # Example: /dev/ttyACM0 (bridge) -> /dev/ttyACM2 (shell)
-            try:
-                if self.port and "ttyACM" in self.port:
-                    base_num = int(self.port.split("ttyACM")[-1])
-                    shell_port = f"/dev/ttyACM{base_num + 2}"
-                else:
-                    return False
-            except Exception:
-                return False
+            return False
 
         try:
             # Create shell connection
