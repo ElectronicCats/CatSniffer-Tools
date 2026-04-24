@@ -124,36 +124,51 @@ class FirmwareFile(object):
         """
         self._crc32 = None
         firmware_is_hex = False
+        file_type = None
 
         if have_magic:
-            file_type = magic.from_file(path, mime=True)
+            try:
+                file_type = magic.from_file(path, mime=True)
+            except Exception as e:
+                # If magic fails (common on macOS if libmagic is missing), we fall back to extension
+                mdebug(5, f"Magic failed: {e}. Falling back to extension-based detection.")
+                file_type = None
 
-            if file_type == "text/plain":
-                firmware_is_hex = True
-                mdebug(5, "Firmware file: Intel Hex")
-            elif file_type == "text/x-hex":
+        if file_type:
+            if file_type in ("text/plain", "text/x-hex"):
                 firmware_is_hex = True
                 mdebug(5, "Firmware file: Intel Hex")
             elif file_type == "application/octet-stream":
                 mdebug(5, "Firmware file: Raw Binary")
             else:
-                error_str = (
-                    "Could not determine firmware type. Magic "
-                    "indicates '%s'" % (file_type)
-                )
-                raise CmdException(error_str)
+                # Still try to fall back to extension if magic returns something unexpected
+                ext = os.path.splitext(path)[1][1:].lower()
+                if ext in self.HEX_FILE_EXTENSIONS:
+                    firmware_is_hex = True
+                    mdebug(
+                        5,
+                        f"Magic said {file_type}, but extension suggests Intel Hex. Using Hex.",
+                    )
+                else:
+                    error_str = (
+                        "Could not determine firmware type. Magic "
+                        "indicates '%s'" % (file_type)
+                    )
+                    raise CmdException(error_str)
         else:
-            if os.path.splitext(path)[1][1:] in self.HEX_FILE_EXTENSIONS:
+            # Fallback to extension detection
+            ext = os.path.splitext(path)[1][1:].lower()
+            if ext in self.HEX_FILE_EXTENSIONS:
                 firmware_is_hex = True
                 mdebug(5, "Your firmware looks like an Intel Hex file")
             else:
                 mdebug(5, "Cannot auto-detect firmware filetype: Assuming .bin")
 
-            mdebug(
-                10,
-                "For more solid firmware type auto-detection, install " "python-magic.",
-            )
-            mdebug(10, "Please see the readme for more details.")
+            if not have_magic:
+                mdebug(
+                    10,
+                    "For more solid firmware type auto-detection, install python-magic.",
+                )
 
         if firmware_is_hex:
             if have_hex_support:
