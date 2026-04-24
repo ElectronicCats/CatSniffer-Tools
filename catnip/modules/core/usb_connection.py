@@ -191,11 +191,27 @@ def _map_roles(ports: list) -> Dict[str, str]:
                 break
 
     # Strategy 1b — pyserial 'interface' attribute (populated on some platforms)
-    if len(result) < 3 and _HAS_PYUSB:
+    if len(result) < 3:
         for port in ports:
             intf_name = getattr(port, "interface", None) or ""
             for keyword, role in _INTF_NAME_TO_ROLE.items():
                 if keyword in intf_name and role not in result:
+                    result[role] = port.device
+
+    # Strategy 1c — Windows HWID MI field
+    # On Windows the HWID of each COM port contains "&MI_XX" where XX (hex) is
+    # the USB interface number.  For 3 CDC-ACM instances each using 2 USB
+    # interfaces, the mapping is:  MI_00→Bridge, MI_02→LoRa, MI_04→Shell.
+    # Formula: cdc_idx = int(XX, 16) // 2  →  _INTF_TO_ROLE lookup.
+    if len(result) < 3:
+        for port in ports:
+            if not port.hwid:
+                continue
+            m = re.search(r"&MI_([0-9A-Fa-f]{2})", port.hwid, re.IGNORECASE)
+            if m:
+                cdc_idx = int(m.group(1), 16) // 2
+                role = _INTF_TO_ROLE.get(cdc_idx)
+                if role and role not in result:
                     result[role] = port.device
 
     # Strategy 2 — USB location interface index

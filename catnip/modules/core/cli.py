@@ -27,7 +27,7 @@ from .catnip import (
     catnip_get_device,
     catnip_get_devices,
 )
-from .usb_connection import ShellConnection
+from .usb_connection import ShellConnection, CATSNIFFER_VID, CATSNIFFER_PID
 
 # External
 import click
@@ -1023,11 +1023,19 @@ def flash(firmware, device, list, full) -> None:
 
 
 @cli.command()
-def devices() -> None:
+@click.option(
+    "--debug",
+    is_flag=True,
+    default=False,
+    help="Show raw USB port info for each interface (useful for diagnosing Windows port mapping).",
+)
+def devices(debug: bool) -> None:
     """List connected CatSniffer devices"""
     devs = catnip_get_devices()
     if not devs:
         print_warning("No CatSniffer devices found.")
+        if debug:
+            _print_raw_port_debug()
         return
 
     # Add a table to display devices
@@ -1046,6 +1054,44 @@ def devices() -> None:
 
     print_empty_line()
     console.print(table)
+
+    if debug:
+        _print_raw_port_debug()
+
+
+def _print_raw_port_debug() -> None:
+    """Print raw pyserial port info for all CatSniffer interfaces."""
+    from serial.tools import list_ports
+
+    cat_ports = [
+        p
+        for p in list_ports.comports()
+        if p.vid == CATSNIFFER_VID and p.pid == CATSNIFFER_PID
+    ]
+
+    if not cat_ports:
+        console.print("[red]No CatSniffer USB interfaces visible to pyserial.[/red]")
+        return
+
+    raw = Table(title="Raw USB port info (debug)", box=box.SIMPLE)
+    raw.add_column("Port", style="cyan")
+    raw.add_column("Description")
+    raw.add_column("HWID")
+    raw.add_column("Location")
+    raw.add_column("Interface")
+    raw.add_column("Serial#")
+
+    for p in sorted(cat_ports, key=lambda x: x.device):
+        raw.add_row(
+            p.device,
+            p.description or "",
+            p.hwid or "",
+            p.location or "",
+            getattr(p, "interface", None) or "",
+            p.serial_number or "",
+        )
+
+    console.print(raw)
 
 
 @cli.command()
