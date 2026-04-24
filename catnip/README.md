@@ -15,9 +15,12 @@
     - [Directory Structure](#directory-structure)
     - [Main Components](#main-components)
       - [1. **catnip.py** (Entry Point)](#1-catnippy-entry-point)
-      - [2. **`modules/` Module** (Application Core)](#2-modules-module-application-core)
-      - [3. **`protocol`/ Module** (Radio Drivers)](#3-protocol-module-radio-drivers)
-      - [4. **Auto-generated Firmware Directory**](#4-auto-generated-firmware-directory)
+      - [2. **`modules/core/`** (Runtime Core)](#2-modulescore-runtime-core)
+      - [3. **`modules/firmware/`** (Firmware Management)](#3-modulesfirmware-firmware-management)
+      - [4. **`modules/protocols/`** (Protocol Implementations)](#4-modulesprotocols-protocol-implementations)
+      - [5. **`modules/utils/`** (Shared Utilities)](#5-modulesutils-shared-utilities)
+      - [6. **`protocol/`** (Radio Protocol Drivers)](#6-protocol-radio-protocol-drivers)
+      - [7. **Auto-generated Firmware Directory**](#7-auto-generated-firmware-directory)
   - [Capabilities and Features](#capabilities-and-features)
     - [Main Features](#main-features)
   - [Installation](#installation)
@@ -40,6 +43,12 @@
     - [Flashing Process](#flashing-process)
     - [Troubleshooting Flashing Issues](#troubleshooting-flashing-issues)
       - [Common Errors and Solutions](#common-errors-and-solutions)
+  - [Firmware Recovery (Restore)](#firmware-recovery-restore)
+    - [How it Works](#how-it-works)
+    - [Prerequisites](#prerequisites-1)
+    - [Usage](#usage)
+    - [Restoration Process Flow](#restoration-process-flow)
+    - [Practical Examples](#practical-examples)
   - [Device Verification](#device-verification)
     - [Basic Verification](#basic-verification)
     - [Complete Verification](#complete-verification)
@@ -71,7 +80,7 @@
       - [2. Fixed Channel Mode](#2-fixed-channel-mode)
       - [3. Network Topology Discovery](#3-network-topology-discovery)
       - [4. Protocol Filter](#4-protocol-filter)
-    - [Practical Examples](#practical-examples)
+    - [Practical Examples](#practical-examples-1)
       - [Example 1: Zigbee Network Audit](#example-1-zigbee-network-audit)
       - [Example 2: Interference Detection](#example-2-interference-detection)
       - [Example 3: Deep Channel Analysis](#example-3-deep-channel-analysis)
@@ -84,7 +93,7 @@
     - [Command 1: Packet Decoder (Offline)](#command-1-packet-decoder-offline)
       - [Command Help](#command-help-1)
       - [Default Encryption Keys](#default-encryption-keys)
-      - [Practical Examples](#practical-examples-1)
+      - [Practical Examples](#practical-examples-2)
       - [Message Type Detection](#message-type-detection)
     - [Command 2: Live Decoder](#command-2-live-decoder)
       - [Command Help](#command-help-2)
@@ -143,82 +152,124 @@ This tool is aimed at:
 
 ```text
 CatSniffer-Tools/
-├── catnip.py               # Main entry point
-├── compile.sh                  # Firmware compilation script
-├── lora_extcap.py              # Wireshark extcap plugin (LoRa)
-├── requirements.txt            # Python dependencies
-├── setup.py                    # Installation configuration
-├── modules/                    # Core application modules
+├── catnip.py                       # Main entry point (thin launcher)
+├── lora_extcap.py                  # Wireshark extcap plugin (LoRa)
+├── compile.sh                      # Firmware compilation script
+├── requirements.txt                # Python dependencies
+├── setup.py                        # Installation configuration
+├── modules/                        # Application modules
 │   ├── __init__.py
-│   ├── bridge.py               # Serial communication bridge
-│   ├── flasher.py               # Firmware management and flashing
-│   ├── catnip.py           # Hardware detection and communication
-│   ├── cc2538.py               # CC2538 chip controller
-│   ├── cli.py                  # CLI command definitions
-│   ├── fw_aliases.py           # Firmware aliases
-│   ├── fw_metadata.py          # Firmware metadata
-│   ├── pipes.py                # PCAP pipe management for Wireshark
-│   ├── verify.py               # Hardware diagnostic tests
-│   ├── cativity/               # IQ Activity Monitor
+│   ├── core/                       # Runtime core
 │   │   ├── __init__.py
-│   │   ├── graphs.py           # Graph visualization
-│   │   ├── network.py          # Network topology analysis
-│   │   ├── packets.py          # Packet processing
-│   │   └── runner.py           # Cativity main orchestrator
-│   ├── meshtastic/             # Meshtastic integration
+│   │   ├── bridge.py               # Serial communication bridge
+│   │   ├── catnip.py               # Hardware detection and session management
+│   │   ├── cli.py                  # CLI command definitions
+│   │   ├── pipes.py                # PCAP pipe management for Wireshark
+│   │   ├── usb_connection.py       # USB CDC-ACM interface resolution
+│   │   └── vhci_bridge.py          # Linux VHCI HCI controller bridge
+│   ├── firmware/                   # Firmware lifecycle
 │   │   ├── __init__.py
-│   │   ├── config.py           # Meshtastic configuration
-│   │   ├── dashboard.py        # Meshtastic dashboard
-│   │   ├── decoder.py          # Meshtastic packet decoder
-│   │   └── live.py             # Live Meshtastic capture
-│   └── sx1262/                 # SX1262 radio module
+│   │   ├── cc2538.py               # CC1352/CC2538 serial bootloader protocol
+│   │   ├── flasher.py              # Firmware download, verify, and flash engine
+│   │   ├── fw_aliases.py           # Firmware alias resolution table
+│   │   ├── fw_metadata.py          # NVS firmware ID read/write
+│   │   ├── fw_update.py            # Automatic version check and RP2040 update
+│   │   ├── restore.py              # CC1352 recovery via JTAG (OpenOCD)
+│   │   └── verify.py               # Hardware diagnostic tests
+│   ├── protocols/                  # Protocol implementations
+│   │   ├── __init__.py
+│   │   ├── cativity/               # IQ Activity Monitor (Zigbee/Thread)
+│   │   │   ├── __init__.py
+│   │   │   ├── graphs.py           # Real-time graph visualization
+│   │   │   ├── network.py          # Network topology analysis
+│   │   │   ├── packets.py          # 802.15.4 packet processing
+│   │   │   └── runner.py           # Cativity main orchestrator
+│   │   ├── meshtastic/             # Meshtastic protocol suite
+│   │   │   ├── __init__.py
+│   │   │   ├── config.py           # PSK and config extractor
+│   │   │   ├── core.py             # Shared crypto and packet parsing
+│   │   │   ├── dashboard.py        # TUI chat dashboard
+│   │   │   ├── decoder.py          # Offline packet decoder
+│   │   │   └── live.py             # Live LoRa packet capture
+│   │   ├── sx1262/                 # SX1262 radio module
+│   │   │   ├── __init__.py
+│   │   │   └── spectrum.py         # Real-time spectrum analyzer
+│   │   └── vhci/                   # Linux Virtual HCI (native BLE adapter)
+│   │       ├── __init__.py
+│   │       ├── bridge.py           # VHCI ↔ Sniffle bridge
+│   │       ├── commands.py         # HCI command builders
+│   │       ├── constants.py        # HCI constants
+│   │       └── events.py           # HCI event parsers
+│   └── utils/                      # Shared utilities
 │       ├── __init__.py
-│       └── spectrum.py         # Spectrum analyzer
-├── protocol/                   # Radio protocol drivers
+│       ├── output.py               # Rich console and print helpers
+│       └── _version.py             # Version management
+├── protocol/                       # Radio protocol drivers
 │   ├── __init__.py
-│   ├── common.py               # Shared functionality
-│   ├── sniffer_sx.py           # Semtech chip support (LoRa)
-│   └── sniffer_ti.py           # Texas Instruments chip support
-└── release_board-v3.x-vX.X.X/  # Firmware directory (auto-generated)
-    ├── *.hex                   # TI CC1352 firmware files
-    ├── *.uf2                   # RP2040 firmware files
-    └── releases.json           # Firmware metadata
+│   ├── common.py                   # SOF/EOF markers and PCAP global header
+│   ├── sniffer_sx.py               # Semtech SX1262 frame driver (LoRa/FSK)
+│   └── sniffer_ti.py               # Texas Instruments CC1352 frame driver
+└── release_board-v3.x-vX.X.X/     # Firmware directory (auto-generated)
+    ├── *.hex                       # TI CC1352 firmware files
+    ├── *.uf2                       # RP2040 firmware files
+    └── releases.json               # Firmware metadata
 ```
 
 ### Main Components
 
 #### 1. **catnip.py** (Entry Point)
-Main script providing access to all system functionalities through structured commands.
+Thin launcher that delegates execution to `modules.core.cli`. Contains no application logic, which makes it easy to package for different platforms.
 
-#### 2. **`modules/` Module** (Application Core)
+#### 2. **`modules/core/`** (Runtime Core)
 
-- **cli.py**: Defines the user-available command interface
-- **flasher.py**: Manages download, SHA256 verification, and flashing of firmware to the CC1352 chip
-- **catnip.py**: Implements automatic serial port detection logic and hardware communication
-- **bridge.py**: Establishes the serial communication bridge with devices
-- **cc2538.py:** Provides low-level control for the CC2538 chip
-- **pipes.py**: Creates data pipes that transmit captured packets in PCAP format to Wireshark
+The heart of the CLI runtime:
+
+- **cli.py**: Defines all Click commands and sub-commands exposed to the user
+- **catnip.py**: Device state machine — handles firmware detection, auto-flash decisions, and sniffing session lifecycle
+- **bridge.py**: Establishes the serial communication bridge between the host and the CC1352/SX1262 chips
+- **pipes.py**: Creates named pipes (Unix/Windows) that stream captured packets in PCAP format to Wireshark
+- **usb_connection.py**: Resolves the three CDC-ACM interfaces (Bridge, LoRa, Shell) for each connected CatSniffer using USB descriptor heuristics and positional fallback; supports multiple simultaneous devices
+- **vhci_bridge.py**: Exposes CatSniffer as a Linux HCI controller (`hciX`), enabling native Bluetooth tools (`hcitool`, `bluetoothctl`) to operate directly through the hardware
+
+#### 3. **`modules/firmware/`** (Firmware Management)
+
+Handles the entire firmware lifecycle:
+
+- **flasher.py**: Downloads, SHA256-verifies, and flashes firmware to the CC1352 chip
+- **fw_update.py**: Compares the tool version against the latest GitHub release and updates the RP2040 firmware automatically when needed
+- **fw_aliases.py**: Centralized alias table that maps short names (`sniffle`, `zigbee`, `ble`) to official firmware IDs
+- **fw_metadata.py**: Reads and writes the active firmware ID stored in the RP2040 NVS flash
+- **cc2538.py**: Low-level serial bootloader protocol implementation for CC1352/CC2538 chips
+- **restore.py**: Recovers a CC1352 with a broken bootloader by using the RP2040 as a CMSIS-DAP JTAG programmer via OpenOCD
 - **verify.py**: Runs self-diagnostic tests to validate hardware operation
-- **cativity/**: Submodule dedicated to monitoring activity on 802.15.4 channels (Zigbee/Thread)
-- **meshtastic/**: Submodule for Meshtastic protocol integration and capture
-- **sx1262/**: Submodule for SX1262 radio spectrum analysis
 
-#### 3. **`protocol`/ Module** (Radio Drivers)
+#### 4. **`modules/protocols/`** (Protocol Implementations)
 
-Contains specific implementations for each radio chip family:
-- **sniffer_ti.py**: Driver for Texas Instruments chips (Zigbee, Thread, 802.15.4)
-- **sniffer_sx.py**: Driver for Semtech SX1262 chips (LoRa)
-- **common.py**: Functions shared across all protocols
+One sub-package per supported radio protocol, keeping each implementation self-contained:
 
-#### 4. **Auto-generated Firmware Directory**
+- **cativity/**: Real-time 802.15.4 channel activity monitor with network topology discovery for Zigbee/Thread networks
+- **meshtastic/**: Full Meshtastic suite — shared crypto core, offline decoder, live LoRa capture, TUI chat dashboard, and config extractor
+- **sx1262/**: Real-time spectrum analyzer for the SX1262 LoRa radio with matplotlib visualization
+- **vhci/**: Linux Virtual HCI bridge that presents CatSniffer as a native Bluetooth adapter to the operating system
 
-When run for the first time, the tool automatically creates a directory following the pattern:
+#### 5. **`modules/utils/`** (Shared Utilities)
 
-```text
-release_board-v3.x-vX.X.X/
-```
+Cross-cutting concerns available to all modules:
 
-This directory stores downloaded firmware files (.hex, .uf2) from the official GitHub repository.
+- **output.py**: Shared Rich console, styles, and print helpers (`print_info`, `print_success`, `print_error`)
+- **_version.py**: Single version source — reads the `VERSION` file in development, falls back to installed package metadata in production
+
+#### 6. **`protocol/`** (Radio Protocol Drivers)
+
+Low-level frame parsers and packet builders for each chip family:
+
+- **sniffer_ti.py**: Frame protocol for Texas Instruments CC1352 (Zigbee, Thread, 802.15.4)
+- **sniffer_sx.py**: Frame protocol for Semtech SX1262 (LoRa, FSK)
+- **common.py**: SOF/EOF frame markers and PCAP global header shared across all drivers
+
+#### 7. **Auto-generated Firmware Directory**
+
+Created automatically on first run, following the pattern `release_board-v3.x-vX.X.X/`. Stores firmware files downloaded from the official GitHub repository.
 
 ---
 
@@ -396,6 +447,7 @@ Commands:
   identify    Send identification command to CatSniffer device
   lora        LoRa SX1262 tools
   meshtastic  Meshtastic protocol tools
+  restore     Restore CC1352 when bootloader is broken
   sniff       Sniffer protocol control
   verify      Verify CatSniffer device functionality
 ```
@@ -411,6 +463,7 @@ Commands:
 | `sniff` | Starts wireless protocol captures |
 | `verify` | Runs hardware functionality diagnostics |
 | `meshtastic` | Meshtastic protocol tools (group command) |
+| `restore` | Restore CC1352 when bootloader is broken |
 | `lora` | LoRa SX1262 tools (group command) |
 
 **Sniff subcommands:**
@@ -736,6 +789,69 @@ sudo python catnip.py flash sniffle
 **Solution:**
 ```bash
 python catnip.py flash --list  # View available firmware
+```
+
+---
+
+## Firmware Recovery (Restore)
+
+The `restore` command is a specialized tool designed to recover a CatSniffer device when its serial bootloader is broken or unresponsive (e.g., after flashing firmware without proper bootloader configuration).
+
+### How it Works
+
+This command uses the **RP2040** on the CatSniffer as a **CMSIS-DAP JTAG programmer**. It temporarily loads a JTAG bridge firmware onto the RP2040 to flash the CC1352 directly via JTAG, then restores the original bridge firmware.
+
+### Prerequisites
+
+You must have **OpenOCD** installed on your system:
+
+- **Linux**: `sudo apt install openocd`
+- **macOS**: `brew install openocd`
+- **Windows**: `choco install openocd`
+
+> [!NOTE]
+> If openOCD is not installed, the instalation flow will auto-install openocd.
+
+### Usage
+
+**Basic Command:**
+```bash
+python3 catnip.py restore
+```
+
+**Options:**
+
+| Option | Shortcut | Description |
+|--------|----------|-------------|
+| `FIRMWARE` | (arg) | Path to a custom `.hex` file to flash. If omitted, the default CatSniffer firmware is used. |
+| `--device` | `-d` | Device ID for shell access to trigger BOOTSEL automatically. |
+| `--tapid` | | CC1352 JTAG TAPID (default: `0x1BB7702F` for CC1352P7). |
+
+### Restoration Process Flow
+
+1. **Prerequisite Check**: Verifies OpenOCD installation and required firmware assets.
+2. **JTAG Programmer Mode**:
+   - Puts the RP2040 into BOOTSEL mode.
+   - Loads the `free_dap` CMSIS-DAP firmware.
+3. **CC1352 Erase**: Uses OpenOCD to erase the CC1352 flash via JTAG (preserving the bootloader sector).
+4. **Bridge Restoration**:
+   - Puts the RP2040 into BOOTSEL mode again.
+   - Restores the official CatSniffer bridge firmware.
+5. **Serial Flash**: Performs a final flash of the CC1352 via the now-functional serial bootloader.
+
+> [!CAUTION]
+> If the tool cannot automatically put the device into BOOTSEL mode, you will be prompted to do it manually using the **BOOT** and **RESET** buttons on the hardware.
+
+### Practical Examples
+
+**Restore with default firmware:**
+```bash
+catnip restore
+```
+
+**Restore using a specific device and custom firmware:**
+```bash
+catnip restore custom_firmware.hex -d 1
 ```
 
 ---
@@ -2237,5 +2353,5 @@ This project is licensed under the terms specified in the official repository. C
 ## Credits
 
 - **Developed by**: Electronic Cats - PWNLAB
-- **Version**: 3.3.1.0
+- **Version**: 3.3.2.0
 - **Last Updated**: 2026
