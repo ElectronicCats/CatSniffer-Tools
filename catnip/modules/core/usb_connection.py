@@ -58,7 +58,11 @@ ROLE_LORA = "Cat-LoRa"  # CDC1 — SX1262 LoRa/FSK data stream
 ROLE_SHELL = "Cat-Shell"  # CDC2 — RP2040 text configuration shell
 
 # USB interface index → role  (from firmware: cdc_acm_uart0 / 1 / 2)
-_INTF_TO_ROLE: Dict[int, str] = {0: ROLE_BRIDGE, 1: ROLE_LORA, 2: ROLE_SHELL}
+# Each CDC-ACM instance occupies 2 USB interfaces (communication + data), so
+# the communication interface numbers are 0, 2, 4 — not 0, 1, 2.
+# Both Linux (LOCATION=bus:cfg.N) and Windows (LOCATION=bus:x.N) expose
+# these same USB interface numbers in the location field.
+_INTF_TO_ROLE: Dict[int, str] = {0: ROLE_BRIDGE, 2: ROLE_LORA, 4: ROLE_SHELL}
 
 # Description keyword → role  (case-insensitive sub-string match)
 _DESC_TO_ROLE: Dict[str, str] = {
@@ -198,19 +202,18 @@ def _map_roles(ports: list) -> Dict[str, str]:
                 if keyword in intf_name and role not in result:
                     result[role] = port.device
 
-    # Strategy 1c — Windows HWID MI field
-    # On Windows the HWID of each COM port contains "&MI_XX" where XX (hex) is
-    # the USB interface number.  For 3 CDC-ACM instances each using 2 USB
-    # interfaces, the mapping is:  MI_00→Bridge, MI_02→LoRa, MI_04→Shell.
-    # Formula: cdc_idx = int(XX, 16) // 2  →  _INTF_TO_ROLE lookup.
+    # Strategy 1c — LOCATION embedded in the HWID string
+    # pyserial on Windows normalises the HWID to:
+    #   "USB VID:PID=XXXX:YYYY SER=... LOCATION=bus-hub:x.N"
+    # where N is the USB interface number (0, 2, 4 for 3 CDC-ACM instances).
+    # This catches devices where port.location is absent but hwid is not.
     if len(result) < 3:
         for port in ports:
             if not port.hwid:
                 continue
-            m = re.search(r"&MI_([0-9A-Fa-f]{2})", port.hwid, re.IGNORECASE)
+            m = re.search(r"LOCATION=\S+:(?:\w+)\.(\d+)", port.hwid, re.IGNORECASE)
             if m:
-                cdc_idx = int(m.group(1), 16) // 2
-                role = _INTF_TO_ROLE.get(cdc_idx)
+                role = _INTF_TO_ROLE.get(int(m.group(1)))
                 if role and role not in result:
                     result[role] = port.device
 
