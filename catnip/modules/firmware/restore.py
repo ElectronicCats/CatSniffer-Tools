@@ -36,7 +36,7 @@ from .fw_update import (
     enter_boot_mode,
 )
 
-from .output import (
+from ..utils.output import (
     console,
     print_success,
     print_warning,
@@ -383,7 +383,7 @@ def restore_cc1352(
     # Try shell 'reboot' command first (works if bridge firmware is running)
     # Auto-detect device if not provided
     if device is None:
-        from .catnip import catnip_get_device as _get_device
+        from ..core.catnip import catnip_get_device as _get_device
 
         device = _get_device()
 
@@ -481,7 +481,7 @@ def restore_cc1352(
 
     # Use catnip flash to program via serial bootloader
     try:
-        from .catnip import catnip_get_device
+        from ..core.catnip import catnip_get_device
 
         dev = catnip_get_device()
         if not dev:

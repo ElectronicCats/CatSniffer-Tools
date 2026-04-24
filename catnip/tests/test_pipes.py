@@ -33,7 +33,7 @@ sys.modules["win32pipe"] = MagicMock()
 sys.modules["win32file"] = MagicMock()
 
 # Now we can import safely
-from modules.pipes import (
+from modules.core.pipes import (
     UnixPipe,
     WindowsPipe,
     Wireshark,
@@ -122,14 +122,14 @@ class TestUnixPipe:
 class TestWindowsPipe:
     """Tests for the WindowsPipe class."""
 
-    @patch("modules.pipes.win32pipe", create=True)
+    @patch("modules.core.pipes.win32pipe", create=True)
     def test_create_success(self, mock_win32pipe):
         mock_win32pipe.CreateNamedPipe.return_value = "fake_handle"
         pipe = WindowsPipe(path=r"\\.\pipe\test")
         mock_win32pipe.CreateNamedPipe.assert_called_once()
         assert pipe.pipe_writer == "fake_handle"
 
-    @patch("modules.pipes.win32pipe", create=True)
+    @patch("modules.core.pipes.win32pipe", create=True)
     def test_open_success(self, mock_win32pipe):
         pipe = WindowsPipe(path=r"\\.\pipe\test")
         pipe.pipe_writer = "fake_handle"
@@ -137,8 +137,8 @@ class TestWindowsPipe:
         mock_win32pipe.ConnectNamedPipe.assert_called_once_with("fake_handle", None)
         assert pipe.ready_event.is_set()
 
-    @patch("modules.pipes.win32pipe", create=True)
-    @patch("modules.pipes.win32file", create=True)
+    @patch("modules.core.pipes.win32pipe", create=True)
+    @patch("modules.core.pipes.win32file", create=True)
     def test_close(self, mock_win32file, mock_win32pipe):
         pipe = WindowsPipe(path=r"\\.\pipe\test")
         pipe.pipe_writer = "fake_handle"
@@ -149,9 +149,9 @@ class TestWindowsPipe:
         assert pipe.pipe_writer is None
         assert not pipe.ready_event.is_set()
 
-    @patch("modules.pipes.os.path.exists", return_value=True)
-    @patch("modules.pipes.os.remove")
-    @patch("modules.pipes.win32pipe", create=True)
+    @patch("modules.core.pipes.os.path.exists", return_value=True)
+    @patch("modules.core.pipes.os.remove")
+    @patch("modules.core.pipes.win32pipe", create=True)
     def test_remove(self, mock_win32pipe, mock_remove, mock_exists):
         pipe = WindowsPipe(path=r"\\.\pipe\test")
         mock_writer = MagicMock()
@@ -160,8 +160,8 @@ class TestWindowsPipe:
         mock_writer.close.assert_called_once()
         mock_remove.assert_called_once_with(r"\\.\pipe\test")
 
-    @patch("modules.pipes.win32file", create=True)
-    @patch("modules.pipes.win32pipe", create=True)
+    @patch("modules.core.pipes.win32file", create=True)
+    @patch("modules.core.pipes.win32pipe", create=True)
     def test_write_packet_success(self, mock_win32pipe, mock_win32file):
         pipe = WindowsPipe(path=r"\\.\pipe\test")
         pipe.pipe_writer = "fake_handle"

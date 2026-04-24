@@ -136,7 +136,7 @@ def subcommand2(flag):
 ### Step 3: Integrate with the device detection system
 
 ```python
-from modules.catnip import CatSniffer
+from modules.core.catnip import CatSniffer
 
 @cli.command('my_command')
 @click.option('-d', '--device', type=int, help='Device ID')
@@ -218,7 +218,7 @@ def sniff(protocol, ...):
     if protocol == 'new':
         from protocol.sniffer_new import NewSniffer
         # Initialize and execute using CatSniffer abstraction
-        from modules.catnip import catnip_get_device
+        from modules.core.catnip import catnip_get_device
         device = catnip_get_device()
         sniffer = NewSniffer(device.bridge_port)
         sniffer.start_capture()

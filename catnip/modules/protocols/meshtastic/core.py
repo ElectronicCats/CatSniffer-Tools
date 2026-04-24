@@ -3,7 +3,7 @@ import re
 import time
 from typing import Dict, List, Optional, Tuple
 
-from modules.output import console, print_success, print_error, print_info
+from modules.utils.output import console, print_success, print_error, print_info
 
 # Third-party
 from cryptography.hazmat.backends import default_backend
@@ -177,7 +177,7 @@ def configure_meshtastic_radio(
     shell_port: str, freq_hz: int, preset: str = "LongFast"
 ) -> bool:
     """Configure radio parameters using the shell port with proper values for Meshtastic"""
-    from modules.catnip import ShellConnection
+    from modules.core.catnip import ShellConnection
 
     preset_config = CHANNELS_PRESET.get(preset, CHANNELS_PRESET["LongFast"])
 

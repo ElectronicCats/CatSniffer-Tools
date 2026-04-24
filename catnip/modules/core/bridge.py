@@ -16,7 +16,7 @@ from protocol.sniffer_ti import SnifferTI, PacketCategory
 from protocol.common import START_OF_FRAME, END_OF_FRAME, get_global_header
 
 # External
-from .output import (
+from ..utils.output import (
     console,
     print_success,
     print_warning,

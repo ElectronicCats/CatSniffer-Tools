@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 
 # Internal
-from .catnip import (
+from ..core.catnip import (
     catnip_get_port,
     catnip_get_device,
     CatSnifferDevice,
@@ -26,7 +26,7 @@ from .cc2538 import (
 # External
 import requests
 from rich.table import Table
-from .output import (
+from ..utils.output import (
     console,
     print_success,
     print_warning,

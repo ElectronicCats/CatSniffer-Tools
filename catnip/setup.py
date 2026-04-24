@@ -7,7 +7,14 @@ version = Path("VERSION").read_text().strip()
 setup(
     name="catnip",
     version=version,
-    packages=find_packages(include=["modules", "modules.*", "protocol", "protocol.*"]),
+    packages=find_packages(
+        include=[
+            "modules",
+            "modules.*",
+            "protocol",
+            "protocol.*",
+        ]
+    ),
     description="All in one CatSniffer tools — multi-protocol RF sniffer CLI",
     long_description=long_description,
     long_description_content_type="text/markdown",

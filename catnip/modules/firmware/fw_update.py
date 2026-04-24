@@ -32,7 +32,7 @@ from typing import Optional, Dict, Tuple
 
 import requests
 
-from .catnip import (
+from ..core.catnip import (
     ShellConnection,
     CatSnifferDevice,
     catnip_get_devices,
@@ -43,8 +43,8 @@ from .catnip import (
     CATSNIFFER_PID,
 )
 
-from ._version import __version__ as TOOL_VERSION
-from .output import (
+from ..utils._version import __version__ as TOOL_VERSION
+from ..utils.output import (
     console,
     print_success,
     print_warning,

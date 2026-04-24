@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
 # Internal
-from ..usb_connection import open_serial_port
+from ...core.usb_connection import open_serial_port
 
 START_OF_FRAME = "SCAN"
 END_OF_FRAME = "END"

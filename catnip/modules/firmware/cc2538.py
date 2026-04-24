@@ -45,7 +45,7 @@ import os
 import struct
 import binascii
 import serial
-from .output import console
+from ..utils.output import console
 
 try:
     import magic
@@ -131,7 +131,9 @@ class FirmwareFile(object):
                 file_type = magic.from_file(path, mime=True)
             except Exception as e:
                 # If magic fails (common on macOS if libmagic is missing), we fall back to extension
-                mdebug(5, f"Magic failed: {e}. Falling back to extension-based detection.")
+                mdebug(
+                    5, f"Magic failed: {e}. Falling back to extension-based detection."
+                )
                 file_type = None
 
         if file_type:

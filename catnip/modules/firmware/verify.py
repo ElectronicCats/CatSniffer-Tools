@@ -11,7 +11,7 @@ from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich import box
 
-from .usb_connection import (
+from ..core.usb_connection import (
     CatSnifferDevice,
     ShellConnection,
     LoRaConnection,
@@ -21,7 +21,7 @@ from .usb_connection import (
     CATSNIFFER_VID,
     CATSNIFFER_PID,
 )
-from .output import (
+from ..utils.output import (
     console,
     set_quiet_mode,
     print_test_header,

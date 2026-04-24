@@ -69,7 +69,7 @@ class TestFWAliases:
 
     def setup_method(self):
         # Import after mocks
-        from modules.fw_aliases import (
+        from modules.firmware.fw_aliases import (
             OFFICIAL_FW_IDS,
             ALIAS_TO_OFFICIAL_ID,
             OFFICIAL_ID_TO_FILENAME,
@@ -220,7 +220,7 @@ class TestFirmwareMetadata:
     """Tests for the FirmwareMetadata class."""
 
     def setup_method(self):
-        from modules.fw_metadata import FirmwareMetadata
+        from modules.firmware.fw_metadata import FirmwareMetadata
 
         self.FirmwareMetadata = FirmwareMetadata
 
@@ -382,7 +382,7 @@ class TestFirmwareMetadata:
     )
     def test_normalize_firmware_name(self, name, expected):
         """Test name normalization to official IDs."""
-        from modules.fw_metadata import FirmwareMetadata
+        from modules.firmware.fw_metadata import FirmwareMetadata
 
         result = FirmwareMetadata.normalize_firmware_name(name)
         assert result == expected
@@ -397,7 +397,7 @@ class TestFirmwareMetadataFunctions:
     """Tests for high-level functions in fw_metadata.py."""
 
     def setup_method(self):
-        from modules.fw_metadata import (
+        from modules.firmware.fw_metadata import (
             check_firmware_by_metadata,
             update_firmware_metadata_after_flash,
         )
@@ -437,7 +437,8 @@ class TestFirmwareMetadataFunctions:
     def test_update_firmware_metadata_after_flash_with_alias(self, mock_shell):
         """Test update using an alias."""
         with patch(
-            "modules.fw_metadata.FirmwareMetadata.set_firmware_id", return_value=True
+            "modules.firmware.fw_metadata.FirmwareMetadata.set_firmware_id",
+            return_value=True,
         ) as mock_set:
             result = self.update_firmware_metadata_after_flash(mock_shell, "ble")
 
@@ -448,7 +449,8 @@ class TestFirmwareMetadataFunctions:
     def test_update_firmware_metadata_after_flash_with_filename(self, mock_shell):
         """Test update using a filename."""
         with patch(
-            "modules.fw_metadata.FirmwareMetadata.set_firmware_id", return_value=True
+            "modules.firmware.fw_metadata.FirmwareMetadata.set_firmware_id",
+            return_value=True,
         ) as mock_set:
             result = self.update_firmware_metadata_after_flash(
                 mock_shell, "sniffle_cc1352p7_1M.hex"
@@ -460,7 +462,8 @@ class TestFirmwareMetadataFunctions:
     def test_update_firmware_metadata_after_flash_fallback(self, mock_shell):
         """Test fallback when name cannot be normalized."""
         with patch(
-            "modules.fw_metadata.FirmwareMetadata.set_firmware_id", return_value=True
+            "modules.firmware.fw_metadata.FirmwareMetadata.set_firmware_id",
+            return_value=True,
         ) as mock_set:
             result = self.update_firmware_metadata_after_flash(
                 mock_shell, "unknown_firmware_v2.3.hex"
@@ -499,7 +502,8 @@ class TestFirmwareMetadataFunctions:
 
         # FIX: Configure mock to return True when set_firmware_id is called
         with patch(
-            "modules.fw_metadata.FirmwareMetadata.set_firmware_id", return_value=True
+            "modules.firmware.fw_metadata.FirmwareMetadata.set_firmware_id",
+            return_value=True,
         ) as mock_set:
             result = self.update_firmware_metadata_after_flash(
                 mock_shell, firmware_name
@@ -520,7 +524,8 @@ class TestFirmwareMetadataFunctions:
     def test_update_firmware_metadata_after_flash_failure(self, mock_shell):
         """Test when update fails."""
         with patch(
-            "modules.fw_metadata.FirmwareMetadata.set_firmware_id", return_value=False
+            "modules.firmware.fw_metadata.FirmwareMetadata.set_firmware_id",
+            return_value=False,
         ):
             result = self.update_firmware_metadata_after_flash(mock_shell, "sniffle")
             assert result is False
@@ -536,7 +541,7 @@ class TestFirmwareIntegration:
 
     def test_alias_to_metadata_flow(self, mock_shell):
         """Test complete flow: alias -> normalization -> set/get."""
-        from modules.fw_metadata import (
+        from modules.firmware.fw_metadata import (
             FirmwareMetadata,
             update_firmware_metadata_after_flash,
         )
@@ -546,7 +551,8 @@ class TestFirmwareIntegration:
 
         # Use alias to update
         with patch(
-            "modules.fw_metadata.FirmwareMetadata.set_firmware_id", return_value=True
+            "modules.firmware.fw_metadata.FirmwareMetadata.set_firmware_id",
+            return_value=True,
         ):
             result = update_firmware_metadata_after_flash(mock_shell, "ble")
             assert result is True
@@ -559,7 +565,7 @@ class TestFirmwareIntegration:
 
     def test_filename_to_metadata_flow(self, mock_shell):
         """Test flow: filename -> normalization -> set/get."""
-        from modules.fw_metadata import (
+        from modules.firmware.fw_metadata import (
             FirmwareMetadata,
             update_firmware_metadata_after_flash,
         )
@@ -571,7 +577,8 @@ class TestFirmwareIntegration:
 
         # Use filename to update
         with patch(
-            "modules.fw_metadata.FirmwareMetadata.set_firmware_id", return_value=True
+            "modules.firmware.fw_metadata.FirmwareMetadata.set_firmware_id",
+            return_value=True,
         ) as mock_set:
             result = update_firmware_metadata_after_flash(
                 mock_shell, "sniffer_fw_CC1352P_7_v1.10.hex"
@@ -591,7 +598,7 @@ class TestFirmwareIntegration:
 
     def test_unknown_firmware_flow(self, mock_shell):
         """Test flow with unknown firmware."""
-        from modules.fw_metadata import (
+        from modules.firmware.fw_metadata import (
             FirmwareMetadata,
             update_firmware_metadata_after_flash,
         )
@@ -603,7 +610,8 @@ class TestFirmwareIntegration:
 
         # Use unknown name
         with patch(
-            "modules.fw_metadata.FirmwareMetadata.set_firmware_id", return_value=True
+            "modules.firmware.fw_metadata.FirmwareMetadata.set_firmware_id",
+            return_value=True,
         ) as mock_set:
             result = update_firmware_metadata_after_flash(
                 mock_shell, "firmware_custom_v3.hex"
@@ -626,7 +634,7 @@ class TestFirmwareRobustness:
 
     def test_concurrent_metadata_access(self, mock_shell):
         """Test concurrent metadata access."""
-        from modules.fw_metadata import FirmwareMetadata
+        from modules.firmware.fw_metadata import FirmwareMetadata
         import threading
 
         metadata = FirmwareMetadata(mock_shell)
@@ -648,7 +656,7 @@ class TestFirmwareRobustness:
 
     def test_malformed_responses(self):
         """Test malformed shell responses."""
-        from modules.fw_metadata import FirmwareMetadata
+        from modules.firmware.fw_metadata import FirmwareMetadata
 
         malformed_responses = [
             "cc1352_fw_id sniffle",  # without OK
@@ -672,7 +680,7 @@ class TestFirmwareRobustness:
 
     def test_shell_timeout_handling(self):
         """Test shell timeout handling."""
-        from modules.fw_metadata import FirmwareMetadata
+        from modules.firmware.fw_metadata import FirmwareMetadata
 
         mock_shell = MagicMock()
 
@@ -688,7 +696,7 @@ class TestFirmwareRobustness:
 
     def test_unicode_in_firmware_names(self, mock_shell):
         """Test firmware names with Unicode characters."""
-        from modules.fw_metadata import update_firmware_metadata_after_flash
+        from modules.firmware.fw_metadata import update_firmware_metadata_after_flash
 
         unicode_names = [
             "firmware_über.hex",
@@ -700,7 +708,7 @@ class TestFirmwareRobustness:
 
         for name in unicode_names:
             with patch(
-                "modules.fw_metadata.FirmwareMetadata.set_firmware_id",
+                "modules.firmware.fw_metadata.FirmwareMetadata.set_firmware_id",
                 return_value=True,
             ) as mock_set:
                 result = update_firmware_metadata_after_flash(mock_shell, name)
@@ -712,12 +720,13 @@ class TestFirmwareRobustness:
 
     def test_extremely_long_firmware_name(self, mock_shell):
         """Test extremely long firmware names."""
-        from modules.fw_metadata import update_firmware_metadata_after_flash
+        from modules.firmware.fw_metadata import update_firmware_metadata_after_flash
 
         long_name = "x" * 1000 + ".hex"
 
         with patch(
-            "modules.fw_metadata.FirmwareMetadata.set_firmware_id", return_value=True
+            "modules.firmware.fw_metadata.FirmwareMetadata.set_firmware_id",
+            return_value=True,
         ) as mock_set:
             result = update_firmware_metadata_after_flash(mock_shell, long_name)
             assert result is True
@@ -736,14 +745,14 @@ NOTE: Based on analysis, the following issues were identified
 that require fixes in the original files:
 
 1. In flasher.py, line ~450:
-   - Error: `with patch("modules.cc2538.CC26xx"...`
+   - Error: `with patch("modules.firmware.cc2538.CC26xx"...`
    - Fix: Change to `with patch("cc2538.CC26xx"...`
 
 2. In test_catnip.py, all references to "modules.xxx":
-   - Change "modules.verify" to "verify"
-   - Change "modules.flasher" to "flasher"
-   - Change "modules.bridge" to "bridge"
-   - Change "modules.cli" to "cli"
+   - Change "modules.firmware.verify" to "verify"
+   - Change "modules.firmware.flasher" to "flasher"
+   - Change "modules.core.bridge" to "bridge"
+   - Change "modules.core.cli" to "cli"
 
 3. In fw_metadata.py, line ~138:
    - Currently: `from .fw_aliases import get_official_id`

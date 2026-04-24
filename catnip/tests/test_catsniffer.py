@@ -107,7 +107,7 @@ def make_fake_modules():
 
             # If importing meshtastic package, set up the structure
             if fullname == "meshtastic":
-                mod.__path__ = ["modules/meshtastic"]
+                mod.__path__ = ["modules/protocols/meshtastic"]
                 # Don't let it auto-import submodules - let tests import them explicitly
 
             return mod
@@ -185,40 +185,42 @@ def make_fake_modules():
         # If importing meshtastic package (not submodule), return our mock
         if name == "meshtastic" or name.startswith("meshtastic."):
             # Check if we want to load the real core
-            if name == "meshtastic.core" or name == "modules.meshtastic.core":
+            if name == "meshtastic.core" or name == "modules.protocols.meshtastic.core":
                 # Let it try to load the real module
                 pass
         return original_import(name, *args, **kwargs)
 
     # Actually, let's just make sure the test imports from the correct location
-    # The issue is that tests import from "modules.meshtastic.core" which doesn't exist
-    # We need to make "modules.meshtastic" point to our mocks properly
+    # The issue is that tests import from "modules.protocols.meshtastic.core" which doesn't exist
+    # We need to make "modules.protocols.meshtastic" point to our mocks properly
 
-    # Create proper mock structure for modules.meshtastic
+    # Create proper mock structure for modules.protocols.meshtastic
     meshtastic_mock = types.ModuleType("meshtastic")
     meshtastic_mock.mesh_pb2 = mesh_pb2_mock
     meshtastic_mock.admin_pb2 = admin_pb2_mock
     meshtastic_mock.telemetry_pb2 = telemetry_pb2_mock
 
     # Set up the package path
-    meshtastic_mock.__path__ = ["modules/meshtastic"]
-    meshtastic_mock.__file__ = "modules/meshtastic/__init__.py"
+    meshtastic_mock.__path__ = ["modules/protocols/meshtastic"]
+    meshtastic_mock.__file__ = "modules/protocols/meshtastic/__init__.py"
     meshtastic_mock.__package__ = "meshtastic"
 
-    # Register modules.meshtastic as the mock
+    # Register modules.protocols.meshtastic as the mock
     sys.modules["meshtastic"] = meshtastic_mock
-    sys.modules["modules.meshtastic"] = meshtastic_mock
+    sys.modules["modules.protocols.meshtastic"] = meshtastic_mock
 
-    # For modules.meshtastic.core, we need to load the real file
+    # For modules.protocols.meshtastic.core, we need to load the real file
     # Let's use importlib.util.spec_from_file_location
     try:
         # Try to load the real core.py
-        core_path = os.path.join(PROJECT_ROOT, "modules", "meshtastic", "core.py")
+        core_path = os.path.join(
+            PROJECT_ROOT, "modules", "protocols", "meshtastic", "core.py"
+        )
         spec = importlib.util.spec_from_file_location("meshtastic.core", core_path)
         if spec and spec.loader:
             core_module = importlib.util.module_from_spec(spec)
             sys.modules["meshtastic.core"] = core_module
-            sys.modules["modules.meshtastic.core"] = core_module
+            sys.modules["modules.protocols.meshtastic.core"] = core_module
             # Execute the module
             spec.loader.exec_module(core_module)
     except Exception as e:
@@ -309,7 +311,7 @@ fake_cc2538.CHIP_ID_STRS = {
 
 # Register the fake module in sys.modules BEFORE any imports
 sys.modules["cc2538"] = fake_cc2538
-sys.modules["modules.cc2538"] = fake_cc2538
+sys.modules["modules.firmware.cc2538"] = fake_cc2538
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Shared fixtures
@@ -349,7 +351,7 @@ class TestVerificationDevice:
     """Tests for CatSnifferDevice (previously VerificationDevice)."""
 
     def _make(self, bridge="/dev/ttyACM0", lora="/dev/ttyACM1", shell="/dev/ttyACM2"):
-        from modules.usb_connection import CatSnifferDevice
+        from modules.core.usb_connection import CatSnifferDevice
 
         return CatSnifferDevice(
             device_id=1, bridge_port=bridge, lora_port=lora, shell_port=shell
@@ -360,7 +362,7 @@ class TestVerificationDevice:
         assert vd.is_valid() is True
 
     def test_is_complete_missing_lora(self):
-        from modules.usb_connection import CatSnifferDevice
+        from modules.core.usb_connection import CatSnifferDevice
 
         vd = CatSnifferDevice(
             device_id=1,
@@ -375,7 +377,7 @@ class TestVerificationDevice:
         assert "1" in str(vd)
 
     def test_send_command_returns_response(self, fake_serial):
-        from modules.usb_connection import ShellConnection
+        from modules.core.usb_connection import ShellConnection
 
         fake_serial.in_waiting = 0
         fake_serial.read.return_value = b""
@@ -385,7 +387,7 @@ class TestVerificationDevice:
         assert isinstance(resp, str)
 
     def test_send_command_no_port_returns_none(self):
-        from modules.usb_connection import ShellConnection
+        from modules.core.usb_connection import ShellConnection
 
         shell = ShellConnection(port="")
         with patch("serial.Serial", side_effect=Exception("no port")):
@@ -393,7 +395,7 @@ class TestVerificationDevice:
         assert result is None
 
     def test_send_command_exception_returns_error_string(self):
-        from modules.usb_connection import ShellConnection
+        from modules.core.usb_connection import ShellConnection
 
         shell = ShellConnection(port="/dev/ttyACM2")
         with patch("serial.Serial", side_effect=Exception("port busy")):
@@ -401,7 +403,7 @@ class TestVerificationDevice:
         assert resp is None
 
     def test_send_command_empty_response(self, fake_serial):
-        from modules.usb_connection import ShellConnection
+        from modules.core.usb_connection import ShellConnection
 
         fake_serial.in_waiting = 0
         shell = ShellConnection(port="/dev/ttyACM2")
@@ -425,14 +427,18 @@ class TestFindVerificationDevices:
         return p
 
     def test_no_catnip_ports(self):
-        from modules.usb_connection import find_devices
+        from modules.core.usb_connection import find_devices
 
         with patch("serial.tools.list_ports.comports", return_value=[]):
             result = find_devices()
         assert result == []
 
     def test_three_ports_detected(self):
-        from modules.usb_connection import find_devices, CATSNIFFER_VID, CATSNIFFER_PID
+        from modules.core.usb_connection import (
+            find_devices,
+            CATSNIFFER_VID,
+            CATSNIFFER_PID,
+        )
 
         ports = [
             self._make_port(
@@ -453,7 +459,11 @@ class TestFindVerificationDevices:
         assert len(result) == 1
 
     def test_incomplete_device_skipped(self):
-        from modules.usb_connection import find_devices, CATSNIFFER_VID, CATSNIFFER_PID
+        from modules.core.usb_connection import (
+            find_devices,
+            CATSNIFFER_VID,
+            CATSNIFFER_PID,
+        )
 
         ports = [
             self._make_port("/dev/ttyACM0", CATSNIFFER_VID, CATSNIFFER_PID),
@@ -464,7 +474,7 @@ class TestFindVerificationDevices:
         assert result == []
 
     def test_non_catnip_ports_filtered(self):
-        from modules.usb_connection import find_devices
+        from modules.core.usb_connection import find_devices
 
         ports = [
             self._make_port("/dev/ttyUSB0", 0x0403, 0x6001)
@@ -484,71 +494,73 @@ class TestRunVerification:
         lora="/dev/ttyACM1",
         shell="/dev/ttyACM2",
     ):
-        from modules.usb_connection import CatSnifferDevice
+        from modules.core.usb_connection import CatSnifferDevice
 
         return CatSnifferDevice(
             device_id=device_id, bridge_port=bridge, lora_port=lora, shell_port=shell
         )
 
     def test_no_devices_returns_false(self):
-        from modules.verify import run_verification
+        from modules.firmware.verify import run_verification
 
-        with patch("modules.verify.find_devices", return_value=[]):
+        with patch("modules.firmware.verify.find_devices", return_value=[]):
             success, results = run_verification(quiet=True)
         assert success is False
         assert results == {}
 
     def test_basic_pass(self):
-        from modules.verify import run_verification
+        from modules.firmware.verify import run_verification
 
         vd = self._make_device(1)
-        with patch("modules.verify.find_devices", return_value=[vd]), patch(
-            "modules.verify.test_basic_commands", return_value=True
+        with patch("modules.firmware.verify.find_devices", return_value=[vd]), patch(
+            "modules.firmware.verify.test_basic_commands", return_value=True
         ):
             success, results = run_verification(quiet=True)
         assert success is True
         assert results[1]["basic"] is True
 
     def test_basic_fail(self):
-        from modules.verify import run_verification
+        from modules.firmware.verify import run_verification
 
         vd = self._make_device(1)
-        with patch("modules.verify.find_devices", return_value=[vd]), patch(
-            "modules.verify.test_basic_commands", return_value=False
+        with patch("modules.firmware.verify.find_devices", return_value=[vd]), patch(
+            "modules.firmware.verify.test_basic_commands", return_value=False
         ):
             success, results = run_verification(quiet=True)
         assert success is False
 
     def test_filter_by_device_id(self):
-        from modules.verify import run_verification
+        from modules.firmware.verify import run_verification
 
         vd1 = self._make_device(1)
         vd2 = self._make_device(
             2, bridge="/dev/ttyACM3", lora="/dev/ttyACM4", shell="/dev/ttyACM5"
         )
-        with patch("modules.verify.find_devices", return_value=[vd1, vd2]), patch(
-            "modules.verify.test_basic_commands", return_value=True
-        ):
+        with patch(
+            "modules.firmware.verify.find_devices", return_value=[vd1, vd2]
+        ), patch("modules.firmware.verify.test_basic_commands", return_value=True):
             success, results = run_verification(device_id=2, quiet=True)
         assert 1 not in results
         assert 2 in results
 
     def test_device_id_not_found(self):
-        from modules.verify import run_verification
+        from modules.firmware.verify import run_verification
 
         vd = self._make_device(1)
-        with patch("modules.verify.find_devices", return_value=[vd]):
+        with patch("modules.firmware.verify.find_devices", return_value=[vd]):
             success, results = run_verification(device_id=99, quiet=True)
         assert success is False
 
     def test_test_all_runs_extra_tests(self):
-        from modules.verify import run_verification
+        from modules.firmware.verify import run_verification
 
         vd = self._make_device(1)
-        with patch("modules.verify.find_devices", return_value=[vd]), patch(
-            "modules.verify.test_basic_commands", return_value=True
-        ), patch("modules.verify.test_lora_configuration", return_value=True), patch(
-            "modules.verify.test_lora_communication", return_value=True
+        with patch("modules.firmware.verify.find_devices", return_value=[vd]), patch(
+            "modules.firmware.verify.test_basic_commands", return_value=True
+        ), patch(
+            "modules.firmware.verify.test_lora_configuration", return_value=True
+        ), patch(
+            "modules.firmware.verify.test_lora_communication", return_value=True
         ):
             success, results = run_verification(test_all=True, quiet=True)
         assert success is True
@@ -560,11 +572,13 @@ class TestCCLoader:
     """Tests for CCLoader."""
 
     def _loader(self, fake_device):
-        from modules.flasher import CCLoader
+        from modules.firmware.flasher import CCLoader
 
         # No longer need to patch FirmwareFile and CommandInterface
         # because they are in our fake module
-        with patch("modules.flasher.catnip_get_port", return_value="/dev/ttyACM0"):
+        with patch(
+            "modules.firmware.flasher.catnip_get_port", return_value="/dev/ttyACM0"
+        ):
             loader = CCLoader(firmware="/tmp/fw.hex", device=fake_device)
         return loader
 
@@ -574,9 +588,11 @@ class TestCCLoader:
         assert loader.shell_port == fake_device.shell_port
 
     def test_init_without_device(self):
-        from modules.flasher import CCLoader
+        from modules.firmware.flasher import CCLoader
 
-        with patch("modules.flasher.catnip_get_port", return_value="/dev/ttyACM0"):
+        with patch(
+            "modules.firmware.flasher.catnip_get_port", return_value="/dev/ttyACM0"
+        ):
             loader = CCLoader(firmware=None, device=None)
         assert loader.bridge_port == "/dev/ttyACM0"
 
@@ -589,7 +605,7 @@ class TestCCLoader:
         loader = self._loader(fake_device)
         mock_shell = MagicMock()
         mock_shell.connect.return_value = False
-        with patch("modules.flasher.ShellConnection", return_value=mock_shell):
+        with patch("modules.firmware.flasher.ShellConnection", return_value=mock_shell):
             loader.enter_bootloader()
         mock_shell.enter_bootloader.assert_not_called()
 
@@ -599,7 +615,7 @@ class TestCCLoader:
         mock_shell.connect.return_value = True
         mock_shell.enter_bootloader.return_value = True
         mock_shell.connection = MagicMock()
-        with patch("modules.flasher.ShellConnection", return_value=mock_shell):
+        with patch("modules.firmware.flasher.ShellConnection", return_value=mock_shell):
             loader.enter_bootloader()
         mock_shell.enter_bootloader.assert_called_once()
 
@@ -621,14 +637,14 @@ class TestCCLoader:
 
     def test_get_chip_info_special_id(self, fake_device):
         """chip ID 0xF000 is CatSniffer special -> should return a CC26xx instance."""
-        from modules.flasher import CCLoader
+        from modules.firmware.flasher import CCLoader
 
         loader = self._loader(fake_device)
         loader.cmd.cmdGetChipId.return_value = 0xF000
 
         chip = loader.get_chip_info()
 
-        from modules.cc2538 import CC26xx
+        from modules.firmware.cc2538 import CC26xx
 
         assert isinstance(chip, CC26xx)
 
@@ -639,23 +655,23 @@ class TestCCLoader:
 
         chip = loader.get_chip_info()
 
-        from modules.cc2538 import CC26xx
+        from modules.firmware.cc2538 import CC26xx
 
         assert isinstance(chip, CC26xx)
 
     def test_get_chip_info_known_id_uses_cc2538(self, fake_device):
         """chip ID recognized in CHIP_ID_STRS -> should return a CC2538 instance."""
-        from modules.flasher import CCLoader
+        from modules.firmware.flasher import CCLoader
 
         loader = self._loader(fake_device)
 
         # Patch CHIP_ID_STRS directly in flasher
-        with patch("modules.flasher.CHIP_ID_STRS", {0xABCD: "TestChip"}):
+        with patch("modules.firmware.flasher.CHIP_ID_STRS", {0xABCD: "TestChip"}):
             loader.cmd.cmdGetChipId.return_value = 0xABCD
 
             chip = loader.get_chip_info()
 
-            from modules.cc2538 import CC2538
+            from modules.firmware.cc2538 import CC2538
 
             assert isinstance(chip, CC2538)
 
@@ -670,10 +686,10 @@ class TestFlasherFindFlash:
     """Tests for Flasher.find_flash_firmware."""
 
     def _flasher(self):
-        from modules.flasher import Flasher
+        from modules.firmware.flasher import Flasher
 
         with patch(
-            "modules.flasher.catnip_get_port", return_value="/dev/ttyACM0"
+            "modules.firmware.flasher.catnip_get_port", return_value="/dev/ttyACM0"
         ), patch("os.path.exists", return_value=True):
             c = Flasher()
         return c
@@ -699,9 +715,9 @@ class TestFlasherFindFlash:
         flasher = self._flasher()
         # FIX: Patch the correct module (fw_aliases) instead of flasher
         with patch(
-            "modules.fw_aliases.get_official_id", return_value="sniffle_ble"
+            "modules.firmware.fw_aliases.get_official_id", return_value="sniffle_ble"
         ), patch(
-            "modules.fw_aliases.get_filename_pattern", return_value="sniffle"
+            "modules.firmware.fw_aliases.get_filename_pattern", return_value="sniffle"
         ), patch.object(
             flasher, "get_local_firmware", return_value=["sniffle_fw.hex"]
         ), patch.object(
@@ -716,7 +732,7 @@ class TestFlasherFindFlash:
         flasher = self._flasher()
         # FIX: Patch the correct module (fw_aliases) instead of flasher
         with patch(
-            "modules.fw_aliases.get_official_id", return_value=None
+            "modules.firmware.fw_aliases.get_official_id", return_value=None
         ), patch.object(
             flasher, "get_local_firmware", return_value=["other_fw.hex"]
         ), patch.object(
@@ -731,7 +747,7 @@ class TestFlasherFindFlash:
         flasher = self._flasher()
         # FIX: Patch the correct module (fw_aliases) instead of flasher
         with patch(
-            "modules.fw_aliases.get_official_id", return_value=None
+            "modules.firmware.fw_aliases.get_official_id", return_value=None
         ), patch.object(
             flasher,
             "get_local_firmware",
@@ -754,7 +770,7 @@ class TestConfigureLora:
     """Tests for _configure_lora (internal function)."""
 
     def test_all_commands_succeed(self):
-        from modules.bridge import _configure_lora
+        from modules.core.bridge import _configure_lora
 
         shell = MagicMock()
         shell.send_command.return_value = "OK response"
@@ -763,7 +779,7 @@ class TestConfigureLora:
         assert shell.send_command.call_count == 6  # 5 params + apply
 
     def test_one_command_no_response(self):
-        from modules.bridge import _configure_lora
+        from modules.core.bridge import _configure_lora
 
         shell = MagicMock()
         # First command returns None, the others "OK"
@@ -772,7 +788,7 @@ class TestConfigureLora:
         assert result is False
 
     def test_all_commands_no_response(self):
-        from modules.bridge import _configure_lora
+        from modules.core.bridge import _configure_lora
 
         shell = MagicMock()
         shell.send_command.return_value = None
@@ -784,7 +800,7 @@ class TestRunSxBridge:
     """Tests for run_sx_bridge."""
 
     def _run(self, fake_device, **kwargs):
-        from modules.bridge import run_sx_bridge
+        from modules.core.bridge import run_sx_bridge
 
         defaults = dict(
             frequency=915_000_000,
@@ -810,9 +826,11 @@ class TestRunSxBridge:
         mock_shell = MagicMock()
         mock_shell.connect.return_value = False
         mock_pipe = MagicMock()
-        with patch("modules.bridge.ShellConnection", return_value=mock_shell), patch(
-            "modules.bridge.UnixPipe", return_value=mock_pipe
-        ), patch("modules.bridge.WindowsPipe", return_value=mock_pipe), patch(
+        with patch(
+            "modules.core.bridge.ShellConnection", return_value=mock_shell
+        ), patch("modules.core.bridge.UnixPipe", return_value=mock_pipe), patch(
+            "modules.core.bridge.WindowsPipe", return_value=mock_pipe
+        ), patch(
             "platform.system", return_value="Linux"
         ):
             self._run(fake_device)
@@ -825,12 +843,14 @@ class TestRunSxBridge:
         mock_lora = MagicMock()
         mock_lora.connect.return_value = False
         mock_pipe = MagicMock()
-        with patch("modules.bridge.ShellConnection", return_value=mock_shell), patch(
-            "modules.bridge.LoRaConnection", return_value=mock_lora
-        ), patch("modules.bridge.UnixPipe", return_value=mock_pipe), patch(
+        with patch(
+            "modules.core.bridge.ShellConnection", return_value=mock_shell
+        ), patch("modules.core.bridge.LoRaConnection", return_value=mock_lora), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch(
             "platform.system", return_value="Linux"
         ), patch(
-            "modules.bridge._configure_lora", return_value=True
+            "modules.core.bridge._configure_lora", return_value=True
         ):
             self._run(fake_device)
         mock_shell.disconnect.assert_called()
@@ -844,12 +864,14 @@ class TestRunSxBridge:
         mock_lora.connection = MagicMock()
         mock_lora.connection.readline.side_effect = KeyboardInterrupt()
         mock_pipe = MagicMock()
-        with patch("modules.bridge.ShellConnection", return_value=mock_shell), patch(
-            "modules.bridge.LoRaConnection", return_value=mock_lora
-        ), patch("modules.bridge.UnixPipe", return_value=mock_pipe), patch(
+        with patch(
+            "modules.core.bridge.ShellConnection", return_value=mock_shell
+        ), patch("modules.core.bridge.LoRaConnection", return_value=mock_lora), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch(
             "platform.system", return_value="Linux"
         ), patch(
-            "modules.bridge._configure_lora", return_value=True
+            "modules.core.bridge._configure_lora", return_value=True
         ):
             self._run(fake_device)
         mock_pipe.remove.assert_called()
@@ -859,28 +881,28 @@ class TestRunBridge:
     """Tests for run_bridge (TI sniffer)."""
 
     def test_keyboard_interrupt_stops(self, fake_device):
-        from modules.bridge import run_bridge
+        from modules.core.bridge import run_bridge
 
         mock_serial = MagicMock()
         mock_serial.read_until.side_effect = KeyboardInterrupt()
         mock_pipe = MagicMock()
-        with patch("modules.bridge.Catnip", return_value=mock_serial), patch(
-            "modules.bridge.UnixPipe", return_value=mock_pipe
-        ), patch("modules.bridge.WindowsPipe", return_value=mock_pipe), patch(
+        with patch("modules.core.bridge.Catnip", return_value=mock_serial), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch("modules.core.bridge.WindowsPipe", return_value=mock_pipe), patch(
             "platform.system", return_value="Linux"
         ):
             run_bridge(fake_device, channel=11, wireshark=False)
         mock_pipe.remove.assert_called()
 
     def test_channel_out_of_range_does_not_crash(self, fake_device):
-        from modules.bridge import run_bridge
+        from modules.core.bridge import run_bridge
 
         mock_serial = MagicMock()
         mock_serial.read_until.side_effect = KeyboardInterrupt()
         mock_pipe = MagicMock()
         # channel=99 is invalid but bridge.py doesn't validate; we verify it doesn't crash
-        with patch("modules.bridge.Catnip", return_value=mock_serial), patch(
-            "modules.bridge.UnixPipe", return_value=mock_pipe
+        with patch("modules.core.bridge.Catnip", return_value=mock_serial), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
         ), patch("platform.system", return_value="Linux"):
             run_bridge(fake_device, channel=99, wireshark=False)
 
@@ -894,7 +916,7 @@ class TestFindWiresharkPath:
     """Tests for find_wireshark_path."""
 
     def _call(self):
-        from modules.cli import find_wireshark_path
+        from modules.core.cli import find_wireshark_path
 
         return find_wireshark_path()
 
@@ -936,7 +958,7 @@ class TestFindPuttyPath:
     """Tests for find_putty_path."""
 
     def _call(self):
-        from modules.cli import find_putty_path
+        from modules.core.cli import find_putty_path
 
         return find_putty_path()
 
@@ -971,25 +993,25 @@ class TestGetDeviceOrExit:
     """Tests for get_device_or_exit."""
 
     def test_device_found_returns_device(self, fake_device):
-        from modules.cli import get_device_or_exit
+        from modules.core.cli import get_device_or_exit
 
-        with patch("modules.cli.catnip_get_device", return_value=fake_device):
+        with patch("modules.core.cli.catnip_get_device", return_value=fake_device):
             dev = get_device_or_exit(device_id=1)
         assert dev is fake_device
 
     def test_no_device_exits(self):
-        from modules.cli import get_device_or_exit
+        from modules.core.cli import get_device_or_exit
 
-        with patch("modules.cli.catnip_get_device", return_value=None), pytest.raises(
-            SystemExit
-        ):
+        with patch(
+            "modules.core.cli.catnip_get_device", return_value=None
+        ), pytest.raises(SystemExit):
             get_device_or_exit(device_id=1)
 
     def test_incomplete_device_warns_but_returns(self, fake_device):
         fake_device.is_valid.return_value = False
-        from modules.cli import get_device_or_exit
+        from modules.core.cli import get_device_or_exit
 
-        with patch("modules.cli.catnip_get_device", return_value=fake_device):
+        with patch("modules.core.cli.catnip_get_device", return_value=fake_device):
             dev = get_device_or_exit(device_id=1)
         assert dev is fake_device
 
@@ -1088,7 +1110,7 @@ class TestRobustness:
     # -- verify.py -----------------------------------------------------------
 
     def test_send_command_unicode_response(self):
-        from modules.usb_connection import ShellConnection
+        from modules.core.usb_connection import ShellConnection
 
         fake_ser = MagicMock()
         fake_ser.in_waiting = 0
@@ -1101,7 +1123,7 @@ class TestRobustness:
         assert isinstance(resp, str)
 
     def test_verification_device_all_none_ports(self):
-        from modules.usb_connection import CatSnifferDevice
+        from modules.core.usb_connection import CatSnifferDevice
 
         vd = CatSnifferDevice(
             device_id=1, bridge_port=None, lora_port=None, shell_port=None
@@ -1111,18 +1133,20 @@ class TestRobustness:
     # -- flasher.py -----------------------------------------------------------
 
     def test_ccloader_firmware_none(self, fake_device):
-        from modules.flasher import CCLoader
+        from modules.firmware.flasher import CCLoader
 
-        with patch("modules.flasher.FirmwareFile"), patch(
-            "modules.flasher.CommandInterface"
+        with patch("modules.firmware.flasher.FirmwareFile"), patch(
+            "modules.firmware.flasher.CommandInterface"
         ):
             loader = CCLoader(firmware=None, device=fake_device)
         assert loader is not None
 
     def test_find_flash_firmware_empty_string(self, fake_device):
-        from modules.flasher import Flasher
+        from modules.firmware.flasher import Flasher
 
-        with patch("modules.flasher.catnip_get_port", return_value="/dev/ttyACM0"):
+        with patch(
+            "modules.firmware.flasher.catnip_get_port", return_value="/dev/ttyACM0"
+        ):
             flasher = Flasher()
         # FIX: Use correct method name: get_local_firmware, not get_firmwares
         with patch.object(flasher, "get_local_firmware", return_value=[]), patch(
@@ -1134,7 +1158,7 @@ class TestRobustness:
     # -- bridge.py -----------------------------------------------------------
 
     def test_configure_lora_extreme_values(self):
-        from modules.bridge import _configure_lora
+        from modules.core.bridge import _configure_lora
 
         shell = MagicMock()
         shell.send_command.return_value = "OK"
@@ -1143,20 +1167,22 @@ class TestRobustness:
         assert isinstance(result, bool)
 
     def test_run_sx_bridge_windows_pipe(self, fake_device):
-        from modules.bridge import run_sx_bridge
+        from modules.core.bridge import run_sx_bridge
 
         mock_shell = MagicMock()
         mock_shell.connect.return_value = False
         mock_pipe = MagicMock()
-        with patch("modules.bridge.ShellConnection", return_value=mock_shell), patch(
-            "modules.bridge.WindowsPipe", return_value=mock_pipe
-        ), patch("platform.system", return_value="Windows"):
+        with patch(
+            "modules.core.bridge.ShellConnection", return_value=mock_shell
+        ), patch("modules.core.bridge.WindowsPipe", return_value=mock_pipe), patch(
+            "platform.system", return_value="Windows"
+        ):
             run_sx_bridge(fake_device, 915_000_000, 125, 7, 5)
 
     # -- cli.py --------------------------------------------------------------
 
     def test_find_wireshark_exception_handled(self):
-        from modules.cli import find_wireshark_path
+        from modules.core.cli import find_wireshark_path
 
         with patch("platform.system", return_value="Linux"), patch(
             "pathlib.Path.exists", side_effect=OSError("perm")
@@ -1169,16 +1195,16 @@ class TestRobustness:
                 pass  # Acceptable if the implementation doesn't catch this
 
     def test_get_device_or_exit_device_id_zero(self):
-        from modules.cli import get_device_or_exit
+        from modules.core.cli import get_device_or_exit
 
-        with patch("modules.cli.catnip_get_device", return_value=None), pytest.raises(
-            SystemExit
-        ):
+        with patch(
+            "modules.core.cli.catnip_get_device", return_value=None
+        ), pytest.raises(SystemExit):
             get_device_or_exit(device_id=0)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  7.  modules/meshtastic/core.py
+#  7.  modules/protocols/meshtastic/core.py
 # ═════════════════════════════════════════════════════════════════════════════
 
 
@@ -1187,7 +1213,7 @@ class TestMeshtasticCoreConstants:
 
     def test_default_keys_defined(self):
         """Verify DEFAULT_KEYS is defined and has elements."""
-        from modules.meshtastic.core import DEFAULT_KEYS
+        from modules.protocols.meshtastic.core import DEFAULT_KEYS
 
         assert isinstance(DEFAULT_KEYS, list)
         assert len(DEFAULT_KEYS) > 0
@@ -1196,7 +1222,7 @@ class TestMeshtasticCoreConstants:
         """Verify default keys are valid base64."""
         import base64
 
-        from modules.meshtastic.core import DEFAULT_KEYS
+        from modules.protocols.meshtastic.core import DEFAULT_KEYS
 
         for key in DEFAULT_KEYS:
             try:
@@ -1208,14 +1234,14 @@ class TestMeshtasticCoreConstants:
 
     def test_sync_word_meshtastic(self):
         """Verify SYNC_WORD_MESHTASTIC is correct."""
-        from modules.meshtastic.core import SYNC_WORD_MESHTASTIC
+        from modules.protocols.meshtastic.core import SYNC_WORD_MESHTASTIC
 
         assert SYNC_WORD_MESHTASTIC == 0x2B
         assert isinstance(SYNC_WORD_MESHTASTIC, int)
 
     def test_channels_preset_defined(self):
         """Verify CHANNELS_PRESET is defined."""
-        from modules.meshtastic.core import CHANNELS_PRESET
+        from modules.protocols.meshtastic.core import CHANNELS_PRESET
 
         assert isinstance(CHANNELS_PRESET, dict)
         assert len(CHANNELS_PRESET) > 0
@@ -1225,7 +1251,7 @@ class TestMeshtasticCoreConstants:
 
     def test_channels_preset_structure(self):
         """Verify the structure of presets."""
-        from modules.meshtastic.core import CHANNELS_PRESET
+        from modules.protocols.meshtastic.core import CHANNELS_PRESET
 
         for preset_name, preset_config in CHANNELS_PRESET.items():
             assert "sf" in preset_config, f"Missing 'sf' in {preset_name}"
@@ -1239,7 +1265,7 @@ class TestMeshtasticCoreFunctions:
 
     def test_msb2lsb(self):
         """Test MSB to LSB conversion."""
-        from modules.meshtastic.core import msb2lsb
+        from modules.protocols.meshtastic.core import msb2lsb
 
         # 0x12345678 -> 78563412
         assert msb2lsb("12345678") == "78563412"
@@ -1250,7 +1276,7 @@ class TestMeshtasticCoreFunctions:
 
     def test_extract_frame_lora_rx(self):
         """Test frame extraction from LORA RX format."""
-        from modules.meshtastic.core import extract_frame
+        from modules.protocols.meshtastic.core import extract_frame
 
         # Format: "LORA RX: AABBCCDD...@E"
         raw = b"LORA RX: AABBCCDD\r\n"
@@ -1259,7 +1285,7 @@ class TestMeshtasticCoreFunctions:
 
     def test_extract_frame_fsk_rx(self):
         """Test frame extraction from FSK RX format."""
-        from modules.meshtastic.core import extract_frame
+        from modules.protocols.meshtastic.core import extract_frame
 
         # Format: "FSK RX: 11223344...@E"
         raw = b"FSK RX: 11223344\r\n"
@@ -1268,7 +1294,7 @@ class TestMeshtasticCoreFunctions:
 
     def test_extract_frame_legacy_format(self):
         """Test frame extraction from legacy format."""
-        from modules.meshtastic.core import extract_frame
+        from modules.protocols.meshtastic.core import extract_frame
 
         # Legacy format: @S + length + data + @E\r\n
         data = b"\x01\x02\x03\x04"
@@ -1279,14 +1305,14 @@ class TestMeshtasticCoreFunctions:
 
     def test_extract_frame_empty(self):
         """Test extraction with empty data."""
-        from modules.meshtastic.core import extract_frame
+        from modules.protocols.meshtastic.core import extract_frame
 
         result = extract_frame(b"")
         assert result == b""
 
     def test_extract_fields(self):
         """Test packet field extraction."""
-        from modules.meshtastic.core import extract_fields
+        from modules.protocols.meshtastic.core import extract_fields
 
         # Create test data (16 bytes minimum + payload)
         data = (
@@ -1311,7 +1337,7 @@ class TestMeshtasticCoreFunctions:
 
     def test_extract_fields_short_data(self):
         """Test extraction with very short data."""
-        from modules.meshtastic.core import extract_fields
+        from modules.protocols.meshtastic.core import extract_fields
 
         # Less than 16 bytes
         fields = extract_fields(b"\x01\x02\x03")
@@ -1319,7 +1345,7 @@ class TestMeshtasticCoreFunctions:
 
     def test_decrypt_function(self):
         """Test decryption function."""
-        from modules.meshtastic.core import decrypt
+        from modules.protocols.meshtastic.core import decrypt
         import base64
 
         # Create test data
@@ -1341,7 +1367,7 @@ class TestMeshtasticDecoder:
     """Tests for MeshtasticDecoder."""
 
     def _make_decoder(self, key=None):
-        from modules.meshtastic.decoder import MeshtasticDecoder
+        from modules.protocols.meshtastic.decoder import MeshtasticDecoder
 
         return MeshtasticDecoder(key=key)
 
@@ -1371,7 +1397,7 @@ class TestMeshtasticDecoder:
         """Test decoding of a valid packet."""
         # Skip if protobuf is not properly mocked
         import sys
-        from modules.meshtastic import mesh_pb2
+        from meshtastic import mesh_pb2
 
         if not hasattr(mesh_pb2, "Data"):
             pytest.skip("mesh_pb2.Data not properly mocked")
@@ -1402,7 +1428,7 @@ class TestMeshtasticLiveDecoder:
     """Tests for MeshtasticLiveDecoder."""
 
     def _make_decoder(self, port="/dev/ttyUSB0", keys=None):
-        from modules.meshtastic.live import MeshtasticLiveDecoder
+        from modules.protocols.meshtastic.live import MeshtasticLiveDecoder
 
         return MeshtasticLiveDecoder(port=port, keys=keys)
 
@@ -1436,7 +1462,7 @@ class TestMeshtasticLiveDecoder:
 
     def test_configure_radio_with_shell_port(self):
         """Test configuration with shell port (mock)."""
-        from modules.catnip import ShellConnection
+        from modules.core.catnip import ShellConnection
 
         decoder = self._make_decoder()
 
@@ -1444,7 +1470,9 @@ class TestMeshtasticLiveDecoder:
         mock_shell.connect.return_value = True
         mock_shell.send_command.return_value = "OK"
 
-        with patch("modules.meshtastic.live.ShellConnection", return_value=mock_shell):
+        with patch(
+            "modules.protocols.meshtastic.live.ShellConnection", return_value=mock_shell
+        ):
             result = decoder.configure_radio(
                 906875000, "LongFast", shell_port="/dev/ttyACM2"
             )
@@ -1461,7 +1489,9 @@ class TestMeshtasticLiveDecoder:
         mock_shell.connect.return_value = True
         mock_shell.send_command.return_value = "OK"
 
-        with patch("modules.meshtastic.live.ShellConnection", return_value=mock_shell):
+        with patch(
+            "modules.protocols.meshtastic.live.ShellConnection", return_value=mock_shell
+        ):
             # Non-existent preset uses LongFast by default
             result = decoder.configure_radio(
                 906875000, "InvalidPreset", shell_port="/dev/ttyACM2"
@@ -1475,7 +1505,7 @@ class TestMeshtasticRobustness:
 
     def test_msb2lsb_invalid_input(self):
         """Test msb2lsb with invalid input."""
-        from modules.meshtastic.core import msb2lsb
+        from modules.protocols.meshtastic.core import msb2lsb
 
         # Odd-length string
         result = msb2lsb("123")
@@ -1483,7 +1513,7 @@ class TestMeshtasticRobustness:
 
     def test_extract_frame_invalid_hex(self):
         """Test extract_frame with invalid hex."""
-        from modules.meshtastic.core import extract_frame
+        from modules.protocols.meshtastic.core import extract_frame
 
         raw = b"LORA RX: GGHHIIJJ"
         result = extract_frame(raw)
@@ -1491,7 +1521,7 @@ class TestMeshtasticRobustness:
 
     def test_extract_fields_insufficient_data(self):
         """Test extract_fields with insufficient data."""
-        from modules.meshtastic.core import extract_fields
+        from modules.protocols.meshtastic.core import extract_fields
 
         # Exactly 16 bytes minimum
         fields = extract_fields(b"\x00" * 16)
@@ -1504,7 +1534,7 @@ class TestMeshtasticRobustness:
 
     def test_decoder_invalid_key(self):
         """Test decoder with invalid key."""
-        from modules.meshtastic.decoder import MeshtasticDecoder
+        from modules.protocols.meshtastic.decoder import MeshtasticDecoder
 
         # Invalid key (not base64)
         try:

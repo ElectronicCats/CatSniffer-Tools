@@ -25,11 +25,11 @@ from serial.tools.list_ports import comports
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from vhci.bridge import VHCIBridge
-from vhci.constants import *
+from ..protocols.vhci.bridge import VHCIBridge
+from ..protocols.vhci.constants import *
 
 from rich.logging import RichHandler
-from output import (
+from ..utils.output import (
     console,
     print_warning,
     print_error,

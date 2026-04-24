@@ -124,7 +124,7 @@ class Catnip(BridgeConnection):
         More reliable than direct CC1352 communication because it does not
         depend on the CC1352 being responsive.
         """
-        from .fw_metadata import FirmwareMetadata
+        from ..firmware.fw_metadata import FirmwareMetadata
 
         if shell_port is None:
             return False

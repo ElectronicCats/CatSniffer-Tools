@@ -1,7 +1,7 @@
 from importlib.metadata import version, PackageNotFoundError
 from pathlib import Path
 
-_version_file = Path(__file__).parent.parent / "VERSION"
+_version_file = Path(__file__).parent.parent.parent / "VERSION"
 
 if _version_file.exists():
     # En desarrollo, siempre usamos el archivo VERSION local si existe

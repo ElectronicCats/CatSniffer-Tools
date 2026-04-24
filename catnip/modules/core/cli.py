@@ -14,9 +14,9 @@ import sys
 import queue
 
 # Internal
-from ._version import __version__
-from .flasher import Flasher
-from .verify import run_verification
+from ..utils._version import __version__
+from ..firmware.flasher import Flasher
+from ..firmware.verify import run_verification
 from .pipes import Wireshark
 from .bridge import run_bridge, run_sx_bridge
 from .catnip import (
@@ -36,7 +36,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich import box
 
-from .output import (
+from ..utils.output import (
     console,
     STYLES,
     print_success,
@@ -781,7 +781,7 @@ def send_identify_command(device):
 def flash(firmware, device, list, full) -> None:
     """Flash CC1352 Firmware or list available firmware images"""
 
-    from .fw_aliases import get_official_id
+    from ..firmware.fw_aliases import get_official_id
 
     # Initialize Flasher to manage firmware operations
     flasher = Flasher()
@@ -1158,7 +1158,7 @@ def verify(test_all, device, quiet):
 )
 def cativity(device, channel, topology, protocol):
     """IQ Activity Monitor"""
-    from .cativity.runner import CativityRunner
+    from ..protocols.cativity.runner import CativityRunner
 
     dev = get_device_or_exit(device)
     cat = Catnip(dev.bridge_port)
@@ -1213,7 +1213,7 @@ def meshtastic():
 def meshtastic_decode(input, key):
     """Decrypt and decode a hex-encoded Meshtastic packet"""
     try:
-        from .meshtastic import MeshtasticDecoder
+        from ..protocols.meshtastic import MeshtasticDecoder
     except ImportError as e:
         print_error(
             f"The 'meshtastic' library is required for this command. (Error: {e})"
@@ -1279,7 +1279,7 @@ def meshtastic_decode(input, key):
 def meshtastic_live(device, baudrate, frequency, preset):
     """Live Meshtastic decoder - Capture and decode packets in real-time"""
     try:
-        from .meshtastic import MeshtasticLiveDecoder
+        from ..protocols.meshtastic import MeshtasticLiveDecoder
     except ImportError as e:
         print_error(
             f"The 'meshtastic' library is required for this command. (Error: {e})"
@@ -1374,8 +1374,8 @@ def meshtastic_dashboard(device, baudrate, frequency, preset):
     import asyncio
 
     try:
-        from .meshtastic.core import configure_meshtastic_radio
-        from .meshtastic import MeshtasticChatApp, Monitor
+        from ..protocols.meshtastic.core import configure_meshtastic_radio
+        from ..protocols.meshtastic import MeshtasticChatApp, Monitor
     except ImportError as e:
         print_error(
             f"The 'meshtastic' library is required for this command. (Error: {e})"
@@ -1429,7 +1429,7 @@ def meshtastic_dashboard(device, baudrate, frequency, preset):
 def meshtastic_config(file):
     """Extract PSKs and config info from a Meshtastic JSONC config file"""
     try:
-        from .meshtastic import MeshtasticConfigExtractor
+        from ..protocols.meshtastic import MeshtasticConfigExtractor
     except ImportError as e:
         print_error(
             f"The 'meshtastic' library is required for this command. (Error: {e})"
@@ -1491,7 +1491,7 @@ def lora():
 )
 def lora_spectrum(device, baudrate, start_freq, end_freq, offset):
     """Live Spectrum Scanner for SX1262 - Real-time frequency spectrum analyzer"""
-    from .sx1262.spectrum import SpectrumScan
+    from ..protocols.sx1262.spectrum import SpectrumScan
 
     # Get device or exit with error
     dev = get_device_or_exit(device)
@@ -1558,7 +1558,7 @@ def vhci_start(device, baud, verbose):
     Compatible tools: bluetoothctl, btmgmt, btmon, bleak, bettercap.
     """
     import signal
-    from .vhci import VHCIBridge
+    from ..protocols.vhci import VHCIBridge
 
     if os.geteuid() != 0 and not os.access("/dev/vhci", os.R_OK | os.W_OK):
         print_warning(
@@ -1754,7 +1754,7 @@ def update(device, force):
     If the device is not detected, provides instructions to manually
     enter Boot Mode for recovery.
     """
-    from .fw_update import (
+    from ..firmware.fw_update import (
         check_and_update_rp2040,
         force_update_rp2040,
         get_tool_version,
@@ -1821,7 +1821,7 @@ def restore(firmware, device, tapid):
         catnip restore firmware.hex       # custom firmware
         catnip restore firmware.hex -d 1  # specific device
     """
-    from .restore import restore_cc1352
+    from ..firmware.restore import restore_cc1352
 
     # If no device is specified, get all connected devices
     if device is None:
