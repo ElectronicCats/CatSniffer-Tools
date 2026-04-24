@@ -5,28 +5,25 @@ Provides device verification and testing functionality.
 """
 
 import time
-import re
-import serial
-import serial.tools.list_ports
 from typing import Dict, List, Optional, Tuple
 
-try:
-    import usb.core
-    import usb.util
-
-    HAS_USB = True
-except ImportError:
-    HAS_USB = False
-
 from rich.table import Table
-from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich import box
 
-from .catnip import CatSnifferDevice
+from .usb_connection import (
+    CatSnifferDevice,
+    ShellConnection,
+    LoRaConnection,
+    open_serial_port,
+    find_devices,
+    DEFAULT_BAUDRATE,
+    CATSNIFFER_VID,
+    CATSNIFFER_PID,
+)
 from .output import (
     console,
     set_quiet_mode,
-    is_quiet_mode,
     print_test_header,
     print_test_step,
     print_test_pass,
@@ -36,183 +33,13 @@ from .output import (
     print_warning,
 )
 
-# Constants for CatSniffer USB identification
-CATSNIFFER_VID = 0x1209
-CATSNIFFER_PID = 0xBABB
 
-
-class VerificationDevice:
-    """Device wrapper for verification testing."""
-
-    def __init__(self, device_id: int, ports: Dict[str, str]):
-        self.device_id = device_id
-        self.bridge_port = ports.get("Cat-Bridge")
-        self.lora_port = ports.get("Cat-LoRa")
-        self.shell_port = ports.get("Cat-Shell")
-
-    def __str__(self) -> str:
-        return f"CatSniffer #{self.device_id}"
-
-    def send_command(
-        self, port: str, command: str, timeout: float = 1.0
-    ) -> Optional[str]:
-        """Send command to serial port and return response."""
-        if not port:
-            return None
-
-        try:
-            with serial.Serial(
-                port, 115200, timeout=timeout, dsrdtr=False, rtscts=False
-            ) as ser:
-                ser.setDTR(False)
-                ser.setRTS(False)
-                ser.reset_input_buffer()
-                ser.reset_output_buffer()
-
-                cmd_bytes = (command + "\r\n").encode("ascii")
-                ser.write(cmd_bytes)
-                ser.flush()
-
-                # Wait until 150 ms of silence after the last received byte.
-                # A fixed pre-sleep + break-on-empty causes partial reads on
-                # Windows where the USB CDC driver delivers data in bursts.
-                response = b""
-                deadline = time.time() + timeout
-                last_rx = None
-
-                while time.time() < deadline:
-                    waiting = ser.in_waiting
-                    if waiting:
-                        chunk = ser.read(waiting)
-                        response += chunk
-                        last_rx = time.time()
-                        time.sleep(0.02)
-                    else:
-                        if last_rx and (time.time() - last_rx) >= 0.15:
-                            break
-                        time.sleep(0.02)
-
-                return response.decode("ascii", errors="ignore").strip()
-        except Exception as e:
-            return f"ERROR: {str(e)}"
-
-    def is_complete(self) -> bool:
-        """Check if device has all 3 ports."""
-        return all([self.bridge_port, self.lora_port, self.shell_port])
-
-
-def find_verification_devices() -> List[VerificationDevice]:
-    """
-    Find all connected CatSniffer devices for verification.
-
-    Returns:
-        List of VerificationDevice objects
-    """
-    all_ports = list(serial.tools.list_ports.comports())
-    cat_ports = [
-        p for p in all_ports if p.vid == CATSNIFFER_VID and p.pid == CATSNIFFER_PID
-    ]
-
-    if not cat_ports:
-        return []
-
-    # Group ports by physical device using serial number (primary) or
-    # USB location prefix (fallback when serial is absent).
-    devices = {}
-
-    for port in cat_ports:
-        device_key = "unknown"
-
-        # Priority 1: serial number (shared by all interfaces of one device)
-        if port.hwid:
-            match = re.search(r"SER[=:]([A-Fa-f0-9]+)", port.hwid)
-            if match:
-                device_key = match.group(1)
-            elif port.serial_number:
-                device_key = port.serial_number
-        elif port.serial_number:
-            device_key = port.serial_number
-
-        # Priority 2: USB location prefix — only when value contains a colon
-        # ("path:config.interface" format), which ensures all interfaces of the
-        # same device share the prefix after splitting.  On Windows, pyserial
-        # may not populate location for every interface, so location is only
-        # used as fallback to avoid splitting one device across multiple groups.
-        if device_key == "unknown" and port.location and ":" in port.location:
-            device_key = port.location.split(":")[0]
-
-        if device_key not in devices:
-            devices[device_key] = []
-        devices[device_key].append(port)
-
-    catnips = []
-    device_id = 1
-
-    for _key, ports in devices.items():
-        if len(ports) < 3:
-            continue  # Skip incomplete devices
-
-        # Sort ports for this device
-        ports.sort(key=lambda x: x.device)
-
-        # Intelligent mapping
-        ports_dict = {}
-
-        # 1. By description string (works when driver provides interface names)
-        for port in ports:
-            desc = (port.description or "").lower()
-            if "shell" in desc:
-                ports_dict["Cat-Shell"] = port.device
-            elif "lora" in desc:
-                ports_dict["Cat-LoRa"] = port.device
-            elif "bridge" in desc:
-                ports_dict["Cat-Bridge"] = port.device
-
-        # 2. USB interface number from location field (reliable on Linux and Windows).
-        # Location format: "bus-port:config.interface" (e.g. "1-2.1:1.0").
-        # Interface 0 = Bridge, 1 = LoRa, 2 = Shell.
-        if len(ports_dict) < 3:
-            intf_role = {0: "Cat-Bridge", 1: "Cat-LoRa", 2: "Cat-Shell"}
-            for port in ports:
-                if port.location and ":" in port.location:
-                    try:
-                        intf_part = port.location.split(":")[1]
-                        intf_num = int(intf_part.split(".")[-1])
-                        role = intf_role.get(intf_num)
-                        if role and role not in ports_dict:
-                            ports_dict[role] = port.device
-                    except (ValueError, IndexError):
-                        pass
-
-        # 3. Positional fallback (used only when location is unavailable for some ports).
-        # Guard against assigning a COM port that is already mapped to another role.
-        if len(ports_dict) < 3:
-            fallback_map = {0: "Cat-Bridge", 1: "Cat-LoRa", 2: "Cat-Shell"}
-            already_assigned = set(ports_dict.values())
-            for i, port in enumerate(ports[:3]):
-                name = fallback_map.get(i)
-                if (
-                    name
-                    and name not in ports_dict
-                    and port.device not in already_assigned
-                ):
-                    ports_dict[name] = port.device
-                    already_assigned.add(port.device)
-
-        if len(ports_dict) == 3:
-            device = VerificationDevice(device_id, ports_dict)
-            catnips.append(device)
-            device_id += 1
-
-    return catnips
+# ── Device table ──────────────────────────────────────────────────────────────
 
 
 def print_device_table(
-    devices: List[VerificationDevice], title: str = "Detected Devices"
+    devices: List[CatSnifferDevice], title: str = "Detected Devices"
 ):
-    """Print a table of devices."""
-    from rich import box
-
     table = Table(title=title, box=box.ROUNDED)
     table.add_column("Device", style="cyan")
     table.add_column("Bridge Port", style="blue")
@@ -224,19 +51,21 @@ def print_device_table(
         bridge = dev.bridge_port or "[red]Not found[/red]"
         lora = dev.lora_port or "[red]Not found[/red]"
         shell = dev.shell_port or "[red]Not found[/red]"
-
-        if dev.is_complete():
-            status = "[green]✓ Complete[/green]"
-        else:
-            status = "[yellow]⚠ Incomplete[/yellow]"
-
+        status = (
+            "[green]✓ Complete[/green]"
+            if dev.is_valid()
+            else "[yellow]⚠ Incomplete[/yellow]"
+        )
         table.add_row(str(dev), bridge, lora, shell, status)
 
     console.print(table)
 
 
-def test_basic_commands(device: VerificationDevice) -> bool:
-    """Test basic shell commands."""
+# ── Individual test suites ────────────────────────────────────────────────────
+
+
+def test_basic_commands(device: CatSnifferDevice) -> bool:
+    """Test basic shell commands via the Cat-Shell port."""
     print_test_header(f"Testing {device} - Basic Commands")
 
     if not device.shell_port:
@@ -252,31 +81,28 @@ def test_basic_commands(device: VerificationDevice) -> bool:
     ]
 
     results = []
+    shell = ShellConnection(port=device.shell_port)
 
-    for test_name, cmd, expected, description in tests:
-        print_test_step(test_name, description)
+    with shell:
+        for test_name, cmd, expected, description in tests:
+            print_test_step(test_name, description)
+            response = shell.send_command(cmd, timeout=2.0)
+            if response and expected in response:
+                print_test_pass(response)
+                results.append(True)
+            else:
+                print_test_fail(response or "No response")
+                results.append(False)
 
-        response = device.send_command(device.shell_port, cmd, timeout=2.0)
-
-        if response and expected in response:
-            print_test_pass(response)
-            results.append(True)
-        else:
-            print_test_fail(response or "No response")
-            results.append(False)
-
-    # Return to command mode if we switched to stream
-    if device.shell_port and "lora_mode stream" in [t[1] for t in tests]:
-        device.send_command(device.shell_port, "lora_mode command", timeout=1.0)
+        # Restore command mode if we switched to stream
+        shell.send_command("lora_mode command", timeout=1.0)
 
     passed = sum(results)
-    total = len(results)
-
-    print_test_summary(passed, total)
-    return passed == total
+    print_test_summary(passed, len(results))
+    return passed == len(results)
 
 
-def test_lora_configuration(device: VerificationDevice) -> bool:
+def test_lora_configuration(device: CatSnifferDevice) -> bool:
     """Test LoRa configuration commands."""
     print_test_header(f"Testing {device} - LoRa Configuration")
 
@@ -285,47 +111,36 @@ def test_lora_configuration(device: VerificationDevice) -> bool:
         return False
 
     tests = [
-        ("freq", "lora_freq 915000000", ["Frequency"], "Set frequency to 915MHz"),
+        ("freq", "lora_freq 915000000", ["Frequency"], "Set frequency to 915 MHz"),
         ("sf", "lora_sf 7", ["Spreading", "SF"], "Set spreading factor to 7"),
-        ("bw", "lora_bw 125", ["Bandwidth"], "Set bandwidth to 125kHz"),
+        ("bw", "lora_bw 125", ["Bandwidth"], "Set bandwidth to 125 kHz"),
         ("cr", "lora_cr 5", ["Coding"], "Set coding rate to 4/5"),
-        ("power", "lora_power 14", ["power"], "Set TX power to 14dBm"),
+        ("power", "lora_power 14", ["power"], "Set TX power to 14 dBm"),
         ("apply", "lora_apply", ["applied", "success"], "Apply configuration"),
     ]
 
     results = []
+    shell = ShellConnection(port=device.shell_port)
 
-    for test_name, cmd, expected_list, description in tests:
-        print_test_step(test_name, description)
-
-        response = device.send_command(device.shell_port, cmd, timeout=3.0)
-
-        if response:
-            found = any(
-                expected.lower() in response.lower() for expected in expected_list
-            )
-
-            if found:
+    with shell:
+        for test_name, cmd, expected_list, description in tests:
+            print_test_step(test_name, description)
+            response = shell.send_command(cmd, timeout=3.0)
+            if response and any(e.lower() in response.lower() for e in expected_list):
                 print_test_pass(response)
                 results.append(True)
             else:
-                print_test_fail(response)
+                print_test_fail(response or "No response")
                 results.append(False)
-        else:
-            print_test_fail("No response")
-            results.append(False)
-
-        time.sleep(0.5)
+            time.sleep(0.5)
 
     passed = sum(results)
-    total = len(results)
-
-    print_test_summary(passed, total, "configuration")
+    print_test_summary(passed, len(results), "configuration")
     return passed >= 4  # Require at least 4 out of 6
 
 
-def test_lora_communication(device: VerificationDevice) -> bool:
-    """Test LoRa communication."""
+def test_lora_communication(device: CatSnifferDevice) -> bool:
+    """Test LoRa communication between the LoRa and Shell ports."""
     print_test_header(f"Testing {device} - LoRa Communication")
 
     if not device.lora_port or not device.shell_port:
@@ -333,174 +148,139 @@ def test_lora_communication(device: VerificationDevice) -> bool:
         return False
 
     results = []
+    shell = ShellConnection(port=device.shell_port, timeout=0.5)
 
-    # Switch to command mode
-    print_test_step("SETUP", "Switching to command mode")
-    response = device.send_command(device.shell_port, "lora_mode command", timeout=2.0)
-
-    if response and "COMMAND" in response:
+    with shell:
+        # Switch to command mode
+        print_test_step("SETUP", "Switching to command mode")
+        response = shell.send_command("lora_mode command", timeout=2.0)
+        if not (response and "COMMAND" in response):
+            print_test_fail("Failed to switch to command mode")
+            return False
         print_test_pass(response)
         time.sleep(0.5)
-    else:
-        print_test_fail("Failed to switch to command mode")
-        return False
 
-    def send_lora_listen_shell(
-        lora_cmd: str,
-        expected_keywords: List[str],
-        test_name: str,
-        timeout: float = 3.0,
-    ) -> bool:
-        """Send command to LoRa port and listen for response on Shell port."""
-        print_test_step(test_name, f"Sending '{lora_cmd}' to LoRa port")
+        def send_lora_listen_shell(
+            lora_cmd: str,
+            expected_keywords: List[str],
+            test_name: str,
+            timeout: float = 3.0,
+        ) -> bool:
+            """Send *lora_cmd* to the LoRa port; capture the Shell port response."""
+            print_test_step(test_name, f"Sending '{lora_cmd}' to LoRa port")
 
-        try:
-            shell_ser = serial.Serial(
-                device.shell_port, 115200, timeout=0.5, dsrdtr=False, rtscts=False
-            )
-            shell_ser.setDTR(False)
-            shell_ser.setRTS(False)
-
-            lora_ser = serial.Serial(
-                device.lora_port, 115200, timeout=0.5, dsrdtr=False, rtscts=False
-            )
-            lora_ser.setDTR(False)
-            lora_ser.setRTS(False)
-
-            shell_ser.reset_input_buffer()
-            shell_ser.reset_output_buffer()
-            lora_ser.reset_input_buffer()
-            lora_ser.reset_output_buffer()
-
-            cmd_bytes = (lora_cmd + "\r\n").encode("ascii")
-            lora_ser.write(cmd_bytes)
-            lora_ser.flush()
-
-            # 150 ms silence detector — same pattern as send_command() above.
-            # The fixed 0.1 s poll interval caused early exits on Windows because
-            # USB CDC delivers shell responses in bursts separated by short gaps.
-            response = b""
-            deadline = time.time() + timeout
-            last_rx = None
-
-            while time.time() < deadline:
-                waiting = shell_ser.in_waiting
-                if waiting:
-                    chunk = shell_ser.read(waiting)
-                    response += chunk
-                    last_rx = time.time()
-                    time.sleep(0.02)
-                else:
-                    if last_rx and (time.time() - last_rx) >= 0.15:
-                        break
-                    time.sleep(0.02)
-
-            lora_ser.close()
-            shell_ser.close()
-
-            response_str = response.decode("ascii", errors="ignore").strip()
-
-            if response_str:
-                found = any(keyword in response_str for keyword in expected_keywords)
-
-                if found:
-                    print_test_pass(response_str)
-                    return True
-                else:
-                    print_test_fail(response_str)
-                    return False
-            else:
-                print_test_fail("No response from Shell")
+            lora_ser = open_serial_port(device.lora_port, timeout=0.5)  # type: ignore[arg-type]
+            if lora_ser is None:
+                print_error(f"Cannot open LoRa port {device.lora_port}")
                 return False
 
-        except Exception as e:
-            print_error(f"Error: {e}")
+            try:
+                shell.connection.reset_input_buffer()  # type: ignore[union-attr]
+                lora_ser.write((lora_cmd + "\r\n").encode("ascii"))
+                lora_ser.flush()
+
+                response = b""
+                deadline = time.monotonic() + timeout
+                last_rx: Optional[float] = None
+
+                while time.monotonic() < deadline:
+                    conn = shell.connection
+                    if conn is None:
+                        break
+                    waiting = conn.in_waiting
+                    if waiting:
+                        response += conn.read(waiting)
+                        last_rx = time.monotonic()
+                        time.sleep(0.02)
+                    else:
+                        if last_rx is not None and (time.monotonic() - last_rx) >= 0.15:
+                            break
+                        time.sleep(0.02)
+
+            finally:
+                lora_ser.close()
+
+            response_str = response.decode("ascii", errors="ignore").strip()
+            if response_str and any(kw in response_str for kw in expected_keywords):
+                print_test_pass(response_str)
+                return True
+            print_test_fail(response_str or "No response from Shell")
             return False
 
-    # Communication tests
-    communication_tests = [
-        ("TEST", ["TEST", "LoRa ready", "initialized"], "TEST"),
-        ("TEST", ["TEST", "LoRa ready"], "TEST2"),
-        ("TXTEST", ["TX Result", "DEBUG: Sending", "Success"], "TXTEST"),
-        ("TX 50494E47", ["TX Result", "Success"], "TX"),
-    ]
+        communication_tests = [
+            ("TEST", ["TEST", "LoRa ready", "initialized"], "TEST", 4.0),
+            ("TEST", ["TEST", "LoRa ready"], "TEST2", 4.0),
+            ("TXTEST", ["TX Result", "DEBUG: Sending", "Success"], "TXTEST", 4.0),
+            ("TX 50494E47", ["TX Result", "Success"], "TX", 4.0),
+        ]
 
-    for cmd, expected, test_id in communication_tests:
-        success = send_lora_listen_shell(cmd, expected, test_id, timeout=4.0)
-        results.append(success)
-        time.sleep(1)
+        for cmd, expected, test_id, tout in communication_tests:
+            results.append(send_lora_listen_shell(cmd, expected, test_id, tout))
+            time.sleep(1)
 
-    # Check LoRa port for data
-    print_test_step("CHECK", "Checking for data on LoRa port")
-
-    try:
-        with serial.Serial(
-            device.lora_port, 115200, timeout=1, dsrdtr=False, rtscts=False
-        ) as lora_ser:
-            lora_ser.setDTR(False)
-            lora_ser.setRTS(False)
-            lora_ser.reset_input_buffer()
+        # Check LoRa port for data
+        print_test_step("CHECK", "Checking for data on LoRa port")
+        lora_check = open_serial_port(device.lora_port, timeout=1.0)
+        if lora_check is not None:
             time.sleep(0.5)
-
-            if lora_ser.in_waiting > 0:
-                data = lora_ser.read(lora_ser.in_waiting)
+            if lora_check.in_waiting > 0:
+                data = lora_check.read(lora_check.in_waiting)
                 print_test_pass(f"Data available: {data.hex()[:50]}")
-                results.append(True)
             else:
                 print_test_pass("No data on LoRa port (normal)")
-                results.append(True)
-    except Exception as e:
-        print_error(f"Error checking LoRa port: {e}")
-        results.append(False)
+            lora_check.close()
+            results.append(True)
+        else:
+            print_error(f"Cannot open LoRa port {device.lora_port}")
+            results.append(False)
 
-    # Return to stream mode
-    print_test_step("CLEANUP", "Switching back to stream mode")
-    response = device.send_command(device.shell_port, "lora_mode stream", timeout=2.0)
-
-    if response and "STREAM" in response:
-        print_test_pass(response)
-    else:
-        print_warning("Could not restore stream mode")
+        # Restore stream mode
+        print_test_step("CLEANUP", "Switching back to stream mode")
+        response = shell.send_command("lora_mode stream", timeout=2.0)
+        if response and "STREAM" in response:
+            print_test_pass(response)
+        else:
+            print_warning("Could not restore stream mode")
 
     passed = sum(results)
-    total = len(results)
-
-    print_test_summary(passed, total, "communication")
+    print_test_summary(passed, len(results), "communication")
     return passed >= 4  # Require at least 4 out of 6
 
 
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+
 def run_verification(
-    test_all: bool = False, device_id: Optional[int] = None, quiet: bool = False
+    test_all: bool = False,
+    device_id: Optional[int] = None,
+    quiet: bool = False,
 ) -> Tuple[bool, Dict]:
     """
     Run complete verification of CatSniffer devices.
 
     Args:
-        test_all: If True, run all tests including LoRa
-        device_id: Test only this device ID
-        quiet: Reduce output verbosity
+        test_all:  If True, also run LoRa configuration and communication tests.
+        device_id: Limit testing to this device ID.
+        quiet:     Reduce output verbosity.
 
     Returns:
-        Tuple of (success, results_dict)
+        Tuple of (overall_success, results_dict)
     """
-
     set_quiet_mode(quiet)
 
     if not quiet:
         console.print("[cyan]Starting device verification...[/cyan]")
 
-    # Find devices
-    devices = []
     if not quiet:
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             transient=True,
         ) as progress:
-            task = progress.add_task("Searching for CatSniffers...", total=None)
-            devices = find_verification_devices()
+            progress.add_task("Searching for CatSniffers...", total=None)
+            devices = find_devices()
     else:
-        devices = find_verification_devices()
+        devices = find_devices()
 
     if not devices:
         if not quiet:
@@ -509,12 +289,8 @@ def run_verification(
 
     if not quiet:
         console.print(f"[green]✓ Found {len(devices)} CatSniffer device(s)[/green]")
-
-    # Print device table only if not quiet
-    if not quiet:
         print_device_table(devices)
 
-    # Filter by device ID if specified
     if device_id:
         devices = [d for d in devices if d.device_id == device_id]
         if not devices:
@@ -524,130 +300,86 @@ def run_verification(
         if not quiet:
             console.print(f"[yellow]Testing only device #{device_id}[/yellow]")
 
-    # Run tests
-    results = {}
+    results: Dict = {}
     for dev in devices:
         if not quiet:
             console.print("\n" + "=" * 60)
             console.print(f"[bold]Testing {dev}[/bold]")
             console.print("=" * 60)
 
-        # Basic tests
         results[dev.device_id] = {"basic": test_basic_commands(dev)}
 
-        # Extended tests if requested
         if test_all:
-            if dev.shell_port:
-                results[dev.device_id]["config"] = test_lora_configuration(dev)
-            else:
-                if not quiet:
-                    console.print(
-                        "[yellow]Skipping LoRa config tests - no shell port[/yellow]"
-                    )
-                results[dev.device_id]["config"] = False
+            results[dev.device_id]["config"] = (
+                test_lora_configuration(dev) if dev.shell_port else False
+            )
+            results[dev.device_id]["lora"] = (
+                test_lora_communication(dev)
+                if (dev.lora_port and dev.shell_port)
+                else False
+            )
 
-            if dev.lora_port and dev.shell_port:
-                results[dev.device_id]["lora"] = test_lora_communication(dev)
-            else:
-                if not quiet:
-                    console.print(
-                        "[yellow]Skipping LoRa communication tests - missing ports[/yellow]"
-                    )
-                results[dev.device_id]["lora"] = False
-
-    # Print summary
+    # Summary table
     if not quiet:
         print_test_header("Verification Summary")
 
-    from rich import box
-
-    # Always create summary table, but only print it if not in quiet mode
-    summary_table = Table(box=box.SIMPLE)
-    summary_table.add_column("Device", style="cyan")
-    summary_table.add_column("Basic", justify="center")
-
+    summary = Table(box=box.SIMPLE)
+    summary.add_column("Device", style="cyan")
+    summary.add_column("Basic", justify="center")
     if test_all:
-        summary_table.add_column("Config", justify="center")
-        summary_table.add_column("Comm", justify="center")
-        summary_table.add_column("Overall", justify="center")
+        summary.add_column("Config", justify="center")
+        summary.add_column("Comm", justify="center")
+        summary.add_column("Overall", justify="center")
 
     all_passed = True
-    for dev_id, test_results in results.items():
-        basic_status = "✅" if test_results["basic"] else "❌"
-        basic_color = "green" if test_results["basic"] else "red"
+    for dev_id, res in results.items():
+        b_ok = res["basic"]
+        b_col = "green" if b_ok else "red"
 
         if test_all:
-            config_status = "✅" if test_results.get("config", False) else "❌"
-            config_color = "green" if test_results.get("config", False) else "red"
-            comm_status = "✅" if test_results.get("lora", False) else "❌"
-            comm_color = "green" if test_results.get("lora", False) else "red"
-
-            all_tests_passed = (
-                test_results["basic"]
-                and test_results.get("config", False)
-                and test_results.get("lora", False)
-            )
-            overall_status = "✅" if all_tests_passed else "❌"
-            overall_color = "green" if all_tests_passed else "red"
-
-            summary_table.add_row(
+            c_ok = res.get("config", False)
+            l_ok = res.get("lora", False)
+            ok = b_ok and c_ok and l_ok
+            all_passed = all_passed and ok
+            summary.add_row(
                 f"Device #{dev_id}",
-                f"[{basic_color}]{basic_status}[/{basic_color}]",
-                f"[{config_color}]{config_status}[/{config_color}]",
-                f"[{comm_color}]{comm_status}[/{comm_color}]",
-                f"[{overall_color}]{overall_status}[/{overall_color}]",
+                f"[{b_col}]{'✅' if b_ok else '❌'}[/{b_col}]",
+                f"[{'green' if c_ok else 'red'}]{'✅' if c_ok else '❌'}[/{'green' if c_ok else 'red'}]",
+                f"[{'green' if l_ok else 'red'}]{'✅' if l_ok else '❌'}[/{'green' if l_ok else 'red'}]",
+                f"[{'green' if ok else 'red'}]{'✅' if ok else '❌'}[/{'green' if ok else 'red'}]",
             )
-
-            all_passed = all_passed and all_tests_passed
         else:
-            summary_table.add_row(
-                f"Device #{dev_id}", f"[{basic_color}]{basic_status}[/{basic_color}]"
+            all_passed = all_passed and b_ok
+            summary.add_row(
+                f"Device #{dev_id}",
+                f"[{b_col}]{'✅' if b_ok else '❌'}[/{b_col}]",
             )
-            all_passed = all_passed and test_results["basic"]
 
     if not quiet:
-        console.print(summary_table)
+        console.print(summary)
     else:
-
-        # In quiet mode, only display short summary
-        if test_all:
-            for dev_id, test_results in results.items():
-                all_tests_passed = (
-                    test_results["basic"]
-                    and test_results.get("config", False)
-                    and test_results.get("lora", False)
+        for dev_id, res in results.items():
+            if test_all:
+                ok = (
+                    res["basic"] and res.get("config", False) and res.get("lora", False)
                 )
-                status = "PASS" if all_tests_passed else "FAIL"
-                print(f"Device #{dev_id}: {status}")
-        else:
-            for dev_id, test_results in results.items():
-                status = "PASS" if test_results["basic"] else "FAIL"
-                print(f"Device #{dev_id}: {status}")
+            else:
+                ok = res["basic"]
+            print(f"Device #{dev_id}: {'PASS' if ok else 'FAIL'}")
 
     return all_passed, results
 
 
-# Standalone execution support
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="CatSniffer Verification Tool")
-    parser.add_argument(
-        "--test-all",
-        action="store_true",
-        help="Run all tests including LoRa configuration and communication",
-    )
-    parser.add_argument(
-        "--device", type=int, metavar="N", help="Test only device number N (1-indexed)"
-    )
-    parser.add_argument(
-        "--quiet", "-q", action="store_true", help="Show only summary results"
-    )
-
+    parser.add_argument("--test-all", action="store_true")
+    parser.add_argument("--device", type=int, metavar="N")
+    parser.add_argument("--quiet", "-q", action="store_true")
     args = parser.parse_args()
 
     success, _ = run_verification(
         test_all=args.test_all, device_id=args.device, quiet=args.quiet
     )
-
     exit(0 if success else 1)

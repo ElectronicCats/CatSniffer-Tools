@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
 # Internal
-from modules.catnip import LoRaConnection
+from ..usb_connection import open_serial_port
 
 START_OF_FRAME = "SCAN"
 END_OF_FRAME = "END"
@@ -203,14 +203,12 @@ class SpectrumScan:
             LOG_ERROR("No port specified!")
             return False
 
-        try:
-            self.device_uart = serial.Serial(self.port, self.baudrate, timeout=2)
-            self.device_uart.flush()
-            self.device_uart.reset_input_buffer()
-            self.device_uart.reset_output_buffer()
-        except serial.SerialException as e:
-            LOG_ERROR(f"Failed to open port: {e}")
+        self.device_uart = open_serial_port(self.port, self.baudrate, timeout=2)
+        if self.device_uart is None:
+            LOG_ERROR(f"Failed to open port: {self.port}")
             return False
+        self.device_uart.reset_input_buffer()
+        self.device_uart.reset_output_buffer()
 
         time.sleep(0.2)
 

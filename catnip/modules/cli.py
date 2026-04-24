@@ -27,6 +27,7 @@ from .catnip import (
     catnip_get_device,
     catnip_get_devices,
 )
+from .usb_connection import ShellConnection
 
 # External
 import click
@@ -736,8 +737,6 @@ def sniff_airtag_scanner(device, putty):
 
 def send_identify_command(device):
     """Send identification command to device to help identify it visually."""
-    import serial
-
     if not device.shell_port:
         print_warning("Shell port not available for identification!")
         return False
@@ -745,42 +744,11 @@ def send_identify_command(device):
     print_info(f"Sending identification command to {device}...")
 
     try:
-        with serial.Serial(
-            device.shell_port, 115200, timeout=1.0, dsrdtr=False, rtscts=False
-        ) as ser:
-            ser.setDTR(False)
-            ser.setRTS(False)
-            ser.reset_input_buffer()
-            ser.reset_output_buffer()
-
-            cmd_bytes = b"identify\r\n"
-            ser.write(cmd_bytes)
-            ser.flush()
-
-            # 150 ms silence detector replaces the fixed time.sleep(0.3).
-            # On Windows, the USB CDC driver delivers the response in bursts;
-            # a fixed sleep either cuts the response short or wastes time.
-            response = b""
-            deadline = time.time() + 1.0
-            last_rx = None
-
-            while time.time() < deadline:
-                waiting = ser.in_waiting
-                if waiting:
-                    chunk = ser.read(waiting)
-                    response += chunk
-                    last_rx = time.time()
-                    time.sleep(0.02)
-                else:
-                    if last_rx and (time.time() - last_rx) >= 0.15:
-                        break
-                    time.sleep(0.02)
-
-            # Read any response (optional)
+        shell = ShellConnection(port=device.shell_port, timeout=1.0)
+        with shell:
+            response = shell.send_command("identify", timeout=1.0)
             if response:
-                response_str = response.decode("ascii", errors="ignore").strip()
-                if response_str:
-                    print_info(f"Device response: {response_str}")
+                print_info(f"Device response: {response}")
 
         print_success(f"Identification command sent to device #{device.device_id}!")
         return True
@@ -1090,8 +1058,6 @@ def devices() -> None:
 )
 def identify(device) -> None:
     """Send identification command to CatSniffer device"""
-    import serial
-
     dev = get_device_or_exit(device)
 
     if not dev.shell_port:
@@ -1101,40 +1067,11 @@ def identify(device) -> None:
     print_info(f"Sending 'Identify' command to {dev} on port {dev.shell_port}...")
 
     try:
-        with serial.Serial(
-            dev.shell_port, 115200, timeout=1.0, dsrdtr=False, rtscts=False
-        ) as ser:
-            ser.setDTR(False)
-            ser.setRTS(False)
-            ser.reset_input_buffer()
-            ser.reset_output_buffer()
-
-            cmd_bytes = b"identify\r\n"
-            ser.write(cmd_bytes)
-            ser.flush()
-
-            # 150 ms silence detector replaces the fixed time.sleep(0.3).
-            response = b""
-            deadline = time.time() + 1.0
-            last_rx = None
-
-            while time.time() < deadline:
-                waiting = ser.in_waiting
-                if waiting:
-                    chunk = ser.read(waiting)
-                    response += chunk
-                    last_rx = time.time()
-                    time.sleep(0.02)
-                else:
-                    if last_rx and (time.time() - last_rx) >= 0.15:
-                        break
-                    time.sleep(0.02)
-
-            # Read any response (optional, not required)
+        shell = ShellConnection(port=dev.shell_port, timeout=1.0)
+        with shell:
+            response = shell.send_command("identify", timeout=1.0)
             if response:
-                response_str = response.decode("ascii", errors="ignore").strip()
-                if response_str:
-                    print_info(f"Response: {response_str}")
+                print_info(f"Response: {response}")
 
         print_success("Identification command sent successfully!")
 

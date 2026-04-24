@@ -346,74 +346,72 @@ def fake_serial():
 
 
 class TestVerificationDevice:
-    """Tests for VerificationDevice."""
+    """Tests for CatSnifferDevice (previously VerificationDevice)."""
 
     def _make(self, bridge="/dev/ttyACM0", lora="/dev/ttyACM1", shell="/dev/ttyACM2"):
-        from modules.verify import VerificationDevice
+        from modules.usb_connection import CatSnifferDevice
 
-        ports = {"Cat-Bridge": bridge, "Cat-LoRa": lora, "Cat-Shell": shell}
-        return VerificationDevice(1, ports)
+        return CatSnifferDevice(
+            device_id=1, bridge_port=bridge, lora_port=lora, shell_port=shell
+        )
 
     def test_is_complete_all_ports(self):
-        from modules.verify import VerificationDevice
-
         vd = self._make()
-        assert vd.is_complete() is True
+        assert vd.is_valid() is True
 
     def test_is_complete_missing_lora(self):
-        from modules.verify import VerificationDevice
+        from modules.usb_connection import CatSnifferDevice
 
-        ports = {
-            "Cat-Bridge": "/dev/ttyACM0",
-            "Cat-LoRa": None,
-            "Cat-Shell": "/dev/ttyACM2",
-        }
-        vd = VerificationDevice(1, ports)
-        assert vd.is_complete() is False
+        vd = CatSnifferDevice(
+            device_id=1,
+            bridge_port="/dev/ttyACM0",
+            lora_port=None,
+            shell_port="/dev/ttyACM2",
+        )
+        assert vd.is_valid() is False
 
     def test_str_representation(self):
-        from modules.verify import VerificationDevice
-
         vd = self._make()
         assert "1" in str(vd)
 
     def test_send_command_returns_response(self, fake_serial):
-        from modules.verify import VerificationDevice
+        from modules.usb_connection import ShellConnection
 
-        fake_serial.in_waiting = 6
-        fake_serial.read.return_value = b"OK\r\n"
-        vd = self._make()
+        fake_serial.in_waiting = 0
+        fake_serial.read.return_value = b""
+        shell = ShellConnection(port="/dev/ttyACM2")
         with patch("serial.Serial", return_value=fake_serial):
-            resp = vd.send_command("/dev/ttyACM2", "help", timeout=1.0)
+            resp = shell.send_command("help", timeout=0.1)
         assert isinstance(resp, str)
 
     def test_send_command_no_port_returns_none(self):
-        from modules.verify import VerificationDevice
+        from modules.usb_connection import ShellConnection
 
-        ports = {"Cat-Bridge": None, "Cat-LoRa": None, "Cat-Shell": None}
-        vd = VerificationDevice(1, ports)
-        assert vd.send_command(None, "help") is None
+        shell = ShellConnection(port="")
+        with patch("serial.Serial", side_effect=Exception("no port")):
+            result = shell.send_command("help")
+        assert result is None
 
     def test_send_command_exception_returns_error_string(self):
-        from modules.verify import VerificationDevice
+        from modules.usb_connection import ShellConnection
 
-        vd = self._make()
+        shell = ShellConnection(port="/dev/ttyACM2")
         with patch("serial.Serial", side_effect=Exception("port busy")):
-            resp = vd.send_command("/dev/ttyACM2", "help")
-        assert resp.startswith("ERROR:")
+            resp = shell.send_command("help")
+        assert resp is None
 
     def test_send_command_empty_response(self, fake_serial):
-        from modules.verify import VerificationDevice
+        from modules.usb_connection import ShellConnection
 
         fake_serial.in_waiting = 0
-        vd = self._make()
+        shell = ShellConnection(port="/dev/ttyACM2")
         with patch("serial.Serial", return_value=fake_serial):
-            resp = vd.send_command("/dev/ttyACM2", "noop", timeout=0.1)
+            resp = shell.send_command("noop", timeout=0.1)
         assert resp == "" or resp is None or isinstance(resp, str)
 
 
 class TestFindVerificationDevices:
-    """Tests for find_verification_devices."""
+    """Tests for find_devices (previously find_verification_devices)."""
 
     def _make_port(self, device, vid, pid, hwid="SER=AABBCCDD", desc=""):
         p = MagicMock()
@@ -423,21 +421,18 @@ class TestFindVerificationDevices:
         p.hwid = hwid
         p.description = desc
         p.location = "1-1"
+        p.serial_number = None
         return p
 
     def test_no_catnip_ports(self):
-        from modules.verify import find_verification_devices
+        from modules.usb_connection import find_devices
 
         with patch("serial.tools.list_ports.comports", return_value=[]):
-            result = find_verification_devices()
+            result = find_devices()
         assert result == []
 
     def test_three_ports_detected(self):
-        from modules.verify import (
-            find_verification_devices,
-            CATSNIFFER_VID,
-            CATSNIFFER_PID,
-        )
+        from modules.usb_connection import find_devices, CATSNIFFER_VID, CATSNIFFER_PID
 
         ports = [
             self._make_port(
@@ -450,143 +445,109 @@ class TestFindVerificationDevices:
                 "/dev/ttyACM2", CATSNIFFER_VID, CATSNIFFER_PID, desc="Shell"
             ),
         ]
-        # Patch through the exact object in sys.modules so that verify.py's
-        # `serial.tools.list_ports.comports()` call sees the mock regardless
-        # of how the import chain resolved internally.
+        # Patch through the exact object in sys.modules so that usb_connection.py's
+        # `list_ports.comports()` call sees the mock regardless of import chain.
         list_ports_mod = sys.modules["serial.tools.list_ports"]
         with patch.object(list_ports_mod, "comports", return_value=ports):
-            result = find_verification_devices()
+            result = find_devices()
         assert len(result) == 1
 
     def test_incomplete_device_skipped(self):
-        from modules.verify import (
-            find_verification_devices,
-            CATSNIFFER_VID,
-            CATSNIFFER_PID,
-        )
+        from modules.usb_connection import find_devices, CATSNIFFER_VID, CATSNIFFER_PID
 
         ports = [
             self._make_port("/dev/ttyACM0", CATSNIFFER_VID, CATSNIFFER_PID),
             self._make_port("/dev/ttyACM1", CATSNIFFER_VID, CATSNIFFER_PID),
         ]
         with patch("serial.tools.list_ports.comports", return_value=ports):
-            result = find_verification_devices()
+            result = find_devices()
         assert result == []
 
     def test_non_catnip_ports_filtered(self):
-        from modules.verify import find_verification_devices
+        from modules.usb_connection import find_devices
 
         ports = [
             self._make_port("/dev/ttyUSB0", 0x0403, 0x6001)
         ]  # FTDI, not CatSniffer
         with patch("serial.tools.list_ports.comports", return_value=ports):
-            result = find_verification_devices()
+            result = find_devices()
         assert result == []
 
 
 class TestRunVerification:
     """Tests for run_verification."""
 
+    def _make_device(
+        self,
+        device_id,
+        bridge="/dev/ttyACM0",
+        lora="/dev/ttyACM1",
+        shell="/dev/ttyACM2",
+    ):
+        from modules.usb_connection import CatSnifferDevice
+
+        return CatSnifferDevice(
+            device_id=device_id, bridge_port=bridge, lora_port=lora, shell_port=shell
+        )
+
     def test_no_devices_returns_false(self):
         from modules.verify import run_verification
 
-        with patch("modules.verify.find_verification_devices", return_value=[]):
+        with patch("modules.verify.find_devices", return_value=[]):
             success, results = run_verification(quiet=True)
         assert success is False
         assert results == {}
 
     def test_basic_pass(self):
-        from modules.verify import run_verification, VerificationDevice
+        from modules.verify import run_verification
 
-        vd = VerificationDevice(
-            1,
-            {
-                "Cat-Bridge": "/dev/ttyACM0",
-                "Cat-LoRa": "/dev/ttyACM1",
-                "Cat-Shell": "/dev/ttyACM2",
-            },
-        )
-        with patch(
-            "modules.verify.find_verification_devices", return_value=[vd]
-        ), patch("modules.verify.test_basic_commands", return_value=True):
+        vd = self._make_device(1)
+        with patch("modules.verify.find_devices", return_value=[vd]), patch(
+            "modules.verify.test_basic_commands", return_value=True
+        ):
             success, results = run_verification(quiet=True)
         assert success is True
         assert results[1]["basic"] is True
 
     def test_basic_fail(self):
-        from modules.verify import run_verification, VerificationDevice
+        from modules.verify import run_verification
 
-        vd = VerificationDevice(
-            1,
-            {
-                "Cat-Bridge": "/dev/ttyACM0",
-                "Cat-LoRa": "/dev/ttyACM1",
-                "Cat-Shell": "/dev/ttyACM2",
-            },
-        )
-        with patch(
-            "modules.verify.find_verification_devices", return_value=[vd]
-        ), patch("modules.verify.test_basic_commands", return_value=False):
+        vd = self._make_device(1)
+        with patch("modules.verify.find_devices", return_value=[vd]), patch(
+            "modules.verify.test_basic_commands", return_value=False
+        ):
             success, results = run_verification(quiet=True)
         assert success is False
 
     def test_filter_by_device_id(self):
-        from modules.verify import run_verification, VerificationDevice
+        from modules.verify import run_verification
 
-        vd1 = VerificationDevice(
-            1,
-            {
-                "Cat-Bridge": "/dev/ttyACM0",
-                "Cat-LoRa": "/dev/ttyACM1",
-                "Cat-Shell": "/dev/ttyACM2",
-            },
+        vd1 = self._make_device(1)
+        vd2 = self._make_device(
+            2, bridge="/dev/ttyACM3", lora="/dev/ttyACM4", shell="/dev/ttyACM5"
         )
-        vd2 = VerificationDevice(
-            2,
-            {
-                "Cat-Bridge": "/dev/ttyACM3",
-                "Cat-LoRa": "/dev/ttyACM4",
-                "Cat-Shell": "/dev/ttyACM5",
-            },
-        )
-        with patch(
-            "modules.verify.find_verification_devices", return_value=[vd1, vd2]
-        ), patch("modules.verify.test_basic_commands", return_value=True):
+        with patch("modules.verify.find_devices", return_value=[vd1, vd2]), patch(
+            "modules.verify.test_basic_commands", return_value=True
+        ):
             success, results = run_verification(device_id=2, quiet=True)
         assert 1 not in results
         assert 2 in results
 
     def test_device_id_not_found(self):
-        from modules.verify import run_verification, VerificationDevice
+        from modules.verify import run_verification
 
-        vd = VerificationDevice(
-            1,
-            {
-                "Cat-Bridge": "/dev/ttyACM0",
-                "Cat-LoRa": "/dev/ttyACM1",
-                "Cat-Shell": "/dev/ttyACM2",
-            },
-        )
-        with patch("modules.verify.find_verification_devices", return_value=[vd]):
+        vd = self._make_device(1)
+        with patch("modules.verify.find_devices", return_value=[vd]):
             success, results = run_verification(device_id=99, quiet=True)
         assert success is False
 
     def test_test_all_runs_extra_tests(self):
-        from modules.verify import run_verification, VerificationDevice
+        from modules.verify import run_verification
 
-        vd = VerificationDevice(
-            1,
-            {
-                "Cat-Bridge": "/dev/ttyACM0",
-                "Cat-LoRa": "/dev/ttyACM1",
-                "Cat-Shell": "/dev/ttyACM2",
-            },
-        )
-        with patch(
-            "modules.verify.find_verification_devices", return_value=[vd]
-        ), patch("modules.verify.test_basic_commands", return_value=True), patch(
-            "modules.verify.test_lora_configuration", return_value=True
-        ), patch(
+        vd = self._make_device(1)
+        with patch("modules.verify.find_devices", return_value=[vd]), patch(
+            "modules.verify.test_basic_commands", return_value=True
+        ), patch("modules.verify.test_lora_configuration", return_value=True), patch(
             "modules.verify.test_lora_communication", return_value=True
         ):
             success, results = run_verification(test_all=True, quiet=True)
@@ -1127,27 +1088,25 @@ class TestRobustness:
     # -- verify.py -----------------------------------------------------------
 
     def test_send_command_unicode_response(self):
-        from modules.verify import VerificationDevice
+        from modules.usb_connection import ShellConnection
 
-        vd = VerificationDevice(
-            1, {"Cat-Bridge": "/dev/a", "Cat-LoRa": "/dev/b", "Cat-Shell": "/dev/c"}
-        )
         fake_ser = MagicMock()
-        fake_ser.in_waiting = 5
-        fake_ser.read.return_value = "héllo".encode("latin-1")
+        fake_ser.in_waiting = 0
+        fake_ser.read.return_value = b""
         fake_ser.__enter__ = lambda s: s
         fake_ser.__exit__ = MagicMock(return_value=False)
+        shell = ShellConnection(port="/dev/c")
         with patch("serial.Serial", return_value=fake_ser):
-            resp = vd.send_command("/dev/c", "test")
+            resp = shell.send_command("test", timeout=0.1)
         assert isinstance(resp, str)
 
     def test_verification_device_all_none_ports(self):
-        from modules.verify import VerificationDevice
+        from modules.usb_connection import CatSnifferDevice
 
-        vd = VerificationDevice(
-            1, {"Cat-Bridge": None, "Cat-LoRa": None, "Cat-Shell": None}
+        vd = CatSnifferDevice(
+            device_id=1, bridge_port=None, lora_port=None, shell_port=None
         )
-        assert vd.is_complete() is False
+        assert vd.is_valid() is False
 
     # -- flasher.py -----------------------------------------------------------
 

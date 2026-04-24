@@ -108,7 +108,11 @@ class TestSpectrumScan:
                 assert scanner.end_freq == 500
                 assert scanner.rssi_offset == -20
                 mock_serial.assert_called_once_with(
-                    "/dev/ttyUSB0", DEFAULT_BAUDRATE, timeout=2
+                    "/dev/ttyUSB0",
+                    DEFAULT_BAUDRATE,
+                    timeout=2,
+                    dsrdtr=False,
+                    rtscts=False,
                 )
 
                 # Correct commands should have been sent over serial
