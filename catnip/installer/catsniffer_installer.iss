@@ -4,7 +4,7 @@
 [Setup]
 AppId={{3F8E3E2D-2C5B-4A1F-8E3B-1C4D5E6F7A8B}
 AppName=Catnip
-AppVersion=3.3.1.0
+AppVersion=3.3.2.0
 AppPublisher=Electronic Cats
 AppPublisherURL=https://github.com/ElectronicCats/CatSniffer-Tools
 AppSupportURL=https://github.com/ElectronicCats/CatSniffer-Tools/issues

@@ -299,11 +299,12 @@ def open_serial_port(
     **kwargs,
 ) -> Optional[serial.Serial]:
     """
-    Open *port* with the settings required for CatSniffer CDC interfaces.
+    Open *port* with the settings required for CatSniffer Shell/LoRa CDC interfaces.
 
-    dsrdtr and rtscts are always False.  DTR and RTS are explicitly
-    de-asserted immediately after open because the Windows CDC driver
-    may briefly assert them even with dsrdtr=False, which resets the CC1352.
+    dsrdtr and rtscts are always False to disable hardware flow control.
+    DTR is asserted (True) so that Zephyr's USB CDC ACM stack recognises the
+    host as connected and processes incoming data — required on Windows where
+    the OS does not auto-assert DTR on port open (unlike Linux/macOS).
 
     Returns the open Serial instance, or None on failure.
     """
@@ -316,8 +317,7 @@ def open_serial_port(
             rtscts=False,
             **kwargs,
         )
-        sp.dtr = False
-        sp.rts = False
+        sp.dtr = True
         return sp
     except serial.SerialException:
         return None
@@ -332,9 +332,11 @@ class _SerialBase:
     """
     Common serial port wrapper.
 
-    Enforces dsrdtr=False / rtscts=False and explicit DTR/RTS de-assertion
-    on every port open, preventing inadvertent CC1352 resets caused by the
-    Windows CDC driver toggling control lines on port open.
+    Hardware flow control (dsrdtr / rtscts) is always disabled.  DTR is NOT
+    touched here so that each subclass can apply the correct polarity:
+      - BridgeConnection keeps DTR=False (prevents inadvertent CC1352 reset).
+      - ShellConnection / LoRaConnection assert DTR=True so Zephyr's CDC ACM
+        stack recognises the host as connected on Windows.
     """
 
     def __init__(
@@ -351,7 +353,7 @@ class _SerialBase:
     # ── lifecycle ─────────────────────────────────────────────────────────
 
     def _open(self, **kwargs) -> serial.Serial:
-        """Open self.port with safe defaults; subclasses may pass extra kwargs."""
+        """Open self.port with hardware flow control disabled."""
         sp = serial.Serial(
             self.port,
             self.baudrate,
@@ -360,8 +362,6 @@ class _SerialBase:
             rtscts=False,
             **kwargs,
         )
-        sp.dtr = False
-        sp.rts = False
         return sp
 
     def connect(self) -> bool:
@@ -426,7 +426,17 @@ class BridgeConnection(_SerialBase):
 
     Transparent byte-stream; framing and protocol interpretation are handled
     by the layer above (e.g. SnifferTI, Sniffle).
+
+    DTR and RTS are held low so the CC1352 is not inadvertently reset when
+    the port is opened.  cc2538.py toggles them deliberately for bootloader
+    entry / exit.
     """
+
+    def _open(self, **kwargs) -> serial.Serial:
+        sp = super()._open(**kwargs)
+        sp.dtr = False
+        sp.rts = False
+        return sp
 
     def read_until(self, terminator: bytes) -> Optional[bytes]:
         """
@@ -467,6 +477,14 @@ class LoRaConnection(_SerialBase):
             baudrate=baudrate,
             timeout=timeout if timeout is not None else self.STREAM_TIMEOUT,
         )
+
+    def connect(self) -> bool:
+        try:
+            self.connection = self._open()
+            self.connection.dtr = True  # signal "host connected" to Zephyr CDC ACM
+            return True
+        except Exception:
+            return False
 
     def read_frame(
         self,
@@ -532,6 +550,7 @@ class ShellConnection(_SerialBase):
     def connect(self) -> bool:
         try:
             self.connection = self._open()
+            self.connection.dtr = True  # signal "host connected" to Zephyr CDC ACM
             time.sleep(0.05)  # brief settle before the first command
             return True
         except Exception:
