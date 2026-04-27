@@ -36,8 +36,8 @@ _SHELL_CMD_DELAY = 0.15
 # Seconds to wait for Wireshark to open the pipe
 _WIRESHARK_PIPE_TIMEOUT = 30
 
-# The RP2040 firmware (lora_rx_cb) emits lines beginning with this prefix
-# on the Cat-LoRa port.
+# The RP2040 firmware (lora_rx_cb) emits "LORA RX: ..." lines on Cat-LoRa.
+# We match with `in` instead of `startswith` to handle both "RX:" and "LORA RX:" variants.
 _LORA_LINE_PREFIX = b"RX:"
 
 # The firmware also sends a welcome banner on Cat-LoRa at startup and after
@@ -57,6 +57,7 @@ def _configure_lora(
     spread_factor: int,
     coding_rate: int,
     tx_power: int,
+    sync_word: str = "private",
 ) -> bool:
     """
     Send all LoRa configuration commands via Cat-Shell and apply them.
@@ -69,6 +70,7 @@ def _configure_lora(
         ("spread factor", snifferSxCmd.set_sf(spread_factor)),
         ("coding rate", snifferSxCmd.set_cr(coding_rate)),
         ("TX power", snifferSxCmd.set_power(tx_power)),
+        ("sync word", snifferSxCmd.set_syncword(sync_word)),
         ("apply", snifferSxCmd.apply_config()),
     ]
 
@@ -131,6 +133,7 @@ def run_sx_bridge(
     tx_power: int = 20,
     wireshark: bool = False,
     verbose: bool = False,
+    sync_word: str = "private",
 ):
     """
     Run the LoRa sniffer bridge for the unified RP2040 firmware.
@@ -190,7 +193,7 @@ def run_sx_bridge(
     print_dim(f"TX Power:         {tx_power} dBm")
 
     if not _configure_lora(
-        shell, frequency, bandwidth, spread_factor, coding_rate, tx_power
+        shell, frequency, bandwidth, spread_factor, coding_rate, tx_power, sync_word
     ):
         print_warning("Some config commands had no response — continuing")
 
@@ -218,20 +221,15 @@ def run_sx_bridge(
         print_warning(f"Unexpected stream response: {stream_resp!r} — continuing")
 
     # ── 6. Keepalive thread ───────────────────────────────────────────────────
-    # The RP2040's lora_thread only calls lora_start_rx_async() when the
-    # semaphore fires, which happens when the host writes bytes to CDC1.
-    # We send a single null byte every 2 s to keep the semaphore alive and
-    # ensure the radio stays in RX mode.
+    # NOTE: Do NOT write bytes to CDC1 in stream mode — the RP2040 lora_thread
+    # treats any data on rb_usb_to_sx1262 as payload to transmit, which calls
+    # lora_stop_rx() and breaks reception for the duration of that TX.
+    # The lora_thread already loops on k_sem_take(K_MSEC(100)), so it keeps
+    # lora_start_rx_async() armed without any host-side stimulation.
     _keepalive_stop = threading.Event()
 
     def _keepalive():
-        while not _keepalive_stop.is_set():
-            try:
-                lora.connection.write(b"\x00")
-                lora.connection.flush()
-            except Exception:
-                pass
-            _keepalive_stop.wait(timeout=2.0)
+        _keepalive_stop.wait()  # just block until the capture ends
 
     ka_thread = threading.Thread(target=_keepalive, daemon=True)
     ka_thread.start()
@@ -277,7 +275,7 @@ def run_sx_bridge(
             stripped = raw.strip()
             if not stripped:
                 continue
-            if not stripped.startswith(_LORA_LINE_PREFIX):
+            if _LORA_LINE_PREFIX not in stripped:
                 if not any(stripped.startswith(p) for p in _IGNORE_PREFIXES):
                     print_dim(f"(device) {stripped.decode('ascii', errors='replace')}")
                 continue
@@ -293,13 +291,17 @@ def run_sx_bridge(
                 packet_count += 1
 
                 if show_output:
+                    ascii_str = "".join(
+                        chr(b) if 32 <= b < 127 else "." for b in packet.payload
+                    )
+                    hex_str = packet.payload.hex()
                     console.print(
                         f"[green]  [{packet_count:>5}][/green] "
                         f"len={packet.length:>4}B  "
                         f"RSSI={packet.rssi:>7.1f} dBm  "
-                        f"SNR={packet.snr:>5.1f} dB  "
-                        f"payload={packet.payload.hex()[:32]}"
-                        f"{'…' if len(packet.payload) > 16 else ''}"
+                        f"SNR={packet.snr:>5.1f} dB\n"
+                        f"         hex={hex_str}\n"
+                        f"         ascii=[italic]{ascii_str}[/italic]"
                     )
 
             except ValueError as exc:

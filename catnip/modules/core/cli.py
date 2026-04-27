@@ -625,6 +625,13 @@ def sniff_thread(ws, channel, device):
     type=int,
     help="Device ID (for multiple CatSniffers)",
 )
+@click.option(
+    "--sync-word",
+    "-sw",
+    default="private",
+    type=click.Choice(["public", "private"]),
+    help="LoRa sync word: 'public' (0x34, LoRaWAN) or 'private' (0x12). Default: private.",
+)
 def sniff_lora(
     ws,
     verbose,
@@ -634,6 +641,7 @@ def sniff_lora(
     coding_rate,
     tx_power,
     device,
+    sync_word,
 ):
     """Sniffing LoRa with Sniffer SX1262 firmware"""
     dev = get_device_or_exit(device)
@@ -647,6 +655,7 @@ def sniff_lora(
     print_dim(f"Spreading Factor: SF{spread_factor}")
     print_dim(f"Coding Rate:      4/{coding_rate}")
     print_dim(f"TX Power:         {tx_power} dBm")
+    print_dim(f"Sync Word:        {sync_word}")
 
     run_sx_bridge(
         dev,
@@ -657,6 +666,7 @@ def sniff_lora(
         tx_power,
         ws,
         verbose,
+        sync_word,
     )
 
 
