@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
 # Internal
-from ...core.usb_connection import open_serial_port
+from ...core.usb_connection import open_serial_port, find_device
 
 START_OF_FRAME = "SCAN"
 END_OF_FRAME = "END"
@@ -64,9 +64,12 @@ class SpectrumScan:
         self.data_matrix = np.zeros((SCAN_WIDTH, self.delta_freq))
 
     def __data_dissector(self, plot_data):
-        print(plot_data)
         if FREQ_FRAME_MARK in plot_data:
-            self.current_freq = float(plot_data.split(" ")[1])
+            try:
+                self.current_freq = float(plot_data.split(" ")[1])
+            except (IndexError, ValueError) as e:
+                LOG_WARNING(f"Malformed FREQ frame: {plot_data!r} ({e})")
+                return
             if (
                 self.current_freq >= self.start_freq
                 and self.current_freq <= self.end_freq
@@ -79,14 +82,23 @@ class SpectrumScan:
                 self.current_freq >= self.start_freq
                 and self.current_freq <= self.end_freq
             ):
-                scan_line = plot_data[len(START_OF_FRAME) : -len(END_OF_FRAME)].split(
-                    ","
-                )[:-1]
-                data = list(map(int, scan_line))
-                index = int(
-                    (self.current_freq - self.start_freq) / DEFAULT_STEP_PER_FREQ
-                )
-                self.data_matrix[:, index] = data
+                try:
+                    scan_line = plot_data[
+                        len(START_OF_FRAME) : -len(END_OF_FRAME)
+                    ].split(",")[:-1]
+                    data = list(map(int, scan_line))
+                    if len(data) != SCAN_WIDTH:
+                        LOG_WARNING(
+                            f"SCAN line has {len(data)} values, expected {SCAN_WIDTH}"
+                        )
+                        return
+                    index = int(
+                        (self.current_freq - self.start_freq) / DEFAULT_STEP_PER_FREQ
+                    )
+                    if 0 <= index < self.delta_freq:
+                        self.data_matrix[:, index] = data
+                except (ValueError, IndexError) as e:
+                    LOG_WARNING(f"Malformed SCAN frame: {plot_data!r} ({e})")
 
     def on_close(self, event):
         self.recv_running = False
@@ -94,6 +106,8 @@ class SpectrumScan:
     def stop_task(self):
         self.recv_running = False
         if self.device_uart and self.device_uart.is_open:
+            self.device_uart.reset_input_buffer()
+            self.device_uart.reset_output_buffer()
             self.device_uart.close()
         if threading.current_thread() is not self.recv_worker:
             if self.recv_worker and self.recv_worker.is_alive():
@@ -101,33 +115,29 @@ class SpectrumScan:
 
     def recv_task(self):
         while self.recv_running:
-            if self.recv_worker.is_alive():
-                try:
-                    bytestream = self.device_uart.readline().decode("utf-8").strip()
-                    if not self.recv_running:
-                        break
-                    if bytestream == "":
-                        self.no_bytes_count += 1
-                        if self.no_bytes_count > LIMIT_COUNT:
-                            self.no_bytes_count = 0
-                            LOG_WARNING("No data received.")
-                        continue
-                    self.__data_dissector(bytestream)
-                    if self.delta_freq < 1:
-                        time.sleep(0.3)
-                except serial.SerialException as e:
-                    LOG_WARNING(e)
+            try:
+                bytestream = self.device_uart.readline().decode("utf-8").strip()
+                if not self.recv_running:
+                    break
+                if bytestream == "":
+                    self.no_bytes_count += 1
+                    if self.no_bytes_count > LIMIT_COUNT:
+                        self.no_bytes_count = 0
+                        LOG_WARNING("No data received.")
                     continue
-                except UnicodeDecodeError as e:
-                    LOG_WARNING(
-                        "Please check the baud rate, as using a different value than the one set on the device may cause errors."
-                    )
-                    LOG_ERROR(e)
-                    continue
+                self.__data_dissector(bytestream)
+                if self.delta_freq < 1:
+                    time.sleep(0.3)
+            except serial.SerialException as e:
+                LOG_WARNING(e)
+                continue
+            except UnicodeDecodeError as e:
+                LOG_WARNING(
+                    "Please check the baud rate, as using a different value than the one set on the device may cause errors."
+                )
+                LOG_ERROR(e)
+                continue
 
-        self.device_uart.reset_input_buffer()
-        self.device_uart.reset_output_buffer()
-        self.device_uart.close()
         self.stop_task()
 
     def create_plot(self):
@@ -149,7 +159,6 @@ class SpectrumScan:
             f"SX126x Spectral Scan (Frequency range: {self.start_freq}/{self.end_freq} MHz)"
         )
         self.fig.canvas.manager.set_window_title("Electronic Cats - Spectral Scan")
-        print("Create plot: ", -8 * (SCAN_WIDTH + 1))
         self.im = self.ax.imshow(
             self.data_matrix[:, : self.delta_freq],
             cmap=DEFAULT_COLOR_MAP,
@@ -199,9 +208,16 @@ class SpectrumScan:
             LOG_WARNING("Frequency start is greater than frequency end")
             return False
 
+        # Auto-detect Cat-Shell port (CDC2) when no port is specified
         if self.port is None:
-            LOG_ERROR("No port specified!")
-            return False
+            device = find_device()
+            if device is None or device.shell_port is None:
+                LOG_ERROR(
+                    "No CatSniffer device found. Connect the device or use -p to specify the Cat-Shell port (CDC2)."
+                )
+                return False
+            self.port = device.shell_port
+            LOG_INFO(f"Auto-detected Cat-Shell port: {self.port}")
 
         self.device_uart = open_serial_port(self.port, self.baudrate, timeout=2)
         if self.device_uart is None:
@@ -212,10 +228,10 @@ class SpectrumScan:
 
         time.sleep(0.2)
 
-        self.device_uart.write(f"stop\r\n".encode())
+        self.device_uart.write("stop\r\n".encode())
         self.device_uart.write(f"set_start_freq {self.start_freq}\r\n".encode())
         self.device_uart.write(f"set_end_freq {self.end_freq}\r\n".encode())
-        self.device_uart.write(f"start\r\n".encode())
+        self.device_uart.write("start\r\n".encode())
 
         self.delta_freq = (
             int((self.end_freq - self.start_freq) / DEFAULT_STEP_PER_FREQ) + 1
@@ -244,15 +260,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  catnip lora spectrum -p /dev/ttyUSB1
-  catnip lora spectrum -p COM3 --start-freq 400 --end-freq 500
+  catnip lora spectrum                               (auto-detect Cat-Shell port)
+  catnip lora spectrum -p /dev/ttyACM2
+  catnip lora spectrum -p COM5 --start-freq 400 --end-freq 500
         """,
     )
     parser.add_argument(
         "-p",
         "--port",
-        required=True,
-        help="Serial port for SX1262 device",
+        default=None,
+        help="Cat-Shell serial port (CDC2). Auto-detected if omitted.",
     )
     parser.add_argument(
         "-b",
