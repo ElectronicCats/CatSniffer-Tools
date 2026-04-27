@@ -83,8 +83,9 @@ class TestSpectrumScan:
             # Simulate predefined numpy array
             scanner.data_matrix = MagicMock()
 
-            # Data line format: "SCAN -100,-95,-90,END"
-            scanner._SpectrumScan__data_dissector("SCAN -100,-95,-90,END")
+            # Data line format: "SCAN -100,-95,-90,... (33 values total),END"
+            scan_data = "SCAN " + ",".join(["-100"] * 33) + ",END"
+            scanner._SpectrumScan__data_dissector(scan_data)
 
             # matrix slicing operation check
             # The code tries to fill a column. MagicMock captures the manipulation
