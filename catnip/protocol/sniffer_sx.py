@@ -66,6 +66,78 @@ class LoRaShellCommands:
         return "help"
 
 
+class FskShellCommands:
+    """Shell commands for FSK/GFSK configuration via Cat-Shell port."""
+
+    @staticmethod
+    def set_freq(frequency_hz: int) -> str:
+        return f"fsk_freq {frequency_hz}"
+
+    @staticmethod
+    def set_bitrate(bitrate_bps: int) -> str:
+        return f"fsk_bitrate {bitrate_bps}"
+
+    @staticmethod
+    def set_fdev(fdev_hz: int) -> str:
+        return f"fsk_fdev {fdev_hz}"
+
+    @staticmethod
+    def set_bw(bandwidth_khz: int) -> str:
+        return f"fsk_bw {bandwidth_khz}"
+
+    @staticmethod
+    def set_power(tx_power_dbm: int) -> str:
+        return f"fsk_power {tx_power_dbm}"
+
+    @staticmethod
+    def set_preamble(preamble_len: int) -> str:
+        return f"fsk_preamble {preamble_len}"
+
+    @staticmethod
+    def set_syncword(hex_str: str) -> str:
+        return f"fsk_syncword {hex_str}"
+
+    @staticmethod
+    def set_crc(enabled: bool) -> str:
+        return f"fsk_crc {'on' if enabled else 'off'}"
+
+    @staticmethod
+    def set_whitening(enabled: bool) -> str:
+        return f"fsk_whitening {'on' if enabled else 'off'}"
+
+    @staticmethod
+    def set_pktlen(fixed: bool) -> str:
+        return f"fsk_pktlen {'fixed' if fixed else 'variable'}"
+
+    @staticmethod
+    def set_payload_len(length: int) -> str:
+        return f"fsk_payload {length}"
+
+    @staticmethod
+    def set_bt(bt_value: str) -> str:
+        return f"fsk_bt {bt_value}"
+
+    @staticmethod
+    def set_modulation(mode: str) -> str:
+        return f"modulation {mode}"
+
+    @staticmethod
+    def get_config() -> str:
+        return "fsk_config"
+
+    @staticmethod
+    def apply_config() -> str:
+        return "fsk_apply"
+
+    @staticmethod
+    def start_streaming() -> str:
+        return "lora_mode stream"
+
+    @staticmethod
+    def start_command() -> str:
+        return "lora_mode command"
+
+
 class SnifferSx:
     """SX1262 LoRa sniffer protocol handler - Updated for new FW output format."""
 

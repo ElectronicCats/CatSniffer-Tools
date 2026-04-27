@@ -58,6 +58,7 @@ class SniffingFirmware(enum.Enum):
     THREAD = enum.auto()  # TI Sniffer Firmware
     JWORKS = enum.auto()  # Just works
     LORA = enum.auto()
+    FSK = enum.auto()
     AIRTAG_SCANNER = enum.auto()
 
 

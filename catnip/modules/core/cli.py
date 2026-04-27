@@ -18,7 +18,7 @@ from ..utils._version import __version__
 from ..firmware.flasher import Flasher
 from ..firmware.verify import run_verification
 from .pipes import Wireshark
-from .bridge import run_bridge, run_sx_bridge
+from .bridge import run_bridge, run_sx_bridge, run_fsk_bridge
 from .catnip import (
     SniffingFirmware,
     SniffingBaseFirmware,
@@ -667,6 +667,168 @@ def sniff_lora(
         ws,
         verbose,
         sync_word,
+    )
+
+
+@sniff.command(SniffingFirmware.FSK.name.lower())
+@click.option("-v", "--verbose", is_flag=True, help="Show verbose output in terminal")
+@click.option(
+    "--frequency",
+    "-freq",
+    default=915000000,
+    type=int,
+    help="Frequency in Hz (e.g., 915000000 for 915 MHz)",
+)
+@click.option(
+    "--bitrate",
+    "-b",
+    default=50000,
+    type=int,
+    help="Bit rate in bps (default: 50000)",
+)
+@click.option(
+    "--fdev",
+    default=25000,
+    type=int,
+    help="Frequency deviation in Hz (default: 25000)",
+)
+@click.option(
+    "--bandwidth",
+    "-bw",
+    default=58,
+    type=click.Choice(
+        [
+            "4",
+            "5",
+            "7",
+            "9",
+            "11",
+            "14",
+            "19",
+            "23",
+            "29",
+            "39",
+            "46",
+            "58",
+            "78",
+            "93",
+            "117",
+            "156",
+            "187",
+            "234",
+            "312",
+            "373",
+            "467",
+        ]
+    ),
+    help="RX bandwidth in kHz (default: 58)",
+)
+@click.option(
+    "--tx-power",
+    "-pw",
+    default=14,
+    type=click.IntRange(-9, 22),
+    help="TX Power in dBm (default: 14)",
+)
+@click.option(
+    "--preamble",
+    "-pr",
+    default=5,
+    type=int,
+    help="Preamble length in bytes (default: 5)",
+)
+@click.option(
+    "--sync-word",
+    "-sw",
+    default="12AD",
+    help="Sync word as hex string (default: 12AD)",
+)
+@click.option(
+    "--crc/--no-crc",
+    default=True,
+    help="Enable/disable CRC (default: enabled)",
+)
+@click.option(
+    "--whitening/--no-whitening",
+    default=True,
+    help="Enable/disable whitening (default: enabled)",
+)
+@click.option(
+    "--fixed-length",
+    is_flag=True,
+    default=False,
+    help="Use fixed-length packets (default: variable)",
+)
+@click.option(
+    "--payload-len",
+    default=0,
+    type=click.IntRange(0, 255),
+    help="Payload length for fixed-length mode (1-255, ignored if variable)",
+)
+@click.option(
+    "--bt",
+    default="off",
+    type=click.Choice(["off", "0.3", "0.5", "0.7", "1.0"]),
+    help="GFSK Gaussian BT shaping (default: off)",
+)
+@click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for multiple CatSniffers)",
+)
+def sniff_fsk(
+    verbose,
+    frequency,
+    bitrate,
+    fdev,
+    bandwidth,
+    tx_power,
+    preamble,
+    sync_word,
+    crc,
+    whitening,
+    fixed_length,
+    payload_len,
+    bt,
+    device,
+):
+    """Sniffing FSK/GFSK with Sniffer SX1262 firmware"""
+    dev = get_device_or_exit(device)
+
+    bw_int = int(bandwidth)
+
+    print_info(f"[{dev}] Sniffing FSK with configuration:")
+    print_dim(f"Frequency:    {frequency} Hz ({frequency / 1000000:.3f} MHz)")
+    print_dim(f"Bitrate:      {bitrate} bps")
+    print_dim(f"Freq Dev:     {fdev} Hz")
+    print_dim(f"RX Bandwidth: {bw_int} kHz")
+    print_dim(f"TX Power:     {tx_power} dBm")
+    print_dim(f"Preamble:     {preamble} bytes")
+    print_dim(f"Sync Word:    {sync_word}")
+    print_dim(f"CRC:          {'on' if crc else 'off'}")
+    print_dim(f"Whitening:    {'on' if whitening else 'off'}")
+    print_dim(f"Packet Len:   {'fixed' if fixed_length else 'variable'}")
+    if fixed_length:
+        print_dim(f"Payload Len:  {payload_len} bytes")
+    print_dim(f"BT Shaping:   {bt}")
+
+    run_fsk_bridge(
+        dev,
+        frequency,
+        bitrate,
+        fdev,
+        bw_int,
+        tx_power,
+        preamble,
+        sync_word,
+        crc,
+        whitening,
+        fixed_length,
+        payload_len,
+        bt,
+        verbose,
     )
 
 

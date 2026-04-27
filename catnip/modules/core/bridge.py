@@ -11,7 +11,7 @@ from .catnip import (
     LoRaConnection,
 )
 from .pipes import UnixPipe, WindowsPipe, Wireshark
-from protocol.sniffer_sx import SnifferSx
+from protocol.sniffer_sx import SnifferSx, FskShellCommands
 from protocol.sniffer_ti import SnifferTI, PacketCategory
 from protocol.common import START_OF_FRAME, END_OF_FRAME, get_global_header
 
@@ -317,6 +317,221 @@ def run_sx_bridge(
         )
     finally:
         _keepalive_stop.set()
+        _stop_lora_capture(shell, lora, pipe)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# FSK (SX1262 / RP2040) bridge
+# ──────────────────────────────────────────────────────────────────────────────
+
+_fskCmd = FskShellCommands()
+_FSK_LINE_PREFIX = b"FSK RX:"
+
+
+def _configure_fsk(
+    shell: ShellConnection,
+    frequency: int,
+    bitrate: int,
+    fdev: int,
+    bandwidth: int,
+    tx_power: int,
+    preamble: int,
+    sync_word: str,
+    crc: bool,
+    whitening: bool,
+    fixed_length: bool,
+    payload_len: int,
+    bt: str,
+) -> bool:
+    """Send all FSK configuration commands via Cat-Shell and apply them."""
+    steps = [
+        ("modulation", _fskCmd.set_modulation("fsk")),
+        ("frequency", _fskCmd.set_freq(frequency)),
+        ("bitrate", _fskCmd.set_bitrate(bitrate)),
+        ("fdev", _fskCmd.set_fdev(fdev)),
+        ("bandwidth", _fskCmd.set_bw(bandwidth)),
+        ("TX power", _fskCmd.set_power(tx_power)),
+        ("preamble", _fskCmd.set_preamble(preamble)),
+        ("sync word", _fskCmd.set_syncword(sync_word)),
+        ("CRC", _fskCmd.set_crc(crc)),
+        ("whitening", _fskCmd.set_whitening(whitening)),
+        ("packet length", _fskCmd.set_pktlen(fixed_length)),
+        ("BT shaping", _fskCmd.set_bt(bt)),
+        ("apply", _fskCmd.apply_config()),
+    ]
+
+    if fixed_length and payload_len > 0:
+        steps.insert(-1, ("payload length", _fskCmd.set_payload_len(payload_len)))
+
+    all_ok = True
+    for label, cmd in steps:
+        response = shell.send_command(cmd, timeout=1.5)
+        if response is None:
+            print_warning(f"No response while setting {label}")
+            all_ok = False
+        else:
+            print_dim(f"{label}: {response[:80]}")
+        time.sleep(_SHELL_CMD_DELAY)
+
+    return all_ok
+
+
+def run_fsk_bridge(
+    device: CatSnifferDevice,
+    frequency: int,
+    bitrate: int,
+    fdev: int,
+    bandwidth: int,
+    tx_power: int = 14,
+    preamble: int = 5,
+    sync_word: str = "12AD",
+    crc: bool = True,
+    whitening: bool = True,
+    fixed_length: bool = False,
+    payload_len: int = 0,
+    bt: str = "off",
+    wireshark: bool = False,
+    verbose: bool = False,
+):
+    """
+    Run the FSK sniffer bridge for the unified RP2040 firmware.
+
+    Data flow
+    ─────────
+    Cat-Shell ← FSK configuration commands (fsk_freq, fsk_bitrate, fsk_apply …)
+    Cat-LoRa  → received packets as ASCII text lines:
+                    "FSK RX: <HEX> | RSSI: <int> | Len: <int>\\r\\n"
+    """
+    if not device.shell_port:
+        print_error("No shell_port on device — cannot configure FSK")
+        return
+    if not device.lora_port:
+        print_error("No lora_port on device — cannot receive FSK stream")
+        return
+
+    pipe = WindowsPipe() if platform.system() == "Windows" else UnixPipe()
+    threading.Thread(target=pipe.open, daemon=True).start()
+
+    if wireshark:
+        Wireshark().run()
+
+    shell = ShellConnection(port=device.shell_port)
+    if not shell.connect():
+        print_error(f"Cannot open shell port: {device.shell_port}")
+        pipe.remove()
+        return
+
+    print_info(f"Configuring FSK via {device.shell_port}...")
+
+    if not _configure_fsk(
+        shell,
+        frequency,
+        bitrate,
+        fdev,
+        bandwidth,
+        tx_power,
+        preamble,
+        sync_word,
+        crc,
+        whitening,
+        fixed_length,
+        payload_len,
+        bt,
+    ):
+        print_warning("Some FSK config commands had no response — continuing")
+
+    lora = LoRaConnection(port=device.lora_port)
+    if not lora.connect():
+        print_error(f"Cannot open LoRa port: {device.lora_port}")
+        shell.disconnect()
+        pipe.remove()
+        return
+
+    time.sleep(0.3)
+    try:
+        lora.connection.reset_input_buffer()
+    except Exception:
+        pass
+
+    print_info("Switching RP2040 to stream mode...")
+    stream_resp = shell.send_command(_fskCmd.start_streaming(), timeout=2.0)
+    if stream_resp and "STREAM" in stream_resp.upper():
+        print_success("Stream mode active")
+    else:
+        print_warning(f"Unexpected stream response: {stream_resp!r} — continuing")
+
+    if wireshark:
+        print_info(f"Waiting for Wireshark (timeout {_WIRESHARK_PIPE_TIMEOUT}s)...")
+        if not pipe.ready_event.wait(timeout=_WIRESHARK_PIPE_TIMEOUT):
+            print_error("Timed out waiting for Wireshark — aborting")
+            _stop_lora_capture(shell, lora, pipe)
+            return
+
+    fsk_context = {
+        "frequency": frequency,
+        "bandwidth": bandwidth,
+        "spread_factor": 0,
+        "coding_rate": 0,
+    }
+
+    show_output = verbose or not wireshark
+
+    if show_output:
+        print_success("FSK capture running — press Ctrl+C to stop")
+
+    header_written = False
+    packet_count = 0
+    error_count = 0
+
+    try:
+        while True:
+            raw = lora.connection.readline()
+            if not raw:
+                continue
+
+            stripped = raw.strip()
+            if not stripped:
+                continue
+            if _FSK_LINE_PREFIX not in stripped:
+                if not any(stripped.startswith(p) for p in _IGNORE_PREFIXES):
+                    print_dim(f"(device) {stripped.decode('ascii', errors='replace')}")
+                continue
+
+            try:
+                packet = snifferSx.Packet(raw, context=fsk_context)
+
+                if not header_written:
+                    pipe.write_packet(get_global_header(148))
+                    header_written = True
+
+                pipe.write_packet(packet.pcap)
+                packet_count += 1
+
+                if show_output:
+                    ascii_str = "".join(
+                        chr(b) if 32 <= b < 127 else "." for b in packet.payload
+                    )
+                    hex_str = packet.payload.hex()
+                    console.print(
+                        f"[green]  [{packet_count:>5}][/green] "
+                        f"len={packet.length:>4}B  "
+                        f"RSSI={packet.rssi:>7.1f} dBm\n"
+                        f"         hex={hex_str}\n"
+                        f"         ascii=[italic]{ascii_str}[/italic]"
+                    )
+
+            except ValueError as exc:
+                error_count += 1
+                print_warning(f"Parse error #{error_count}: {exc} — raw: {raw[:80]!r}")
+            except Exception as exc:
+                error_count += 1
+                print_warning(f"Unexpected error #{error_count}: {exc}")
+
+    except KeyboardInterrupt:
+        print_info(
+            f"FSK capture stopped — {packet_count} packet(s), {error_count} error(s)"
+        )
+    finally:
         _stop_lora_capture(shell, lora, pipe)
 
 
