@@ -89,12 +89,12 @@ class CCLoader:
         self.cmd.open(self.bridge_port, cat_baud)
 
     def enter_bootloader(self):
-        """Send boot command via shell port to enter CC1352 bootloader mode."""
+        """Force passthrough, then send boot command via shell port to enter CC1352 bootloader mode."""
         if self.shell_port:
             console.print(f"[*] Sending boot command via shell port: {self.shell_port}")
             self.shell = ShellConnection(port=self.shell_port)
             if self.shell.connect():
-                # Flush serial buffers before sending command
+                # Flush serial buffers before sending commands
                 if (
                     self.shell
                     and hasattr(self.shell, "connection")
@@ -105,12 +105,27 @@ class CCLoader:
                     if hasattr(self.shell.connection, "reset_output_buffer"):
                         self.shell.connection.reset_output_buffer()
 
+                # Some workflows leave the RP2040 bridge in a non-passthrough mode.
+                # Force a known-good state before requesting the CC1352 ROM bootloader.
+                try:
+                    self.shell.exit_bootloader()
+                    time.sleep(0.2)
+                except Exception:
+                    pass
+
                 result = self.shell.enter_bootloader()
                 time.sleep(0.2)
                 if result:
                     console.print("[*] Boot command sent successfully")
                 else:
                     console.print("[yellow][!] Boot command may have failed[/yellow]")
+
+                # Drop the shell connection before the bridge/UART mode switches fully.
+                try:
+                    self.shell.disconnect()
+                except Exception:
+                    pass
+                self.shell = None
             else:
                 console.print(f"[yellow][!] Could not connect to shell port[/yellow]")
         else:
@@ -764,8 +779,9 @@ class Flasher:
 
         Workflow:
         1. Send 'boot' command via Shell port → CC1352 enters bootloader
-        2. Flash firmware via Bridge port using cc2538 bootloader protocol
-        3. Send 'exit' command via Shell port → CC1352 exits bootloader
+        2. Wait briefly for the RP2040 bridge/UART mode switch to settle
+        3. Open the Bridge port at bootloader baud and sync using cc2538 bootloader protocol
+        4. Send 'exit' command via Shell port → CC1352 exits bootloader
 
         Args:
             firmware: Path to firmware file
@@ -773,8 +789,9 @@ class Flasher:
         """
         try:
             ccloader = CCLoader(firmware=firmware, device=device)
-            ccloader.init()
             ccloader.enter_bootloader()
+            time.sleep(0.8)
+            ccloader.init()
             ccloader.sync_device()
             chip_device = ccloader.get_chip_info()
             ccloader.show_chip_details(chip_device)
@@ -790,7 +807,6 @@ class Flasher:
                 try:
                     from .fw_metadata import update_firmware_metadata_after_flash
                     import os
-                    import time
 
                     # Extract firmware name from path
                     firmware_name = os.path.basename(firmware)
