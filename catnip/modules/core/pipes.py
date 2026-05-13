@@ -116,10 +116,8 @@ class WindowsPipe:
             self.pipe_writer = win32pipe.CreateNamedPipe(
                 self.pipe_path,
                 win32pipe.PIPE_ACCESS_DUPLEX,
-                win32pipe.PIPE_TYPE_MESSAGE
-                | win32pipe.PIPE_READMODE_MESSAGE
-                | win32pipe.PIPE_WAIT,
-                1,
+                win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_WAIT,
+                2,
                 65536,
                 65536,
                 0,

@@ -316,22 +316,38 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
         # 5. Run in background
         print_info(f"Starting Sniffle extcap...")
         extcap_proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False
         )
 
         # 6. Bridge worker: read from pipe_plugin and write to pipe_ws
         stop_event = threading.Event()
 
+        # Thread to relay stderr to console for debugging
+        def stderr_worker():
+            try:
+                for line in extcap_proc.stderr:
+                    if line:
+                        print_dim(f"[extcap] {line.decode().strip()}")
+            except Exception:
+                pass
+
+        threading.Thread(target=stderr_worker, daemon=True).start()
+
         def bridge_worker():
             # Wait for both pipes to be ready
             pipe_ws.ready_event.wait()
-            pipe_plugin.ready_event.wait()
+            # Wait for plugin with a timeout
+            if not pipe_plugin.ready_event.wait(timeout=10):
+                print_error("Plugin failed to connect to internal pipe")
+                return
+
             try:
                 while not stop_event.is_set():
                     data = pipe_plugin.read(4096)
                     if not data:
                         # If no data, check if plugin is still alive
                         if extcap_proc.poll() is not None:
+                            print_warning("Plugin process terminated")
                             break
                         # Short sleep to avoid CPU spinning
                         time.sleep(0.01)
@@ -342,7 +358,8 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
                         break
 
                     pipe_ws.write_packet(data)
-            except Exception:
+            except Exception as e:
+                print_error(f"Bridge error: {str(e)}")
                 pass
 
         threading.Thread(target=bridge_worker, daemon=True).start()
