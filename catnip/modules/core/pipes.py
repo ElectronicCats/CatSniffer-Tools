@@ -51,7 +51,7 @@ class UnixPipe:
         if not os.path.exists(self.pipe_path):
             self.create()
         try:
-            self.pipe_writer = open(self.pipe_path, mode)
+            self.pipe_writer = open(self.pipe_path, mode, buffering=0)
             self.ready_event.set()
             logger.info(f"[*] Pipeline Open ({mode}): {self.pipe_path}")
         except Exception as e:
@@ -237,5 +237,7 @@ class Wireshark(threading.Thread):
         cmd = self.get_wireshark_cmd()
         try:
             self.wireshark_process = subprocess.Popen(cmd)
+            # Wait for the process to finish, otherwise the thread exits immediately
+            self.wireshark_process.wait()
         except Exception as e:
             show_generic_error("Can't start Wireshark", e)

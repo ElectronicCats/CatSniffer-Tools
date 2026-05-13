@@ -320,19 +320,27 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
         )
 
         # 6. Bridge worker: read from pipe_plugin and write to pipe_ws
+        stop_event = threading.Event()
+
         def bridge_worker():
             # Wait for both pipes to be ready
             pipe_ws.ready_event.wait()
             pipe_plugin.ready_event.wait()
             try:
-                while True:
+                while not stop_event.is_set():
                     data = pipe_plugin.read(4096)
                     if not data:
-                        # Check if process is still alive
+                        # If no data, check if plugin is still alive
                         if extcap_proc.poll() is not None:
                             break
-                        time.sleep(0.1)
+                        # Short sleep to avoid CPU spinning
+                        time.sleep(0.01)
                         continue
+
+                    # If Wireshark is gone, stop bridging
+                    if ws.wireshark_process and ws.wireshark_process.poll() is not None:
+                        break
+
                     pipe_ws.write_packet(data)
             except Exception:
                 pass
@@ -343,6 +351,7 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
         print_info("Waiting for Wireshark to connect...")
         if not pipe_ws.ready_event.wait(timeout=30):
             print_error("Timed out waiting for Wireshark to connect")
+            stop_event.set()
             extcap_proc.terminate()
             pipe_ws.remove()
             pipe_plugin.remove()
@@ -354,6 +363,7 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
         ws.join()
 
         # Cleanup
+        stop_event.set()
         extcap_proc.terminate()
         pipe_ws.remove()
         pipe_plugin.remove()
