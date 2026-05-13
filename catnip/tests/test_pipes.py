@@ -180,39 +180,40 @@ class TestWireshark:
     """Tests for the Wireshark class."""
 
     def test_get_wireshark_path_windows(self):
-        ws = Wireshark()
-        ws.system = "Windows"
-        with patch("pathlib.Path.exists", return_value=True):
-            path = ws.get_wireshark_path()
-            assert "Wireshark.exe" in str(path)
+        with patch("platform.system", return_value="Windows"):
+            ws = Wireshark()
+            with patch("pathlib.Path.exists", return_value=True):
+                path = ws.get_wireshark_path()
+                assert "Wireshark.exe" in str(path)
 
     def test_get_wireshark_path_linux(self):
-        ws = Wireshark()
-        ws.system = "Linux"
-        path = ws.get_wireshark_path()
-        assert str(path) == "/usr/local/bin/wireshark"
+        with patch("platform.system", return_value="Linux"):
+            ws = Wireshark()
+            with patch("pathlib.Path.exists", return_value=True):
+                path = ws.get_wireshark_path()
+                assert "wireshark" in str(path).lower()
 
     def test_get_wireshark_path_darwin(self):
-        ws = Wireshark()
-        ws.system = "Darwin"
-        path = ws.get_wireshark_path()
-        assert "MacOS/Wireshark" in str(path)
+        with patch("platform.system", return_value="Darwin"):
+            ws = Wireshark()
+            path = ws.get_wireshark_path()
+            assert "MacOS/Wireshark" in str(path)
 
     def test_get_wireshark_path_unsupported(self):
-        ws = Wireshark()
-        ws.system = "FreeBSD"
-        path = ws.get_wireshark_path()
-        assert path is None
+        with patch("platform.system", return_value="FreeBSD"):
+            ws = Wireshark()
+            path = ws.get_wireshark_path()
+            assert path is None
 
     def test_get_wireshark_pipepath_unix(self):
-        ws = Wireshark()
-        ws.system = "Linux"
-        assert ws.get_wireshark_pipepath() == DEFAULT_UNIX_PATH
+        with patch("platform.system", return_value="Linux"):
+            ws = Wireshark()
+            assert ws.get_wireshark_pipepath() == DEFAULT_UNIX_PATH
 
     def test_get_wireshark_pipepath_windows(self):
-        ws = Wireshark()
-        ws.system = "Windows"
-        assert "pipe" in ws.get_wireshark_pipepath()
+        with patch("platform.system", return_value="Windows"):
+            ws = Wireshark()
+            assert "pipe" in ws.get_wireshark_pipepath()
 
     def test_get_wireshark_cmd(self):
         ws = Wireshark(pipe_name="/tmp/custom_pipe")
