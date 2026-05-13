@@ -280,11 +280,7 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
             # On Linux, open() blocks, so we do it in a thread
             threading.Thread(target=pipe_plugin.open, args=("rb",), daemon=True).start()
 
-        # 3. Launch Wireshark pointed at pipe_ws
-        ws = Wireshark()
-        ws.start()
-
-        # 4. Command to run the plugin
+        # 3. Command to run the plugin
         extcap_path = find_extcap_plugin("sniffle_extcap")
         if not extcap_path:
             pipe_ws.remove()
@@ -313,14 +309,16 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
             ]
         )
 
-        # 5. Run in background
+        # 4. Start the plugin FIRST
         print_info(f"Starting Sniffle extcap...")
         extcap_proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False
         )
 
-        # 6. Bridge worker: read from pipe_plugin and write to pipe_ws
+        # 5. Bridge worker: Cache the header and then relay
         stop_event = threading.Event()
+        header_captured = threading.Event()
+        cached_data = []
 
         # Thread to relay stderr to console for debugging
         def stderr_worker():
@@ -334,14 +332,24 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
         threading.Thread(target=stderr_worker, daemon=True).start()
 
         def bridge_worker():
-            # Wait for both pipes to be ready
-            pipe_ws.ready_event.wait()
-            # Wait for plugin with a timeout
-            if not pipe_plugin.ready_event.wait(timeout=10):
-                print_error("Plugin failed to connect to internal pipe")
-                return
-
             try:
+                # Wait for plugin to connect and send the initial header
+                pipe_plugin.ready_event.wait()
+                
+                # Read initial data (PCAP header)
+                first_chunk = pipe_plugin.read(4096)
+                if first_chunk:
+                    cached_data.append(first_chunk)
+                    header_captured.set()
+                
+                # Now wait for Wireshark to be ready (this is set after launching Wireshark)
+                pipe_ws.ready_event.wait()
+                
+                # Send cached header
+                for chunk in cached_data:
+                    pipe_ws.write_packet(chunk)
+                cached_data.clear()
+
                 while not stop_event.is_set():
                     data = pipe_plugin.read(4096)
                     if not data:
@@ -352,7 +360,7 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
                         # Short sleep to avoid CPU spinning
                         time.sleep(0.01)
                         continue
-
+                    
                     # If Wireshark is gone, stop bridging
                     if ws.wireshark_process and ws.wireshark_process.poll() is not None:
                         break
@@ -364,8 +372,22 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
 
         threading.Thread(target=bridge_worker, daemon=True).start()
 
-        # 7. Wait for Wireshark connection
-        print_info("Waiting for Wireshark to connect...")
+        # 6. Wait for the plugin to emit the header before launching Wireshark
+        print_info("Waiting for sniffer data...")
+        if not header_captured.wait(timeout=15):
+            print_error("Timed out waiting for sniffer header")
+            stop_event.set()
+            extcap_proc.terminate()
+            pipe_ws.remove()
+            pipe_plugin.remove()
+            return False
+
+        # 7. NOW launch Wireshark
+        ws = Wireshark()
+        ws.start()
+
+        # 8. Wait for Wireshark connection
+        print_info("Connecting to Wireshark...")
         if not pipe_ws.ready_event.wait(timeout=30):
             print_error("Timed out waiting for Wireshark to connect")
             stop_event.set()
@@ -376,7 +398,7 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
 
         print_success("Capture running automatically!")
 
-        # 8. Wait for Wireshark to close
+        # 9. Wait for Wireshark to close
         ws.join()
 
         # Cleanup
