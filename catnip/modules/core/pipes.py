@@ -1,7 +1,6 @@
 import os
 import platform
 import threading
-import platform
 import subprocess
 import logging
 from pathlib import Path
@@ -177,13 +176,18 @@ class WindowsPipe:
 
 
 class Wireshark(threading.Thread):
-    def __init__(self, pipe_name=DEFAULT_UNIX_PATH, profile=None):
+    def __init__(self, pipe_name=None, profile=None):
         super().__init__(daemon=True)
-        self.pipe_name = pipe_name
+        self.system = platform.system()
+        if pipe_name is None:
+            self.pipe_name = (
+                DEFAULT_WINDOWS_PATH if self.system == "Windows" else DEFAULT_UNIX_PATH
+            )
+        else:
+            self.pipe_name = pipe_name
         self.profile = profile
         self.running = True
         self.wireshark_process: subprocess.Popen | None = None
-        self.system = platform.system()
 
     def get_wireshark_path(self):
         if self.system == "Windows":
@@ -191,7 +195,9 @@ class Wireshark(threading.Thread):
             if not exe_path.exists():
                 exe_path = Path("C:\\Program Files (x86)\\Wireshark\\Wireshark.exe")
         elif self.system == "Linux":
-            exe_path = Path("/usr/local/bin/wireshark")
+            exe_path = Path("/usr/bin/wireshark")
+            if not exe_path.exists():
+                exe_path = Path("/usr/local/bin/wireshark")
         elif self.system == "Darwin":
             exe_path = Path("/Applications/Wireshark.app/Contents/MacOS/Wireshark")
         else:
@@ -200,12 +206,7 @@ class Wireshark(threading.Thread):
         return exe_path
 
     def get_wireshark_pipepath(self):
-        fifo_path = (
-            DEFAULT_UNIX_PATH
-            if self.system != "Windows"
-            else f"\\\\.\\pipe\\{DEFAULT_PIPELINE_NAME}"
-        )
-        return fifo_path
+        return self.pipe_name
 
     def get_wireshark_cmd(self):
         exe_path = self.get_wireshark_path()

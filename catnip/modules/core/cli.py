@@ -10,6 +10,7 @@
 import logging
 import os
 import tempfile
+import threading
 import sys
 import queue
 
@@ -17,7 +18,7 @@ import queue
 from ..utils._version import __version__
 from ..firmware.flasher import Flasher
 from ..firmware.verify import run_verification
-from .pipes import Wireshark
+from .pipes import Wireshark, UnixPipe, WindowsPipe
 from .bridge import run_bridge, run_sx_bridge
 from .catnip import (
     SniffingFirmware,
@@ -253,79 +254,86 @@ def open_wireshark_sniffle_simple(port, channel=37):
 
 
 def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
-    """Run Sniffle extcap directly and connect Wireshark to FIFO."""
+    """Run Sniffle extcap directly and bridge it to Wireshark."""
     try:
-        # Create temporary FIFO
-        temp_dir = tempfile.gettempdir()
-        fifo_path = os.path.join(temp_dir, f"sniffle_fifo_{os.getpid()}")
+        system = platform.system()
 
-        if os.path.exists(fifo_path):
-            os.remove(fifo_path)
+        # 1. Set up PCAP pipe/FIFO using the bridge pattern
+        pipe = WindowsPipe() if system == "Windows" else UnixPipe()
+        threading.Thread(target=pipe.open, daemon=True).start()
 
-        os.mkfifo(fifo_path)
+        # 2. Launch Wireshark pointed at the pipe
+        ws = Wireshark()
+        ws.start()
 
-        # Command to run the plugin
+        # 3. Command to run the plugin
         extcap_path = find_extcap_plugin("sniffle_extcap")
         if not extcap_path:
+            pipe.remove()
             return False
 
-        cmd = [
-            "python3",
-            extcap_path,
-            "--capture",
-            "--extcap-interface",
-            "sniffle",
-            "--fifo",
-            fifo_path,
-            "--serport",
-            port,
-            "--mode",
-            mode,
-            "--advchan",
-            str(channel),
-        ]
+        # Use sys.executable for .py files, or call .exe directly on Windows
+        if extcap_path.endswith(".py"):
+            cmd = [sys.executable, extcap_path]
+        else:
+            cmd = [extcap_path]
 
-        # Run in background
-        print_info(f"Starting Sniffle extcap...")
-        extcap_proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        cmd.extend(
+            [
+                "--capture",
+                "--extcap-interface",
+                "sniffle",
+                "--fifo",
+                "-",  # Write to stdout
+                "--serport",
+                port,
+                "--mode",
+                mode,
+                "--advchan",
+                str(channel),
+            ]
         )
 
-        # Wait for initialization
-        time.sleep(1)
+        # 4. Run in background
+        print_info(f"Starting Sniffle extcap...")
+        extcap_proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0
+        )
 
-        if extcap_proc.poll() is not None:
-            # The process ended, there was an error
-            stdout, stderr = extcap_proc.communicate()
-            print_error(f"Extcap error: {stderr.decode()[:200]}")
-            os.remove(fifo_path)
+        # 5. Bridge worker: read from extcap stdout and write to pipe
+        def bridge_worker():
+            try:
+                while True:
+                    data = extcap_proc.stdout.read(1024)
+                    if not data:
+                        break
+                    pipe.write_packet(data)
+            except Exception:
+                pass
+
+        threading.Thread(target=bridge_worker, daemon=True).start()
+
+        # 6. Wait for Wireshark connection
+        print_info("Waiting for Wireshark to connect...")
+        if not pipe.ready_event.wait(timeout=30):
+            print_error("Timed out waiting for Wireshark to connect")
+            extcap_proc.terminate()
+            pipe.remove()
             return False
 
-        # Now open Wireshark connected to the FIFO
-        wireshark_path = find_wireshark_path()
-        if not wireshark_path:
-            os.remove(fifo_path)
-            return False
+        print_success("Capture running automatically!")
 
-        wireshark_cmd = [wireshark_path, "-k", "-i", fifo_path]
-        print_info(f"Opening Wireshark connected to FIFO...")
-        wireshark_proc = subprocess.Popen(wireshark_cmd)
-
-        # Wait for Wireshark to finish
-        wireshark_proc.wait()
+        # 7. Wait for Wireshark to close
+        ws.join()
 
         # Cleanup
         extcap_proc.terminate()
-        if os.path.exists(fifo_path):
-            os.remove(fifo_path)
+        pipe.remove()
 
         return True
 
     except Exception as e:
-        print_error(f"Direct method failed: {str(e)}")
-        # Cleanup FIFO if it exists
-        if "fifo_path" in locals() and os.path.exists(fifo_path):
-            os.remove(fifo_path)
+        print_error(f"Automatic capture failed: {str(e)}")
         return False
 
 
