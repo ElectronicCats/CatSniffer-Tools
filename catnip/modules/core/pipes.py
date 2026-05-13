@@ -46,17 +46,25 @@ class UnixPipe:
             show_generic_error("Creating Pipeline", e)
             exit(1)
 
-    def open(self) -> None:
+    def open(self, mode="ab") -> None:
         logger.info(f"[*] Check if exist: {self.pipe_path}")
         if not os.path.exists(self.pipe_path):
             self.create()
         try:
-            self.pipe_writer = open(self.pipe_path, "ab")
+            self.pipe_writer = open(self.pipe_path, mode)
             self.ready_event.set()
-            logger.info(f"[*] Pipeline Open: {self.pipe_path}")
+            logger.info(f"[*] Pipeline Open ({mode}): {self.pipe_path}")
         except Exception as e:
             show_generic_error("Opening Pipeline", e)
             exit(1)
+
+    def read(self, size=1024) -> bytes:
+        try:
+            if self.pipe_writer:
+                return self.pipe_writer.read(size)
+            return b""
+        except Exception:
+            return b""
 
     def close(self) -> None:
         try:
@@ -139,6 +147,15 @@ class WindowsPipe:
             else:
                 show_generic_error("Opening Pipeline", e)
                 raise
+
+    def read(self, size=1024) -> bytes:
+        try:
+            if self.pipe_writer:
+                hr, data = win32file.ReadFile(self.pipe_writer, size)
+                return data
+            return b""
+        except Exception:
+            return b""
 
     def close(self) -> None:
         try:

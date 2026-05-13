@@ -258,18 +258,37 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
     try:
         system = platform.system()
 
-        # 1. Set up PCAP pipe/FIFO using the bridge pattern
-        pipe = WindowsPipe() if system == "Windows" else UnixPipe()
-        threading.Thread(target=pipe.open, daemon=True).start()
+        # 1. Set up PCAP pipes
+        # pipe_ws: The pipe Wireshark will read from
+        # pipe_plugin: The pipe the plugin will write to
+        pipe_ws = WindowsPipe() if system == "Windows" else UnixPipe()
 
-        # 2. Launch Wireshark pointed at the pipe
+        # Use a unique name for the internal plugin pipe to avoid conflicts
+        plugin_pipe_name = f"sniffle_plugin_{os.getpid()}"
+        if system == "Windows":
+            pipe_plugin = WindowsPipe(path=f"\\\\.\\pipe\\{plugin_pipe_name}")
+        else:
+            temp_dir = tempfile.gettempdir()
+            pipe_plugin = UnixPipe(path=os.path.join(temp_dir, plugin_pipe_name))
+
+        # 2. Open pipes in background threads
+        threading.Thread(target=pipe_ws.open, daemon=True).start()
+        # Plugin pipe needs to be opened for READING by catnip
+        if system == "Windows":
+            threading.Thread(target=pipe_plugin.open, daemon=True).start()
+        else:
+            # On Linux, open() blocks, so we do it in a thread
+            threading.Thread(target=pipe_plugin.open, args=("rb",), daemon=True).start()
+
+        # 3. Launch Wireshark pointed at pipe_ws
         ws = Wireshark()
         ws.start()
 
-        # 3. Command to run the plugin
+        # 4. Command to run the plugin
         extcap_path = find_extcap_plugin("sniffle_extcap")
         if not extcap_path:
-            pipe.remove()
+            pipe_ws.remove()
+            pipe_plugin.remove()
             return False
 
         # Use sys.executable for .py files, or call .exe directly on Windows
@@ -284,7 +303,7 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
                 "--extcap-interface",
                 "sniffle",
                 "--fifo",
-                "-",  # Write to stdout
+                pipe_plugin.pipe_path,
                 "--serport",
                 port,
                 "--mode",
@@ -294,41 +313,50 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
             ]
         )
 
-        # 4. Run in background
+        # 5. Run in background
         print_info(f"Starting Sniffle extcap...")
         extcap_proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
 
-        # 5. Bridge worker: read from extcap stdout and write to pipe
+        # 6. Bridge worker: read from pipe_plugin and write to pipe_ws
         def bridge_worker():
+            # Wait for both pipes to be ready
+            pipe_ws.ready_event.wait()
+            pipe_plugin.ready_event.wait()
             try:
                 while True:
-                    data = extcap_proc.stdout.read(1024)
+                    data = pipe_plugin.read(4096)
                     if not data:
-                        break
-                    pipe.write_packet(data)
+                        # Check if process is still alive
+                        if extcap_proc.poll() is not None:
+                            break
+                        time.sleep(0.1)
+                        continue
+                    pipe_ws.write_packet(data)
             except Exception:
                 pass
 
         threading.Thread(target=bridge_worker, daemon=True).start()
 
-        # 6. Wait for Wireshark connection
+        # 7. Wait for Wireshark connection
         print_info("Waiting for Wireshark to connect...")
-        if not pipe.ready_event.wait(timeout=30):
+        if not pipe_ws.ready_event.wait(timeout=30):
             print_error("Timed out waiting for Wireshark to connect")
             extcap_proc.terminate()
-            pipe.remove()
+            pipe_ws.remove()
+            pipe_plugin.remove()
             return False
 
         print_success("Capture running automatically!")
 
-        # 7. Wait for Wireshark to close
+        # 8. Wait for Wireshark to close
         ws.join()
 
         # Cleanup
         extcap_proc.terminate()
-        pipe.remove()
+        pipe_ws.remove()
+        pipe_plugin.remove()
 
         return True
 
