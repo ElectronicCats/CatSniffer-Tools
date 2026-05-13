@@ -68,7 +68,7 @@ class TestUnixPipe:
         pipe = UnixPipe(path="/tmp/test_pipe")
         pipe.open()
         mock_exists.assert_called()
-        mock_open.assert_called_once_with("/tmp/test_pipe", "ab")
+        mock_open.assert_called_once_with("/tmp/test_pipe", "ab", buffering=0)
         assert pipe.ready_event.is_set()
 
     @patch("os.mkfifo", return_value=None)
@@ -241,3 +241,5 @@ class TestWireshark:
             ws.run()
             mock_popen.assert_called_once_with(["wireshark", "-k"])
             assert ws.wireshark_process is not None
+            # Verify that wait() was called
+            ws.wireshark_process.wait.assert_called_once()
