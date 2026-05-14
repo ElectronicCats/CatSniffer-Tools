@@ -450,7 +450,9 @@ def find_extcap_plugin(plugin_name):
         ]
     elif system == "Darwin":
         paths = [
-            Path.home() / "Library/Application Support/Wireshark/extcap" / f"{plugin_name}.py",
+            Path.home()
+            / "Library/Application Support/Wireshark/extcap"
+            / f"{plugin_name}.py",
             Path("/usr/local/lib/wireshark/extcap") / f"{plugin_name}.py",
         ]
 

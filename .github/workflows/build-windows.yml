@@ -85,7 +85,7 @@ jobs:
       working-directory: catnip
       run: |
         $version = (Get-Content "VERSION" -Raw).Trim()
-        Set-Content "modules\_version.py" "__version__ = '$version'"
+        Set-Content "modules\utils\_version.py" "__version__ = '$version'"
 
     - name: Build with PyInstaller
       working-directory: catnip
