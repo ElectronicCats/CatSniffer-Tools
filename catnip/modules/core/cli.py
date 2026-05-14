@@ -347,7 +347,10 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
         # 4. Start the plugin FIRST
         print_info(f"Starting Sniffle extcap...")
         extcap_proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False,
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
             env=extcap_env,
         )
 
