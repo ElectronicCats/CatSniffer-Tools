@@ -172,6 +172,24 @@ class WindowsPipe:
     def remove(self) -> None:
         try:
             if self.pipe_writer:
+                # If ConnectNamedPipe is still pending in a background thread,
+                # CloseHandle will block until it completes. Unblock it first
+                # by connecting a temporary client, which causes ConnectNamedPipe
+                # to return immediately.
+                if not self.ready_event.is_set():
+                    try:
+                        dummy = win32file.CreateFile(
+                            self.pipe_path,
+                            win32file.GENERIC_READ,
+                            0,
+                            None,
+                            win32file.OPEN_EXISTING,
+                            0,
+                            None,
+                        )
+                        win32file.CloseHandle(dummy)
+                    except Exception:
+                        pass
                 try:
                     win32pipe.DisconnectNamedPipe(self.pipe_writer)
                 except Exception:

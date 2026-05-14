@@ -152,12 +152,30 @@ class TestWindowsPipe:
     @patch("modules.core.pipes.win32file", create=True)
     @patch("modules.core.pipes.win32pipe", create=True)
     def test_remove(self, mock_win32pipe, mock_win32file):
+        """remove() with a connected pipe (ready_event set) skips the dummy client."""
         pipe = WindowsPipe(path=r"\\.\pipe\test")
         pipe.pipe_writer = "fake_handle"
         pipe.ready_event.set()
         pipe.remove()
+        mock_win32file.CreateFile.assert_not_called()
         mock_win32pipe.DisconnectNamedPipe.assert_called_once_with("fake_handle")
         mock_win32file.CloseHandle.assert_called_once_with("fake_handle")
+        assert pipe.pipe_writer is None
+        assert not pipe.ready_event.is_set()
+
+    @patch("modules.core.pipes.win32file", create=True)
+    @patch("modules.core.pipes.win32pipe", create=True)
+    def test_remove_unconnected(self, mock_win32pipe, mock_win32file):
+        """remove() with no client (ready_event not set) connects a dummy to unblock CloseHandle."""
+        pipe = WindowsPipe(path=r"\\.\pipe\test")
+        pipe.pipe_writer = "fake_handle"
+        # ready_event NOT set — ConnectNamedPipe is still pending
+        pipe.remove()
+        mock_win32file.CreateFile.assert_called_once()
+        mock_win32pipe.DisconnectNamedPipe.assert_called_once_with("fake_handle")
+        # CloseHandle is called twice: once for the dummy client, once for the real handle
+        assert mock_win32file.CloseHandle.call_count == 2
+        mock_win32file.CloseHandle.assert_any_call("fake_handle")
         assert pipe.pipe_writer is None
         assert not pipe.ready_event.is_set()
 

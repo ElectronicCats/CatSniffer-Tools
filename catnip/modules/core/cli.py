@@ -283,6 +283,11 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
         # 3. Command to run the plugin
         extcap_path = find_extcap_plugin("sniffle_extcap")
         if not extcap_path:
+            print_error("Sniffle extcap plugin not found!")
+            print_dim("Install it from: https://github.com/nccgroup/Sniffle")
+            print_dim(
+                "Place sniffle_extcap.py (or .exe) in your Wireshark extcap directory."
+            )
             pipe_ws.remove()
             pipe_plugin.remove()
             return False
@@ -425,10 +430,14 @@ def find_extcap_plugin(plugin_name):
     system = platform.system()
 
     if system == "Windows":
-        paths = [
-            Path("C:\\Program Files\\Wireshark\\extcap") / f"{plugin_name}.exe",
-            Path("C:\\Program Files (x86)\\Wireshark\\extcap") / f"{plugin_name}.exe",
+        wireshark_dirs = [
+            Path("C:\\Program Files\\Wireshark\\extcap"),
+            Path("C:\\Program Files (x86)\\Wireshark\\extcap"),
         ]
+        paths = []
+        for d in wireshark_dirs:
+            paths.append(d / f"{plugin_name}.exe")
+            paths.append(d / f"{plugin_name}.py")
     elif system in ["Linux", "Darwin"]:
         paths = [
             Path.home() / ".local/lib/wireshark/extcap" / f"{plugin_name}.py",
@@ -443,11 +452,12 @@ def find_extcap_plugin(plugin_name):
     # Also search in PATH
     which_cmd = "where" if system == "Windows" else "which"
     try:
+        search_name = plugin_name if system == "Windows" else f"{plugin_name}.py"
         result = subprocess.run(
-            [which_cmd, f"{plugin_name}.py"], capture_output=True, text=True
+            [which_cmd, search_name], capture_output=True, text=True
         )
         if result.returncode == 0:
-            return result.stdout.strip()
+            return result.stdout.strip().splitlines()[0]
     except:
         pass
 
