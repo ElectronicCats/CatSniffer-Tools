@@ -430,23 +430,32 @@ def find_extcap_plugin(plugin_name):
     system = platform.system()
 
     if system == "Windows":
+        appdata = os.environ.get("APPDATA", "")
         wireshark_dirs = [
+            Path(appdata) / "Wireshark" / "extcap" if appdata else None,
             Path("C:\\Program Files\\Wireshark\\extcap"),
             Path("C:\\Program Files (x86)\\Wireshark\\extcap"),
         ]
         paths = []
         for d in wireshark_dirs:
+            if d is None:
+                continue
             paths.append(d / f"{plugin_name}.exe")
             paths.append(d / f"{plugin_name}.py")
-    elif system in ["Linux", "Darwin"]:
+    elif system == "Linux":
         paths = [
             Path.home() / ".local/lib/wireshark/extcap" / f"{plugin_name}.py",
             Path("/usr/lib/wireshark/extcap") / f"{plugin_name}.py",
             Path("/usr/local/lib/wireshark/extcap") / f"{plugin_name}.py",
         ]
+    elif system == "Darwin":
+        paths = [
+            Path.home() / "Library/Application Support/Wireshark/extcap" / f"{plugin_name}.py",
+            Path("/usr/local/lib/wireshark/extcap") / f"{plugin_name}.py",
+        ]
 
     for path in paths:
-        if path.exists():
+        if path.is_file():
             return str(path)
 
     # Also search in PATH
