@@ -52,6 +52,7 @@ from ..utils.output import (
     print_alias_item,
 )
 
+import shutil
 import subprocess
 import platform
 import time
@@ -292,9 +293,20 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
             pipe_plugin.remove()
             return False
 
-        # Use sys.executable for .py files, or call .exe directly on Windows
+        # Use a real Python interpreter for .py files, or call .exe directly.
+        # sys.executable may be the frozen catnip.exe when built with PyInstaller,
+        # so we resolve the actual Python interpreter via _find_python_executable().
         if extcap_path.endswith(".py"):
-            cmd = [sys.executable, extcap_path]
+            python_exe = _find_python_executable()
+            if not python_exe:
+                print_error(
+                    "Could not find a Python interpreter to run the extcap plugin."
+                )
+                print_dim("Make sure Python is installed and available in your PATH.")
+                pipe_ws.remove()
+                pipe_plugin.remove()
+                return False
+            cmd = [python_exe, extcap_path]
         else:
             cmd = [extcap_path]
 
@@ -471,6 +483,32 @@ def find_extcap_plugin(plugin_name):
             return result.stdout.strip().splitlines()[0]
     except:
         pass
+
+    return None
+
+
+def _find_python_executable():
+    """Return a Python interpreter path usable for running .py scripts.
+
+    When catnip is built with PyInstaller, sys.executable points to the
+    frozen catnip.exe, not to python.exe. Passing that path as the
+    interpreter for a subprocess causes the catnip CLI to receive the
+    extcap script path as an unknown sub-command. We detect the frozen
+    state (sys.frozen) and any other case where sys.executable is not
+    Python, then fall back to a PATH search.
+    """
+    # PyInstaller sets sys.frozen in bundled executables
+    if not getattr(sys, "frozen", False):
+        basename = os.path.basename(sys.executable).lower()
+        if basename.startswith("python"):
+            return sys.executable
+
+    # sys.executable is not Python — search PATH
+    candidates = ("python3", "python3.exe", "python", "python.exe")
+    for name in candidates:
+        found = shutil.which(name)
+        if found:
+            return found
 
     return None
 
