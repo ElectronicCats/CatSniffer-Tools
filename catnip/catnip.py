@@ -11,7 +11,7 @@ if os.path.exists(vendor_path):
     sys.path.insert(0, vendor_path)
 
 # Internal
-from modules.cli import main_cli
+from modules.core.cli import main_cli
 
 if __name__ == "__main__":
     main_cli()

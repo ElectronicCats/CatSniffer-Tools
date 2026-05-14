@@ -11,9 +11,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Launch tag to upload assets to (ex: v3.3.1.0)'
+        description: 'Launch tag to upload assets to (ex: v3.3.2.0)'
         required: true
-        default: 'v3.3.1.0'
+        default: 'v3.3.2.0'
 
 jobs:
   build-arch:
@@ -37,8 +37,7 @@ jobs:
       - name: Extract Package Version
         id: get_version
         run: |
-          # Automatically extract the version from the DEBIAN/control file
-          VERSION=$(grep -i '^Version:' catnip/packaging/debian/DEBIAN/control | awk '{print $2}')
+          VERSION=$(cat catnip/VERSION | tr -d '[:space:]')
           if [ -z "$VERSION" ]; then
             VERSION="latest"
           fi
@@ -63,6 +62,7 @@ jobs:
           # 3. Copy fresh source code directly from the root repository to the packaging folder
           cp -r catnip/modules/ "$PKG_DIR/"
           cp catnip/catnip.py "$PKG_DIR/"
+          cp catnip/VERSION "$PKG_DIR/"
           touch "$PKG_DIR/__init__.py"
 
           # 4. Copy protocol/ as a top-level package (sibling of catnip/, not inside it)

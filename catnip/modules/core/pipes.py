@@ -1,7 +1,6 @@
 import os
 import platform
 import threading
-import platform
 import subprocess
 import logging
 from pathlib import Path
@@ -47,17 +46,25 @@ class UnixPipe:
             show_generic_error("Creating Pipeline", e)
             exit(1)
 
-    def open(self) -> None:
+    def open(self, mode="ab") -> None:
         logger.info(f"[*] Check if exist: {self.pipe_path}")
         if not os.path.exists(self.pipe_path):
             self.create()
         try:
-            self.pipe_writer = open(self.pipe_path, "ab")
+            self.pipe_writer = open(self.pipe_path, mode, buffering=0)
             self.ready_event.set()
-            logger.info(f"[*] Pipeline Open: {self.pipe_path}")
+            logger.info(f"[*] Pipeline Open ({mode}): {self.pipe_path}")
         except Exception as e:
             show_generic_error("Opening Pipeline", e)
             exit(1)
+
+    def read(self, size=1024) -> bytes:
+        try:
+            if self.pipe_writer:
+                return self.pipe_writer.read(size)
+            return b""
+        except Exception:
+            return b""
 
     def close(self) -> None:
         try:
@@ -109,10 +116,8 @@ class WindowsPipe:
             self.pipe_writer = win32pipe.CreateNamedPipe(
                 self.pipe_path,
                 win32pipe.PIPE_ACCESS_DUPLEX,
-                win32pipe.PIPE_TYPE_MESSAGE
-                | win32pipe.PIPE_READMODE_MESSAGE
-                | win32pipe.PIPE_WAIT,
-                1,
+                win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_WAIT,
+                2,
                 65536,
                 65536,
                 0,
@@ -141,6 +146,18 @@ class WindowsPipe:
                 show_generic_error("Opening Pipeline", e)
                 raise
 
+    def read(self, size=1024) -> bytes:
+        try:
+            if self.pipe_writer:
+                _, available, _ = win32pipe.PeekNamedPipe(self.pipe_writer, 0)
+                if available == 0:
+                    return b""
+                hr, data = win32file.ReadFile(self.pipe_writer, min(size, available))
+                return data
+            return b""
+        except Exception:
+            return b""
+
     def close(self) -> None:
         try:
             if self.pipe_writer:
@@ -155,9 +172,31 @@ class WindowsPipe:
     def remove(self) -> None:
         try:
             if self.pipe_writer:
-                self.pipe_writer.close()
-            if os.path.exists(self.pipe_path):
-                os.remove(self.pipe_path)
+                # If ConnectNamedPipe is still pending in a background thread,
+                # CloseHandle will block until it completes. Unblock it first
+                # by connecting a temporary client, which causes ConnectNamedPipe
+                # to return immediately.
+                if not self.ready_event.is_set():
+                    try:
+                        dummy = win32file.CreateFile(
+                            self.pipe_path,
+                            win32file.GENERIC_READ,
+                            0,
+                            None,
+                            win32file.OPEN_EXISTING,
+                            0,
+                            None,
+                        )
+                        win32file.CloseHandle(dummy)
+                    except Exception:
+                        pass
+                try:
+                    win32pipe.DisconnectNamedPipe(self.pipe_writer)
+                except Exception:
+                    pass
+                win32file.CloseHandle(self.pipe_writer)
+                self.pipe_writer = None
+            self.ready_event.clear()
             logger.info(f"[*] Pipeline removed: {self.pipe_path}")
         except Exception as e:
             show_generic_error("Removing Pipeline", e)
@@ -177,13 +216,18 @@ class WindowsPipe:
 
 
 class Wireshark(threading.Thread):
-    def __init__(self, pipe_name=DEFAULT_UNIX_PATH, profile=None):
+    def __init__(self, pipe_name=None, profile=None):
         super().__init__(daemon=True)
-        self.pipe_name = pipe_name
+        self.system = platform.system()
+        if pipe_name is None:
+            self.pipe_name = (
+                DEFAULT_WINDOWS_PATH if self.system == "Windows" else DEFAULT_UNIX_PATH
+            )
+        else:
+            self.pipe_name = pipe_name
         self.profile = profile
         self.running = True
         self.wireshark_process: subprocess.Popen | None = None
-        self.system = platform.system()
 
     def get_wireshark_path(self):
         if self.system == "Windows":
@@ -191,7 +235,9 @@ class Wireshark(threading.Thread):
             if not exe_path.exists():
                 exe_path = Path("C:\\Program Files (x86)\\Wireshark\\Wireshark.exe")
         elif self.system == "Linux":
-            exe_path = Path("/usr/local/bin/wireshark")
+            exe_path = Path("/usr/bin/wireshark")
+            if not exe_path.exists():
+                exe_path = Path("/usr/local/bin/wireshark")
         elif self.system == "Darwin":
             exe_path = Path("/Applications/Wireshark.app/Contents/MacOS/Wireshark")
         else:
@@ -200,12 +246,7 @@ class Wireshark(threading.Thread):
         return exe_path
 
     def get_wireshark_pipepath(self):
-        fifo_path = (
-            DEFAULT_UNIX_PATH
-            if self.system != "Windows"
-            else f"\\\\.\\pipe\\{DEFAULT_PIPELINE_NAME}"
-        )
-        return fifo_path
+        return self.pipe_name
 
     def get_wireshark_cmd(self):
         exe_path = self.get_wireshark_path()
@@ -219,5 +260,7 @@ class Wireshark(threading.Thread):
         cmd = self.get_wireshark_cmd()
         try:
             self.wireshark_process = subprocess.Popen(cmd)
+            # Wait for the process to finish, otherwise the thread exits immediately
+            self.wireshark_process.wait()
         except Exception as e:
             show_generic_error("Can't start Wireshark", e)

@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 
 # Internal
-from .catnip import (
+from ..core.catnip import (
     catnip_get_port,
     catnip_get_device,
     CatSnifferDevice,
@@ -25,8 +25,15 @@ from .cc2538 import (
 
 # External
 import requests
-from rich.console import Console
 from rich.table import Table
+from ..utils.output import (
+    console,
+    print_success,
+    print_warning,
+    print_error,
+    print_info,
+    print_dim,
+)
 
 GITHUB_RELEASE_URL = (
     "https://api.github.com/repos/ElectronicCats/CatSniffer-Firmware/releases/latest"
@@ -54,7 +61,6 @@ if not os.path.exists(ROOT_DIR):
         ROOT_DIR = os.getcwd()
 
 logger = logging.getLogger("rich")
-console = Console()
 
 
 class CCLoader:
@@ -85,13 +91,13 @@ class CCLoader:
         """Initialize the bootloader connection."""
         cat_baud = 500000
 
-        console.print(f"[*] Opening bridge port {self.bridge_port} at baud: {cat_baud}")
+        print_info(f"Opening bridge port {self.bridge_port} at baud: {cat_baud}")
         self.cmd.open(self.bridge_port, cat_baud)
 
     def enter_bootloader(self):
         """Send boot command via shell port to enter CC1352 bootloader mode."""
         if self.shell_port:
-            console.print(f"[*] Sending boot command via shell port: {self.shell_port}")
+            print_info(f"Sending boot command via shell port: {self.shell_port}")
             self.shell = ShellConnection(port=self.shell_port)
             if self.shell.connect():
                 # Flush serial buffers before sending command
@@ -106,22 +112,23 @@ class CCLoader:
                         self.shell.connection.reset_output_buffer()
 
                 result = self.shell.enter_bootloader()
-                time.sleep(0.2)
+                # 1 s gives the CC1352 time to reset and set up its UART
+                # bootloader. 200 ms was enough on Linux but causes synch
+                # timeouts on Windows due to higher USB CDC latency.
+                time.sleep(1.0)
                 if result:
-                    console.print("[*] Boot command sent successfully")
+                    print_info("Boot command sent successfully")
                 else:
-                    console.print("[yellow][!] Boot command may have failed[/yellow]")
+                    print_warning("Boot command may have failed")
             else:
-                console.print(f"[yellow][!] Could not connect to shell port[/yellow]")
+                print_warning("Could not connect to shell port")
         else:
-            console.print(
-                "[yellow][!] No shell port available, skipping boot command[/yellow]"
-            )
+            print_warning("No shell port available, skipping boot command")
 
     def exit_bootloader(self):
         """Send exit command via shell port to exit CC1352 bootloader mode."""
         if self.shell_port:
-            console.print(f"[*] Sending exit command via shell port")
+            print_info("Sending exit command via shell port")
             if self.shell is None:
                 self.shell = ShellConnection(port=self.shell_port)
                 self.shell.connect()
@@ -138,21 +145,27 @@ class CCLoader:
                 # Removed sleep: exit is immediate, no need to wait
                 self.shell.disconnect()
                 if result:
-                    console.print("[*] Exit command sent successfully")
+                    print_info("Exit command sent successfully")
                 else:
-                    console.print("[yellow][!] Exit command may have failed[/yellow]")
+                    print_warning("Exit command may have failed")
         else:
-            console.print(
-                "[yellow][!] No shell port available, skipping exit command[/yellow]"
-            )
+            print_warning("No shell port available, skipping exit command")
 
     def sync_device(self) -> None:
         logger.info("[*] Connecting to target...")
-        if not self.cmd.sendSynch():
-            logger.error(
-                "[X] Error: Can't connect to target. Ensure boot loader is started. (no answer on synch sequence)",
-            )
-            self.close_exit()
+        for attempt in range(3):
+            try:
+                if self.cmd.sendSynch():
+                    return
+            except CmdException:
+                pass
+            if attempt < 2:
+                logger.warning(f"[!] Synch attempt {attempt + 1}/3 failed, retrying...")
+                time.sleep(0.5)
+        logger.error(
+            "[X] Error: Can't connect to target. Ensure boot loader is started. (no answer on synch sequence)",
+        )
+        self.close_exit()
 
     def close(self) -> None:
         self.cmd.close()
@@ -183,38 +196,38 @@ class CCLoader:
         special_id_str = CATSNIFFER_SPECIAL_IDS.get(chip_id)
 
         if special_id_str:
-            console.print(f"[*] Chip ID: 0x{chip_id:04X} ({special_id_str})")
+            print_info(f"Chip ID: 0x{chip_id:04X} ({special_id_str})")
             # Assume CC1352 for CatSniffer
             return CC26xx(self.cmd)
         elif chip_id_str == None:
             # Check if it's in CC13xx/CC26xx range
             # Typical range: 0x1000-0x10FF
             if 0x1000 <= chip_id <= 0x10FF:
-                console.print(f"[*] Chip ID: 0x{chip_id:04X} (CC13xx/CC26xx series)")
+                print_info(f"Chip ID: 0x{chip_id:04X} (CC13xx/CC26xx series)")
                 return CC26xx(self.cmd)
             else:
                 logger.warning(f"[-] Unrecognized chip ID: 0x{chip_id:04X}")
                 # Try CC26xx anyway (for CatSniffer)
                 return CC26xx(self.cmd)
         else:
-            console.print(f"[*] Chip ID: 0x{chip_id:04X} ({chip_id_str})")
+            print_info(f"Chip ID: 0x{chip_id:04X} ({chip_id_str})")
             return CC2538(self.cmd)
 
     def show_chip_details(self, device) -> None:
-        console.print("[*] Chip details:")
-        console.print(
-            f"\tPackage: {device.chipid} - {device.size >> 10} KB Flash - {device.sram} SRAM - CCFG.BL_CONFIG at 0x%08X"
+        print_info("Chip details:")
+        print_dim(
+            f"Package: {device.chipid} - {device.size >> 10} KB Flash - {device.sram} SRAM - CCFG.BL_CONFIG at 0x%08X"
             % device.bootloader_address
         )
-        console.print(
-            "\tPrimary IEEE Address: %s"
+        print_dim(
+            "Primary IEEE Address: %s"
             % (":".join("%02X" % x for x in device.ieee_addr))
         )
 
     def erase_firmware(self, device) -> None:
-        console.print(f"[*] Performing mass erase")
+        print_info("Performing mass erase")
         if device.erase():
-            console.print(f"[*] Erase done", style="green")
+            print_success("Erase done")
         else:
             logger.error(f"[X] Error: Erase failed")
             self.close_exit()
@@ -222,18 +235,18 @@ class CCLoader:
     def write_firmware(self, device) -> None:
         address = device.flash_start_addr
         if self.cmd.writeMemory(address, self.firmware.bytes):
-            console.print(f"[*] Write done", style="green")
+            print_success("Write done")
         else:
             logger.error(f"[X] Error: Write failed")
             self.close_exit()
 
     def verify_crc(self, device) -> None:
-        console.print(f"[*] Verifying by comparing CRC32 calculations.")
+        print_info("Verifying by comparing CRC32 calculations.")
         address = device.flash_start_addr
         crc_local = self.firmware.crc32()
         crc_target = device.crc(address=address, size=len(self.firmware.bytes))
         if crc_local == crc_target:
-            console.print(f"[*] Verified match: 0x%08x" % crc_local, style="green")
+            print_success("Verified match: 0x%08x" % crc_local)
         else:
             logger.error(
                 f"[X] NO CRC32 match: Local = 0x%x, Target = 0x%x"
@@ -397,7 +410,7 @@ class Flasher:
 
         firmwares = self.get_local_firmware()
         if not firmwares:
-            console.print("[yellow]No firmware files found[/yellow]")
+            print_warning("No firmware files found")
             return
 
         for i, firmware in enumerate(firmwares):
@@ -703,8 +716,8 @@ class Flasher:
                 for firm in firmwares:
                     if pattern.lower() in firm.lower():
                         path = os.path.join(self.get_releases_path(), firm)
-                        console.print(
-                            f"[dim]Resolved '{firmware_str}' to {official_id} -> {firm}[/dim]"
+                        print_dim(
+                            f"Resolved '{firmware_str}' to {official_id} -> {firm}"
                         )
                         return self.flash_firmware(path, device)
 
@@ -712,9 +725,7 @@ class Flasher:
             for firm in firmwares:
                 if official_id.lower() in firm.lower():
                     path = os.path.join(self.get_releases_path(), firm)
-                    console.print(
-                        f"[dim]Resolved '{firmware_str}' to {official_id} -> {firm}[/dim]"
-                    )
+                    print_dim(f"Resolved '{firmware_str}' to {official_id} -> {firm}")
                     return self.flash_firmware(path, device)
 
         # First, try exact match
@@ -745,17 +756,15 @@ class Flasher:
             return self.flash_firmware(path, device)
         elif len(matches) > 1:
             # Multiple matches - show options
-            console.print(
-                f"[yellow]Multiple firmwares match '{firmware_str}':[/yellow]"
-            )
+            print_warning(f"Multiple firmwares match '{firmware_str}':")
             for i, match in enumerate(matches, 1):
                 console.print(f"  {i}. {match}")
-            console.print("[yellow]Please be more specific.[/yellow]")
+            print_warning("Please be more specific.")
             return False
 
         # No match found
-        console.print(f"[red]No firmware found matching '{firmware_str}'[/red]")
-        console.print(f"Available firmwares: {', '.join(firmwares[:5])}...")
+        print_error(f"No firmware found matching '{firmware_str}'")
+        print_dim(f"Available firmwares: {', '.join(firmwares[:5])}...")
         return False
 
     def flash_firmware(self, firmware, device: CatSnifferDevice = None) -> bool:
@@ -796,7 +805,7 @@ class Flasher:
                     firmware_name = os.path.basename(firmware)
 
                     # INITIAL WAITING - Give RP2040 time to reboot and mount NVS
-                    console.print("[*] Waiting for device to initialize after reset...")
+                    print_info("Waiting for device to initialize after reset...")
                     time.sleep(0.5)
 
                     # CONNECTION AND COMMAND RETRIES
@@ -806,14 +815,12 @@ class Flasher:
                     for attempt in range(5):  # 5 attempts
                         shell = None
                         try:
-                            console.print(
-                                f"[*] Metadata update attempt {attempt + 1}/5..."
-                            )
+                            print_info(f"Metadata update attempt {attempt + 1}/5...")
 
                             # Create shell connection with longer timeout
                             shell = ShellConnection(port=device.shell_port, timeout=3.0)
                             if not shell.connect():
-                                console.print(f"  └─ Failed to connect to shell port")
+                                print_dim("  └─ Failed to connect to shell port")
                                 time.sleep(0.8)
                                 continue
 
@@ -825,17 +832,15 @@ class Flasher:
                                     shell.connection.reset_output_buffer()
 
                             # STEP 1: Verify shell responds with a simple command
-                            console.print(f"  ├─ Testing shell responsiveness...")
+                            print_dim("  ├─ Testing shell responsiveness...")
                             test_resp = shell.send_command("help", timeout=2.0)
                             if not test_resp or "Commands" not in test_resp:
-                                console.print(f"  └─ Shell not responding properly")
+                                print_dim("  └─ Shell not responding properly")
                                 shell.disconnect()
                                 time.sleep(0.8)
                                 continue
 
-                            console.print(
-                                f"  ├─ Shell responsive, updating metadata..."
-                            )
+                            print_dim("  ├─ Shell responsive, updating metadata...")
 
                             # STEP 2: Try to update metadata
                             success = update_firmware_metadata_after_flash(
@@ -844,17 +849,15 @@ class Flasher:
                             shell.disconnect()
 
                             if success:
-                                console.print(
-                                    f"  └─ [green]✓ Metadata updated successfully[/green]"
-                                )
+                                print_dim("  └─ Metadata updated successfully")
                                 break
                             else:
-                                console.print(f"  └─ Metadata update command failed")
+                                print_dim("  └─ Metadata update command failed")
                                 time.sleep(0.8)
 
                         except Exception as e:
                             last_error = str(e)
-                            console.print(f"  └─ Exception: {e}")
+                            print_dim(f"  └─ Exception: {e}")
                             if shell:
                                 try:
                                     shell.disconnect()
@@ -863,23 +866,19 @@ class Flasher:
                             time.sleep(0.8)
 
                     if success:
-                        console.print(
-                            "[green][*] Firmware metadata updated successfully[/green]"
-                        )
+                        print_success("Firmware metadata updated successfully")
                     else:
-                        console.print(
-                            f"[yellow][!] Warning: Could not update firmware metadata after 5 attempts[/yellow]"
+                        print_warning(
+                            "Could not update firmware metadata after 5 attempts"
                         )
                         if last_error:
-                            console.print(f"[dim]  └─ Last error: {last_error}[/dim]")
+                            print_dim(f"  └─ Last error: {last_error}")
 
                 except Exception as e:
-                    console.print(
-                        f"[yellow][!] Warning: Metadata update failed: {e}[/yellow]"
-                    )
+                    print_warning(f"Metadata update failed: {e}")
                     import traceback
 
-                    console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                    print_dim(traceback.format_exc())
 
             return True
         except CmdException as e:

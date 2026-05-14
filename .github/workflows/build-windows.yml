@@ -6,6 +6,7 @@ on:
       - main
       - master
       #- dev
+      - feature/restore-cc1352
   release:
     types: [created]
   workflow_dispatch:
@@ -13,11 +14,11 @@ on:
       version:
         description: 'Version to build'
         required: true
-        default: '3.3.1.0'
+        default: '3.3.2.0'
       release_tag:
-        description: 'Tag del release al que subir los assets (ej: v3.3.1.0)'
+        description: 'Tag del release al que subir los assets (ej: v3.3.2.0)'
         required: false
-        default: 'v3.3.1.0'
+        default: 'v3.3.2.0'
 
 jobs:
   build-windows:
@@ -38,12 +39,10 @@ jobs:
     - name: Extract Package Version
       id: get_version
       run: |
-        # Automatically extract the version from the DEBIAN/control file
-        # (same source of truth used by the Debian and Arch workflows)
-        $version = (Select-String -Path "catnip\packaging\debian\DEBIAN\control" `
-          -Pattern "^Version:\s*(.+)").Matches[0].Groups[1].Value.Trim()
+        $version = (Get-Content "catnip\VERSION" -Raw).Trim()
         if (-not $version) { $version = "latest" }
         echo "VERSION=$version" >> $env:GITHUB_ENV
+        echo "version=$version" >> $env:GITHUB_OUTPUT
 
     - name: Install dependencies
       working-directory: catnip
@@ -66,6 +65,28 @@ jobs:
         & "C:\Program Files\7-Zip\7z.exe" x libusb.7z
         cd ..
 
+    - name: Download OpenOCD for bundling
+      working-directory: catnip
+      run: |
+        $OPENOCD_VERSION = "0.12.0-6"
+        $OPENOCD_URL = "https://github.com/xpack-dev-tools/openocd-xpack/releases/download/v${OPENOCD_VERSION}/xpack-openocd-${OPENOCD_VERSION}-win32-x64.zip"
+        Write-Host "Downloading xPack OpenOCD ${OPENOCD_VERSION}..."
+        Invoke-WebRequest -Uri $OPENOCD_URL -OutFile openocd.zip
+        Expand-Archive -Path openocd.zip -DestinationPath openocd_raw -Force
+        $extracted = (Get-ChildItem openocd_raw -Directory | Select-Object -First 1).FullName
+        Move-Item $extracted openocd_dist
+        Remove-Item openocd.zip -Force
+        Remove-Item openocd_raw -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "OpenOCD ready:"
+        Get-ChildItem openocd_dist/ | Select-Object Name
+        Get-ChildItem openocd_dist/bin/ | Select-Object Name
+
+    - name: Inject Version into _version.py
+      working-directory: catnip
+      run: |
+        $version = (Get-Content "VERSION" -Raw).Trim()
+        Set-Content "modules\utils\_version.py" "__version__ = '$version'"
+
     - name: Build with PyInstaller
       working-directory: catnip
       run: |
@@ -85,21 +106,20 @@ jobs:
         # Compile the installer
         & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\catsniffer_installer.iss
 
+    - name: Rename Installer
+      working-directory: catnip
+      run: |
+        Copy-Item dist/Catnip-Setup.exe "dist/catnip-${{ steps.get_version.outputs.version }}.exe"
+
     - name: Upload Action Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: CatSniffer-Windows-Setup
-        path: catnip/dist/CatSniffer-Setup.exe
-
-    - name: Rename Installer for Release
-      if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-      working-directory: catnip
-      run: |
-        Copy-Item dist/CatSniffer-Setup.exe "dist/catnip-${{ env.VERSION }}.exe"
+        name: catnip-windows-${{ steps.get_version.outputs.version }}
+        path: catnip/dist/catnip-${{ steps.get_version.outputs.version }}.exe
 
     - name: Upload to GitHub Releases (Only Releases)
       if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
-        files: catnip/dist/catnip-${{ env.VERSION }}.exe
+        files: catnip/dist/catnip-${{ steps.get_version.outputs.version }}.exe

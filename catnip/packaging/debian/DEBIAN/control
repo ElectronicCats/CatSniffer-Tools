@@ -1,10 +1,10 @@
 Package: catnip
-Version: 3.3.1.0
+Version: 3.3.2.0
 Section: utils
 Priority: optional
 Architecture: all
 Maintainer: Electronic Cats <support@electroniccats.com>
-Depends: python3, libusb-1.0-0
+Depends: python3, libusb-1.0-0, openocd
 Homepage: https://github.com/ElectronicCats/CatSniffer-Tools/
 Description: All in one CatSniffer tools — multi-protocol RF sniffer CLI
  CatSniffer is a multi-protocol RF sniffer for 2.4GHz and sub-GHz frequencies.

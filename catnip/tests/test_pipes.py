@@ -33,7 +33,7 @@ sys.modules["win32pipe"] = MagicMock()
 sys.modules["win32file"] = MagicMock()
 
 # Now we can import safely
-from modules.pipes import (
+from modules.core.pipes import (
     UnixPipe,
     WindowsPipe,
     Wireshark,
@@ -68,7 +68,7 @@ class TestUnixPipe:
         pipe = UnixPipe(path="/tmp/test_pipe")
         pipe.open()
         mock_exists.assert_called()
-        mock_open.assert_called_once_with("/tmp/test_pipe", "ab")
+        mock_open.assert_called_once_with("/tmp/test_pipe", "ab", buffering=0)
         assert pipe.ready_event.is_set()
 
     @patch("os.mkfifo", return_value=None)
@@ -122,14 +122,14 @@ class TestUnixPipe:
 class TestWindowsPipe:
     """Tests for the WindowsPipe class."""
 
-    @patch("modules.pipes.win32pipe", create=True)
+    @patch("modules.core.pipes.win32pipe", create=True)
     def test_create_success(self, mock_win32pipe):
         mock_win32pipe.CreateNamedPipe.return_value = "fake_handle"
         pipe = WindowsPipe(path=r"\\.\pipe\test")
         mock_win32pipe.CreateNamedPipe.assert_called_once()
         assert pipe.pipe_writer == "fake_handle"
 
-    @patch("modules.pipes.win32pipe", create=True)
+    @patch("modules.core.pipes.win32pipe", create=True)
     def test_open_success(self, mock_win32pipe):
         pipe = WindowsPipe(path=r"\\.\pipe\test")
         pipe.pipe_writer = "fake_handle"
@@ -137,8 +137,8 @@ class TestWindowsPipe:
         mock_win32pipe.ConnectNamedPipe.assert_called_once_with("fake_handle", None)
         assert pipe.ready_event.is_set()
 
-    @patch("modules.pipes.win32pipe", create=True)
-    @patch("modules.pipes.win32file", create=True)
+    @patch("modules.core.pipes.win32pipe", create=True)
+    @patch("modules.core.pipes.win32file", create=True)
     def test_close(self, mock_win32file, mock_win32pipe):
         pipe = WindowsPipe(path=r"\\.\pipe\test")
         pipe.pipe_writer = "fake_handle"
@@ -149,19 +149,38 @@ class TestWindowsPipe:
         assert pipe.pipe_writer is None
         assert not pipe.ready_event.is_set()
 
-    @patch("modules.pipes.os.path.exists", return_value=True)
-    @patch("modules.pipes.os.remove")
-    @patch("modules.pipes.win32pipe", create=True)
-    def test_remove(self, mock_win32pipe, mock_remove, mock_exists):
+    @patch("modules.core.pipes.win32file", create=True)
+    @patch("modules.core.pipes.win32pipe", create=True)
+    def test_remove(self, mock_win32pipe, mock_win32file):
+        """remove() with a connected pipe (ready_event set) skips the dummy client."""
         pipe = WindowsPipe(path=r"\\.\pipe\test")
-        mock_writer = MagicMock()
-        pipe.pipe_writer = mock_writer
+        pipe.pipe_writer = "fake_handle"
+        pipe.ready_event.set()
         pipe.remove()
-        mock_writer.close.assert_called_once()
-        mock_remove.assert_called_once_with(r"\\.\pipe\test")
+        mock_win32file.CreateFile.assert_not_called()
+        mock_win32pipe.DisconnectNamedPipe.assert_called_once_with("fake_handle")
+        mock_win32file.CloseHandle.assert_called_once_with("fake_handle")
+        assert pipe.pipe_writer is None
+        assert not pipe.ready_event.is_set()
 
-    @patch("modules.pipes.win32file", create=True)
-    @patch("modules.pipes.win32pipe", create=True)
+    @patch("modules.core.pipes.win32file", create=True)
+    @patch("modules.core.pipes.win32pipe", create=True)
+    def test_remove_unconnected(self, mock_win32pipe, mock_win32file):
+        """remove() with no client (ready_event not set) connects a dummy to unblock CloseHandle."""
+        pipe = WindowsPipe(path=r"\\.\pipe\test")
+        pipe.pipe_writer = "fake_handle"
+        # ready_event NOT set — ConnectNamedPipe is still pending
+        pipe.remove()
+        mock_win32file.CreateFile.assert_called_once()
+        mock_win32pipe.DisconnectNamedPipe.assert_called_once_with("fake_handle")
+        # CloseHandle is called twice: once for the dummy client, once for the real handle
+        assert mock_win32file.CloseHandle.call_count == 2
+        mock_win32file.CloseHandle.assert_any_call("fake_handle")
+        assert pipe.pipe_writer is None
+        assert not pipe.ready_event.is_set()
+
+    @patch("modules.core.pipes.win32file", create=True)
+    @patch("modules.core.pipes.win32pipe", create=True)
     def test_write_packet_success(self, mock_win32pipe, mock_win32file):
         pipe = WindowsPipe(path=r"\\.\pipe\test")
         pipe.pipe_writer = "fake_handle"
@@ -180,39 +199,40 @@ class TestWireshark:
     """Tests for the Wireshark class."""
 
     def test_get_wireshark_path_windows(self):
-        ws = Wireshark()
-        ws.system = "Windows"
-        with patch("pathlib.Path.exists", return_value=True):
-            path = ws.get_wireshark_path()
-            assert "Wireshark.exe" in str(path)
+        with patch("platform.system", return_value="Windows"):
+            ws = Wireshark()
+            with patch("pathlib.Path.exists", return_value=True):
+                path = ws.get_wireshark_path()
+                assert "Wireshark.exe" in str(path)
 
     def test_get_wireshark_path_linux(self):
-        ws = Wireshark()
-        ws.system = "Linux"
-        path = ws.get_wireshark_path()
-        assert str(path) == "/usr/local/bin/wireshark"
+        with patch("platform.system", return_value="Linux"):
+            ws = Wireshark()
+            with patch("pathlib.Path.exists", return_value=True):
+                path = ws.get_wireshark_path()
+                assert "wireshark" in str(path).lower()
 
     def test_get_wireshark_path_darwin(self):
-        ws = Wireshark()
-        ws.system = "Darwin"
-        path = ws.get_wireshark_path()
-        assert "MacOS/Wireshark" in str(path)
+        with patch("platform.system", return_value="Darwin"):
+            ws = Wireshark()
+            path = ws.get_wireshark_path()
+            assert "MacOS/Wireshark" in str(path)
 
     def test_get_wireshark_path_unsupported(self):
-        ws = Wireshark()
-        ws.system = "FreeBSD"
-        path = ws.get_wireshark_path()
-        assert path is None
+        with patch("platform.system", return_value="FreeBSD"):
+            ws = Wireshark()
+            path = ws.get_wireshark_path()
+            assert path is None
 
     def test_get_wireshark_pipepath_unix(self):
-        ws = Wireshark()
-        ws.system = "Linux"
-        assert ws.get_wireshark_pipepath() == DEFAULT_UNIX_PATH
+        with patch("platform.system", return_value="Linux"):
+            ws = Wireshark()
+            assert ws.get_wireshark_pipepath() == DEFAULT_UNIX_PATH
 
     def test_get_wireshark_pipepath_windows(self):
-        ws = Wireshark()
-        ws.system = "Windows"
-        assert "pipe" in ws.get_wireshark_pipepath()
+        with patch("platform.system", return_value="Windows"):
+            ws = Wireshark()
+            assert "pipe" in ws.get_wireshark_pipepath()
 
     def test_get_wireshark_cmd(self):
         ws = Wireshark(pipe_name="/tmp/custom_pipe")
@@ -240,3 +260,5 @@ class TestWireshark:
             ws.run()
             mock_popen.assert_called_once_with(["wireshark", "-k"])
             assert ws.wireshark_process is not None
+            # Verify that wait() was called
+            ws.wireshark_process.wait.assert_called_once()

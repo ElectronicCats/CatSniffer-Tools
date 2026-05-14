@@ -26,33 +26,45 @@ from .core import (
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
-from modules.catnip import LoRaConnection, ShellConnection
+from modules.core.catnip import LoRaConnection, ShellConnection
+from modules.utils.output import (
+    console,
+    print_success,
+    print_warning,
+    print_error,
+    print_info,
+    print_empty_line,
+    print_separator,
+    print_raw,
+)
 from protocol.sniffer_sx import SnifferSx
 
 
 def print_packet_info(fields, decrypted, key_index=None):
     """Print packet information"""
-    print("\n" + "=" * 60)
-    print(
+    print_empty_line()
+    print_separator("=", 60)
+    print_raw(
         f"   Packet from {msb2lsb(fields['sender'].hex())} to {msb2lsb(fields['dest'].hex())}"
     )
-    print(f"   Packet ID: {msb2lsb(fields['packet_id'].hex())}")
-    print(f"   Channel: {fields['channel'][0] if 'channel' in fields else 0}")
+    print_raw(f"   Packet ID: {msb2lsb(fields['packet_id'].hex())}")
+    print_raw(f"   Channel: {fields['channel'][0] if 'channel' in fields else 0}")
 
     flags = fields["flags"][0]
-    print(f"   Flags: 0x{flags:02X}")
-    print(f"     ├─ Hop limit: {(flags >> 5) & 0b111}")
-    print(f"     ├─ Want ACK:  {(flags >> 4) & 1}")
-    print(f"     ├─ Via MQTT:  {(flags >> 3) & 1}")
-    print(f"     └─ Hop Start: {flags & 0b111}")
+    print_raw(f"   Flags: 0x{flags:02X}")
+    print_raw(f"     ├─ Hop limit: {(flags >> 5) & 0b111}")
+    print_raw(f"     ├─ Want ACK:  {(flags >> 4) & 1}")
+    print_raw(f"     ├─ Via MQTT:  {(flags >> 3) & 1}")
+    print_raw(f"     └─ Hop Start: {flags & 0b111}")
 
     if key_index is not None:
-        print(f"      Decrypted with key #{key_index}")
+        print_raw(f"      Decrypted with key #{key_index}")
 
-    print("\n   Decrypted payload (hex):")
-    print("   " + " ".join(f"{b:02X}" for b in decrypted[:32]))
+    print_empty_line()
+    print_raw("   Decrypted payload (hex):")
+    print_raw("   " + " ".join(f"{b:02X}" for b in decrypted[:32]))
     if len(decrypted) > 32:
-        print("   ...")
+        print_raw("   ...")
 
 
 class MeshtasticLiveDecoder:
@@ -80,13 +92,13 @@ class MeshtasticLiveDecoder:
     def configure_radio(self, frequency, preset="LongFast", shell_port=None):
         """Configure radio parameters using the shell port"""
         if shell_port is None:
-            print("[ERROR] Shell port required for configuration")
+            print_error("Shell port required for configuration")
             return False
 
         preset_config = CHANNELS_PRESET.get(preset, CHANNELS_PRESET["LongFast"])
 
-        print(f"[*] Configuring radio via shell port {shell_port}")
-        print(f"[*] Preset: {preset}, Freq: {frequency} Hz")
+        print_info(f"Configuring radio via shell port {shell_port}")
+        print_info(f"Preset: {preset}, Freq: {frequency} Hz")
 
         try:
             self.shell = ShellConnection(shell_port)
@@ -105,22 +117,22 @@ class MeshtasticLiveDecoder:
             ]
 
             for cmd in commands:
-                print(f"  > {cmd}")
+                print_raw(f"  > {cmd}")
                 self.shell.send_command(cmd)
                 time.sleep(0.1)
 
             # Verify configuration
-            print("[*] Current LoRa configuration:")
+            print_info("Current LoRa configuration:")
             response = self.shell.send_command("lora_config")
             if response:
-                print(response)
+                print_raw(response)
 
             self.shell.disconnect()
-            print("[✓] Radio configured successfully")
+            print_success("Radio configured successfully")
             return True
 
         except Exception as e:
-            print(f"[ERROR] Failed to configure radio: {e}")
+            print_error(f"Failed to configure radio: {e}")
             if self.shell:
                 try:
                     self.shell.disconnect()
@@ -137,7 +149,7 @@ class MeshtasticLiveDecoder:
         self.running = True
         self.thread = threading.Thread(target=self._recv_worker, daemon=True)
         self.thread.start()
-        print("[*] Capture started. Press Ctrl+C to stop.")
+        print_info("Capture started. Press Ctrl+C to stop.")
 
     def _recv_worker(self):
         """Worker thread for receiving data"""
@@ -159,7 +171,7 @@ class MeshtasticLiveDecoder:
                     self.rx_queue.put(data)
             except Exception as e:
                 if self.running:
-                    print(f"[ERROR] {e}")
+                    print_error(f"{e}")
 
     def stop(self):
         """Stop receiving packets"""
@@ -205,7 +217,7 @@ class MeshtasticLiveDecoder:
                                 )
                                 if decoded:
                                     print_packet_info(fields, decrypted, idx)
-                                    print(decoded)
+                                    print_raw(decoded)
                                     self.stats["decrypted"] += 1
                                     decrypted_success = True
                                     break
@@ -220,7 +232,7 @@ class MeshtasticLiveDecoder:
                                     "utf-8", errors="ignore"
                                 )
                                 if plain_text.isprintable() and len(plain_text) > 0:
-                                    print(
+                                    print_raw(
                                         f"[PLAIN] {fields['sender'].hex()}: {plain_text}"
                                     )
                                     self.stats["decrypted"] += 1
@@ -295,23 +307,23 @@ Examples:
     decoder = MeshtasticLiveDecoder(args.port, args.baudrate)
 
     freq_hz = int(args.frequency * 1_000_000)
-    print(f"[*] Frequency: {args.frequency} MHz ({freq_hz} Hz), preset: {args.preset}")
+    print_info(f"Frequency: {args.frequency} MHz ({freq_hz} Hz), preset: {args.preset}")
 
     # Configurar radio si se proporciona puerto shell
     if args.shell_port:
         decoder.configure_radio(freq_hz, args.preset, args.shell_port)
     else:
-        print("[WARNING] No shell port provided. Radio may need manual configuration.")
+        print_warning("No shell port provided. Radio may need manual configuration.")
 
     decoder.start()
 
     try:
         decoder.process_packets()
     except KeyboardInterrupt:
-        print("\n[*] Shutting down...")
+        print_info("Shutting down...")
     finally:
         decoder.stop()
-        print(f"\n[*] Final stats: {decoder.stats}")
+        print_info(f"Final stats: {decoder.stats}")
 
 
 if __name__ == "__main__":

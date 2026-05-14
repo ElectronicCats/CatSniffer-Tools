@@ -39,10 +39,10 @@ sys.modules["rich.live"] = MagicMock()
 sys.modules["rich.table"] = MagicMock()
 
 # Import the classes to test
-from modules.cativity.runner import CativityRunner
-from modules.cativity.network import Network, NetworkStats
-from modules.cativity.graphs import Graphs
-from modules.cativity.packets import (
+from modules.protocols.cativity.runner import CativityRunner
+from modules.protocols.cativity.network import Network, NetworkStats
+from modules.protocols.cativity.graphs import Graphs
+from modules.protocols.cativity.packets import (
     is_beacon_response,
     is_beacon_request,
     is_association_request,
@@ -68,9 +68,9 @@ class TestPackets:
         )
 
         # Patch the classes so the in operator works with strings or references to sys.modules mock
-        with patch("modules.cativity.packets.Dot15d4Beacon", "Dot15d4Beacon"), patch(
-            "modules.cativity.packets.ZigBeeBeacon", "ZigBeeBeacon"
-        ):
+        with patch(
+            "modules.protocols.cativity.packets.Dot15d4Beacon", "Dot15d4Beacon"
+        ), patch("modules.protocols.cativity.packets.ZigBeeBeacon", "ZigBeeBeacon"):
             assert is_beacon_response(mock_frame) is True
 
     def test_is_beacon_request(self):
@@ -78,9 +78,9 @@ class TestPackets:
         mock_frame.__contains__.side_effect = lambda layer: layer == "Dot15d4Cmd"
         mock_frame.__getitem__.return_value = MagicMock(cmd_id=7)
 
-        with patch("modules.cativity.packets.Dot15d4Cmd", "Dot15d4Cmd"), patch(
-            "modules.cativity.packets.BEACON_CMD_ID", 7
-        ):
+        with patch(
+            "modules.protocols.cativity.packets.Dot15d4Cmd", "Dot15d4Cmd"
+        ), patch("modules.protocols.cativity.packets.BEACON_CMD_ID", 7):
             assert is_beacon_request(mock_frame) is True
 
 
@@ -92,21 +92,21 @@ class TestPackets:
 class TestNetwork:
     """Tests for the Network class (and NetworkStats)."""
 
-    @patch("modules.cativity.network.is_beacon_request", return_value=True)
+    @patch("modules.protocols.cativity.network.is_beacon_request", return_value=True)
     def test_network_stats_update(self, mock_is_req):
         stats = NetworkStats()
         mock_pkt = MagicMock()
         stats.update_network_stats(mock_pkt)
         assert stats.beacons_requests == 1
 
-    @patch("modules.cativity.network.Dot15d4")
+    @patch("modules.protocols.cativity.network.Dot15d4")
     def test_get_packet_filtered_all(self, mock_dot15d4):
         net = Network()
         mock_dot15d4.return_value = MagicMock()
         res = net.get_packet_filtered(b"data", "all")
         assert res == b"data"
 
-    @patch("modules.cativity.network.Dot15d4")
+    @patch("modules.protocols.cativity.network.Dot15d4")
     def test_get_packet_filtered_thread(self, mock_dot15d4):
         # If it DOESN'T have zigbee layer, count as thread
         net = Network()
@@ -116,7 +116,7 @@ class TestNetwork:
         res = net.get_packet_filtered(b"data", "thread")
         assert res == b"data"
 
-    @patch("modules.cativity.network.Dot15d4")
+    @patch("modules.protocols.cativity.network.Dot15d4")
     def test_dissect_packet(self, mock_dot15d4):
         net = Network()
         mock_pkt = MagicMock()
@@ -149,7 +149,7 @@ class TestGraphs:
         assert gr.draw_bar(0) == ""
         assert gr.draw_bar(5, char="X") == "XXXXX"
         # Exceed max (MAX_CHANNEL_ACTIVITY = 50)
-        from modules.cativity.graphs import MAX_CHANNEL_ACTIVITY
+        from modules.protocols.cativity.graphs import MAX_CHANNEL_ACTIVITY
 
         res = gr.draw_bar(MAX_CHANNEL_ACTIVITY + 10, char="A")
         assert "AAAAAAAA" in res
@@ -159,7 +159,7 @@ class TestGraphs:
         gr = Graphs()
         gr.topology_activity = {"0x1234": b"\x00\x11\x22\x33\x44\x55\x66\x77"}
 
-        with patch("modules.cativity.graphs.Table") as mock_table:
+        with patch("modules.protocols.cativity.graphs.Table") as mock_table:
             tb = MagicMock()
             mock_table.return_value = tb
             gr.generate_topology_graph()
@@ -171,7 +171,7 @@ class TestGraphs:
         gr.channel_activity = {11: 5, 12: 10}
         gr.current_channel = 11
 
-        with patch("modules.cativity.graphs.Table") as mock_table:
+        with patch("modules.protocols.cativity.graphs.Table") as mock_table:
             tb = MagicMock()
             mock_table.return_value = tb
             gr.generate_channel_graph()
@@ -191,14 +191,14 @@ class TestCativityRunner:
         dev.bridge_port = "/dev/ttyACM0"
         return dev
 
-    @patch("modules.cativity.runner.Catnip")
+    @patch("modules.protocols.cativity.runner.Catnip")
     def test_init(self, mock_catnip):
         dev = self.mock_device()
         runner = CativityRunner(device=dev)
         assert runner.current_channel == 11
         assert len(runner.channel_activity) == 16  # 11 to 26
 
-    @patch("modules.cativity.runner.Catnip")
+    @patch("modules.protocols.cativity.runner.Catnip")
     def test_run_connection_failed(self, mock_catnip):
         dev = self.mock_device()
         runner = CativityRunner(device=dev, console=MagicMock())
@@ -207,7 +207,7 @@ class TestCativityRunner:
         runner.run()
         runner.console.print.assert_called_once()
 
-    @patch("modules.cativity.runner.Catnip")
+    @patch("modules.protocols.cativity.runner.Catnip")
     @patch("threading.Thread")
     def test_run_success(self, mock_thread, mock_catnip):
         dev = self.mock_device()
@@ -227,7 +227,7 @@ class TestCativityRunner:
         assert runner.fixed_channel is True
         mock_thread.assert_called()
 
-    @patch("modules.cativity.runner.Catnip")
+    @patch("modules.protocols.cativity.runner.Catnip")
     def test_stop(self, mock_catnip):
         dev = self.mock_device()
         runner = CativityRunner(device=dev)

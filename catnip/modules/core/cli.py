@@ -10,13 +10,15 @@
 import logging
 import os
 import tempfile
+import threading
 import sys
 import queue
 
 # Internal
-from .flasher import Flasher
-from .verify import run_verification
-from .pipes import Wireshark
+from ..utils._version import __version__
+from ..firmware.flasher import Flasher
+from ..firmware.verify import run_verification
+from .pipes import Wireshark, UnixPipe, WindowsPipe
 from .bridge import run_bridge, run_sx_bridge
 from .catnip import (
     SniffingFirmware,
@@ -26,23 +28,38 @@ from .catnip import (
     catnip_get_device,
     catnip_get_devices,
 )
+from .usb_connection import ShellConnection, CATSNIFFER_VID, CATSNIFFER_PID
 
 # External
 import click
 from rich.logging import RichHandler
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich import box
-from rich.style import Style
 
+from ..utils.output import (
+    console,
+    STYLES,
+    print_success,
+    print_warning,
+    print_error,
+    print_info,
+    print_dim,
+    print_empty_line,
+    print_title,
+    print_subtitle,
+    print_example,
+    print_alias_item,
+)
+
+import shutil
 import subprocess
 import platform
 import time
 from pathlib import Path
 
 # APP Information
-VERSION_NUMBER = "3.3.1.0"
+VERSION_NUMBER = __version__
 COMPANY = "Electronic Cats - PWNLAB"
 _FUNNY_PHRASES = [
     "Catching packets, not mice.",
@@ -76,21 +93,7 @@ import random as _random
 
 FUNNY_PHRASE = _random.choice(_FUNNY_PHRASES)
 
-# Defining styles for reuse
-STYLES = {
-    "header": Style(color="cyan", bold=True),
-    "success": Style(color="green", bold=True),
-    "warning": Style(color="yellow", bold=True),
-    "error": Style(color="red", bold=True),
-    "info": Style(color="blue", bold=True),
-    "device": Style(color="cyan"),
-    "prompt": Style(color="magenta", bold=True),
-}
-
-__version__ = "3.3.1.0"
-
 wireshark = Wireshark()
-console = Console()
 
 logger = logging.getLogger("rich")
 FORMAT = "%(message)s"
@@ -108,16 +111,16 @@ def print_header(module=None):
     else:
         label = "catnip"
 
-    ascii_art = f"""      :-:              :--       |
-      ++++=.        .=++++       |
-      =+++++===++===++++++       |
-      -++++++++++++++++++-       |
- .:   =++---++++++++---++=   :.  |  {label}
- ::---+++.   -++++-   .+++---::  |  v{VERSION_NUMBER}
-::1..:-++++:   ++++   :++++-::.::|  {FUNNY_PHRASE}
-.:...:=++++++++++++++++++=:...:. |
- :---.  -++++++++++++++-  .---:  |
- ..        .:------:.        ..  |"""
+    ascii_art = f"""      :=--             --=-       |
+      -====-         -=====       |
+      :===================-       |
+       ===================:       |
+  -   :==--===========--==-   -   |  {label}
+ -===:===-   :=====-   -==-.-=--  |  v{VERSION_NUMBER}
+--    ====-   :===-   -====    -- |  {FUNNY_PHRASE}
+-=:   :===================-   .=- |
+ ---=-- -===============-  -=---  |
+ ---       --=======--        --  |"""
 
     colored_ascii = f"[cyan bold]{ascii_art}[/cyan bold]"
 
@@ -131,38 +134,18 @@ def print_header(module=None):
     console.print(header_panel)
 
 
-def print_success(message):
-    """Print a success message"""
-    console.print(f"[green]✓[/green] {message}", style=STYLES["success"])
-
-
-def print_warning(message):
-    """Print a warning message"""
-    console.print(f"[yellow]⚠[/yellow] {message}", style=STYLES["warning"])
-
-
-def print_error(message):
-    """Print an error message"""
-    console.print(f"[red]✗[/red] {message}", style=STYLES["error"])
-
-
-def print_info(message):
-    """Print an info message"""
-    console.print(f"[blue]ℹ[/blue] {message}", style=STYLES["info"])
-
-
 def get_device_or_exit(device_id=None):
     """Get CatSniffer device or exit with error."""
     device = catnip_get_device(device_id)
     if device is None:
         print_error("No CatSniffer device found!")
-        console.print("    Make sure your CatSniffer is connected.")
+        print_dim("Make sure your CatSniffer is connected.")
         exit(1)
     if not device.is_valid():
         print_warning(f"Not all ports detected for {device}")
-        console.print(f"    Bridge: {device.bridge_port}")
-        console.print(f"    LoRa:   {device.lora_port}")
-        console.print(f"    Shell:  {device.shell_port}")
+        print_dim(f"Bridge: {device.bridge_port}")
+        print_dim(f"LoRa:   {device.lora_port}")
+        print_dim(f"Shell:  {device.shell_port}")
     return device
 
 
@@ -272,79 +255,207 @@ def open_wireshark_sniffle_simple(port, channel=37):
 
 
 def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
-    """Run Sniffle extcap directly and connect Wireshark to FIFO."""
+    """Run Sniffle extcap directly and bridge it to Wireshark."""
     try:
-        # Create temporary FIFO
-        temp_dir = tempfile.gettempdir()
-        fifo_path = os.path.join(temp_dir, f"sniffle_fifo_{os.getpid()}")
+        system = platform.system()
 
-        if os.path.exists(fifo_path):
-            os.remove(fifo_path)
+        # 1. Set up PCAP pipes
+        # pipe_ws: The pipe Wireshark will read from
+        # pipe_plugin: The pipe the plugin will write to
+        pipe_ws = WindowsPipe() if system == "Windows" else UnixPipe()
 
-        os.mkfifo(fifo_path)
+        # Use a unique name for the internal plugin pipe to avoid conflicts
+        plugin_pipe_name = f"sniffle_plugin_{os.getpid()}"
+        if system == "Windows":
+            pipe_plugin = WindowsPipe(path=f"\\\\.\\pipe\\{plugin_pipe_name}")
+        else:
+            temp_dir = tempfile.gettempdir()
+            pipe_plugin = UnixPipe(path=os.path.join(temp_dir, plugin_pipe_name))
 
-        # Command to run the plugin
+        # 2. Open pipes in background threads
+        threading.Thread(target=pipe_ws.open, daemon=True).start()
+        # Plugin pipe needs to be opened for READING by catnip
+        if system == "Windows":
+            threading.Thread(target=pipe_plugin.open, daemon=True).start()
+        else:
+            # On Linux, open() blocks, so we do it in a thread
+            threading.Thread(target=pipe_plugin.open, args=("rb",), daemon=True).start()
+
+        # 3. Command to run the plugin
         extcap_path = find_extcap_plugin("sniffle_extcap")
         if not extcap_path:
+            print_error("Sniffle extcap plugin not found!")
+            print_dim("Install it from: https://github.com/nccgroup/Sniffle")
+            print_dim(
+                "Place sniffle_extcap.py (or .exe) in your Wireshark extcap directory."
+            )
+            pipe_ws.remove()
+            pipe_plugin.remove()
             return False
 
-        cmd = [
-            "python3",
-            extcap_path,
-            "--capture",
-            "--extcap-interface",
-            "sniffle",
-            "--fifo",
-            fifo_path,
-            "--serport",
-            port,
-            "--mode",
-            mode,
-            "--advchan",
-            str(channel),
-        ]
+        # Use a real Python interpreter for .py files, or call .exe directly.
+        # sys.executable may be the frozen catnip.exe when built with PyInstaller,
+        # so we resolve the actual Python interpreter via _find_python_executable().
+        if extcap_path.endswith(".py"):
+            python_exe = _find_python_executable()
+            if not python_exe:
+                print_error(
+                    "Could not find a Python interpreter to run the extcap plugin."
+                )
+                print_dim("Make sure Python is installed and available in your PATH.")
+                pipe_ws.remove()
+                pipe_plugin.remove()
+                return False
+            # Resolve the symlink so Python sets sys.path[0] to the real
+            # directory (where the sniffle/ package lives), not the extcap
+            # directory where the symlink sits. Without this, Windows Python
+            # cannot find `from sniffle.constant import BLE_ADV_AA`.
+            real_extcap_path = str(Path(extcap_path).resolve())
+            cmd = [python_exe, real_extcap_path]
+        else:
+            cmd = [extcap_path]
 
-        # Run in background
-        print_info(f"Starting Sniffle extcap...")
-        extcap_proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        cmd.extend(
+            [
+                "--capture",
+                "--extcap-interface",
+                "sniffle",
+                "--fifo",
+                pipe_plugin.pipe_path,
+                "--serport",
+                port,
+                "--mode",
+                mode,
+                "--advchan",
+                str(channel),
+            ]
         )
 
-        # Wait for initialization
-        time.sleep(1)
+        # Build subprocess environment: add the real extcap script directory
+        # to PYTHONPATH so relative package imports inside sniffle_extcap.py
+        # work even if Python's automatic sys.path resolution falls short.
+        extcap_env = os.environ.copy()
+        if extcap_path.endswith(".py"):
+            real_extcap_dir = str(Path(extcap_path).resolve().parent)
+            existing_pp = extcap_env.get("PYTHONPATH", "")
+            extcap_env["PYTHONPATH"] = (
+                real_extcap_dir + os.pathsep + existing_pp
+                if existing_pp
+                else real_extcap_dir
+            )
 
-        if extcap_proc.poll() is not None:
-            # The process ended, there was an error
-            stdout, stderr = extcap_proc.communicate()
-            print_error(f"Extcap error: {stderr.decode()[:200]}")
-            os.remove(fifo_path)
+        # 4. Start the plugin FIRST
+        print_info(f"Starting Sniffle extcap...")
+        extcap_proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
+            env=extcap_env,
+        )
+
+        # 5. Bridge worker: Cache the header and then relay
+        stop_event = threading.Event()
+        header_captured = threading.Event()
+        cached_data = []
+
+        # Thread to relay stderr to console for debugging
+        def stderr_worker():
+            try:
+                for line in extcap_proc.stderr:
+                    if line:
+                        print_dim(f"[extcap] {line.decode().strip()}")
+            except Exception:
+                pass
+
+        threading.Thread(target=stderr_worker, daemon=True).start()
+
+        def bridge_worker():
+            try:
+                # Wait for plugin to connect and send the initial header
+                if not pipe_plugin.ready_event.wait(timeout=30):
+                    return
+
+                # Read initial PCAP header; on Windows read() is non-blocking so loop
+                while not stop_event.is_set():
+                    first_chunk = pipe_plugin.read(4096)
+                    if first_chunk:
+                        cached_data.append(first_chunk)
+                        header_captured.set()
+                        break
+                    if extcap_proc.poll() is not None:
+                        return
+                    time.sleep(0.01)
+
+                # Now wait for Wireshark to be ready (this is set after launching Wireshark)
+                pipe_ws.ready_event.wait(timeout=35)
+
+                # Send cached header
+                for chunk in cached_data:
+                    pipe_ws.write_packet(chunk)
+                cached_data.clear()
+
+                while not stop_event.is_set():
+                    data = pipe_plugin.read(4096)
+                    if not data:
+                        # If no data, check if plugin is still alive
+                        if extcap_proc.poll() is not None:
+                            print_warning("Plugin process terminated")
+                            break
+                        # Short sleep to avoid CPU spinning
+                        time.sleep(0.01)
+                        continue
+
+                    # If Wireshark is gone, stop bridging
+                    if ws.wireshark_process and ws.wireshark_process.poll() is not None:
+                        break
+
+                    pipe_ws.write_packet(data)
+            except Exception as e:
+                print_error(f"Bridge error: {str(e)}")
+                pass
+
+        threading.Thread(target=bridge_worker, daemon=True).start()
+
+        # 6. Wait for the plugin to emit the header before launching Wireshark
+        print_info("Waiting for sniffer data...")
+        if not header_captured.wait(timeout=15):
+            print_error("Timed out waiting for sniffer header")
+            stop_event.set()
+            extcap_proc.terminate()
+            pipe_ws.remove()
+            pipe_plugin.remove()
             return False
 
-        # Now open Wireshark connected to the FIFO
-        wireshark_path = find_wireshark_path()
-        if not wireshark_path:
-            os.remove(fifo_path)
+        # 7. NOW launch Wireshark
+        ws = Wireshark()
+        ws.start()
+
+        # 8. Wait for Wireshark connection
+        print_info("Connecting to Wireshark...")
+        if not pipe_ws.ready_event.wait(timeout=30):
+            print_error("Timed out waiting for Wireshark to connect")
+            stop_event.set()
+            extcap_proc.terminate()
+            pipe_ws.remove()
+            pipe_plugin.remove()
             return False
 
-        wireshark_cmd = [wireshark_path, "-k", "-i", fifo_path]
-        print_info(f"Opening Wireshark connected to FIFO...")
-        wireshark_proc = subprocess.Popen(wireshark_cmd)
+        print_success("Capture running automatically!")
 
-        # Wait for Wireshark to finish
-        wireshark_proc.wait()
+        # 9. Wait for Wireshark to close
+        ws.join()
 
         # Cleanup
+        stop_event.set()
         extcap_proc.terminate()
-        if os.path.exists(fifo_path):
-            os.remove(fifo_path)
+        pipe_ws.remove()
+        pipe_plugin.remove()
 
         return True
 
     except Exception as e:
-        print_error(f"Direct method failed: {str(e)}")
-        # Cleanup FIFO if it exists
-        if "fifo_path" in locals() and os.path.exists(fifo_path):
-            os.remove(fifo_path)
+        print_error(f"Automatic capture failed: {str(e)}")
         return False
 
 
@@ -353,31 +464,73 @@ def find_extcap_plugin(plugin_name):
     system = platform.system()
 
     if system == "Windows":
-        paths = [
-            Path("C:\\Program Files\\Wireshark\\extcap") / f"{plugin_name}.exe",
-            Path("C:\\Program Files (x86)\\Wireshark\\extcap") / f"{plugin_name}.exe",
+        appdata = os.environ.get("APPDATA", "")
+        wireshark_dirs = [
+            Path(appdata) / "Wireshark" / "extcap" if appdata else None,
+            Path("C:\\Program Files\\Wireshark\\extcap"),
+            Path("C:\\Program Files (x86)\\Wireshark\\extcap"),
         ]
-    elif system in ["Linux", "Darwin"]:
+        paths = []
+        for d in wireshark_dirs:
+            if d is None:
+                continue
+            paths.append(d / f"{plugin_name}.exe")
+            paths.append(d / f"{plugin_name}.py")
+    elif system == "Linux":
         paths = [
             Path.home() / ".local/lib/wireshark/extcap" / f"{plugin_name}.py",
             Path("/usr/lib/wireshark/extcap") / f"{plugin_name}.py",
             Path("/usr/local/lib/wireshark/extcap") / f"{plugin_name}.py",
         ]
+    elif system == "Darwin":
+        paths = [
+            Path.home()
+            / "Library/Application Support/Wireshark/extcap"
+            / f"{plugin_name}.py",
+            Path("/usr/local/lib/wireshark/extcap") / f"{plugin_name}.py",
+        ]
 
     for path in paths:
-        if path.exists():
+        if path.is_file():
             return str(path)
 
     # Also search in PATH
     which_cmd = "where" if system == "Windows" else "which"
     try:
+        search_name = plugin_name if system == "Windows" else f"{plugin_name}.py"
         result = subprocess.run(
-            [which_cmd, f"{plugin_name}.py"], capture_output=True, text=True
+            [which_cmd, search_name], capture_output=True, text=True
         )
         if result.returncode == 0:
-            return result.stdout.strip()
+            return result.stdout.strip().splitlines()[0]
     except:
         pass
+
+    return None
+
+
+def _find_python_executable():
+    """Return a Python interpreter path usable for running .py scripts.
+
+    When catnip is built with PyInstaller, sys.executable points to the
+    frozen catnip.exe, not to python.exe. Passing that path as the
+    interpreter for a subprocess causes the catnip CLI to receive the
+    extcap script path as an unknown sub-command. We detect the frozen
+    state (sys.frozen) and any other case where sys.executable is not
+    Python, then fall back to a PATH search.
+    """
+    # PyInstaller sets sys.frozen in bundled executables
+    if not getattr(sys, "frozen", False):
+        basename = os.path.basename(sys.executable).lower()
+        if basename.startswith("python"):
+            return sys.executable
+
+    # sys.executable is not Python — search PATH
+    candidates = ("python3", "python3.exe", "python", "python.exe")
+    for name in candidates:
+        found = shutil.which(name)
+        if found:
+            return found
 
     return None
 
@@ -644,6 +797,13 @@ def sniff_thread(ws, channel, device):
     type=int,
     help="Device ID (for multiple CatSniffers)",
 )
+@click.option(
+    "--sync-word",
+    "-sw",
+    default="private",
+    type=click.Choice(["public", "private"]),
+    help="LoRa sync word: 'public' (0x34, LoRaWAN) or 'private' (0x12). Default: private.",
+)
 def sniff_lora(
     ws,
     verbose,
@@ -653,6 +813,7 @@ def sniff_lora(
     coding_rate,
     tx_power,
     device,
+    sync_word,
 ):
     """Sniffing LoRa with Sniffer SX1262 firmware"""
     dev = get_device_or_exit(device)
@@ -661,11 +822,12 @@ def sniff_lora(
     bw_int = int(bandwidth)
 
     print_info(f"[{dev}] Sniffing LoRa with configuration:")
-    console.print(f"  Frequency:       {frequency} Hz ({frequency / 1000000:.3f} MHz)")
-    console.print(f"  Bandwidth:       {bw_int} kHz")
-    console.print(f"  Spreading Factor: SF{spread_factor}")
-    console.print(f"  Coding Rate:     4/{coding_rate}")
-    console.print(f"  TX Power:        {tx_power} dBm")
+    print_dim(f"Frequency:        {frequency} Hz ({frequency / 1000000:.3f} MHz)")
+    print_dim(f"Bandwidth:        {bw_int} kHz")
+    print_dim(f"Spreading Factor: SF{spread_factor}")
+    print_dim(f"Coding Rate:      4/{coding_rate}")
+    print_dim(f"TX Power:         {tx_power} dBm")
+    print_dim(f"Sync Word:        {sync_word}")
 
     run_sx_bridge(
         dev,
@@ -676,6 +838,7 @@ def sniff_lora(
         tx_power,
         ws,
         verbose,
+        sync_word,
     )
 
 
@@ -756,8 +919,6 @@ def sniff_airtag_scanner(device, putty):
 
 def send_identify_command(device):
     """Send identification command to device to help identify it visually."""
-    import serial
-
     if not device.shell_port:
         print_warning("Shell port not available for identification!")
         return False
@@ -765,22 +926,11 @@ def send_identify_command(device):
     print_info(f"Sending identification command to {device}...")
 
     try:
-        with serial.Serial(device.shell_port, 115200, timeout=1.0) as ser:
-            ser.reset_input_buffer()
-            ser.reset_output_buffer()
-
-            cmd_bytes = b"identify\r\n"
-            ser.write(cmd_bytes)
-            ser.flush()
-
-            time.sleep(0.3)
-
-            # Read any response (optional)
-            if ser.in_waiting:
-                response = ser.read(ser.in_waiting)
-                response_str = response.decode("ascii", errors="ignore").strip()
-                if response_str:
-                    print_info(f"Device response: {response_str}")
+        shell = ShellConnection(port=device.shell_port, timeout=1.0)
+        with shell:
+            response = shell.send_command("identify", timeout=1.0)
+            if response:
+                print_info(f"Device response: {response}")
 
         print_success(f"Identification command sent to device #{device.device_id}!")
         return True
@@ -813,14 +963,14 @@ def send_identify_command(device):
 def flash(firmware, device, list, full) -> None:
     """Flash CC1352 Firmware or list available firmware images"""
 
-    from .fw_aliases import get_official_id
+    from ..firmware.fw_aliases import get_official_id
 
     # Initialize Flasher to manage firmware operations
     flasher = Flasher()
 
     # If listing available firmwares is requested
     if list:
-        console.print("\n[cyan bold]Available Firmware Images:[/cyan bold]\n")
+        print_title("Available Firmware Images:")
 
         try:
             # Get the list of local firmwares
@@ -828,9 +978,8 @@ def flash(firmware, device, list, full) -> None:
 
             if not firmwares:
                 print_warning("No firmware images found locally.")
-                console.print(
-                    "\nRun the CLI once to download the latest firmware images."
-                )
+                print_empty_line()
+                print_info("Run the CLI once to download the latest firmware images.")
                 return
 
             # Create table to display firmwares
@@ -950,49 +1099,33 @@ def flash(firmware, device, list, full) -> None:
             console.print(table)
 
             # Show most useful aliases
-            console.print("\n[cyan bold]Recommended Aliases by Protocol:[/cyan bold]")
+            print_title("Recommended Aliases by Protocol:")
 
-            console.print("\n  [yellow]BLE:[/yellow]")
-            console.print(
-                "    [green]ble[/green] / [green]sniffle[/green]     → Sniffle BLE sniffer"
-            )
-            console.print("    [green]airtag-scanner[/green] → Apple Airtag Scanner")
-            console.print("    [green]airtag-spoofer[/green] → Apple Airtag Spoofer")
-            console.print("    [green]justworks[/green]     → JustWorks scanner")
+            print_subtitle("BLE:")
+            print_alias_item("ble / sniffle", "Sniffle BLE sniffer", pad=18)
+            print_alias_item("airtag-scanner", "Apple Airtag Scanner", pad=18)
+            print_alias_item("airtag-spoofer", "Apple Airtag Spoofer", pad=18)
+            print_alias_item("justworks", "JustWorks scanner", pad=18)
 
-            console.print("\n  [yellow]Zigbee/Thread/15.4 (TI Sniffer):[/yellow]")
-            console.print(
-                "    [green]zigbee[/green]  → Texas Instruments multiprotocol sniffer"
+            print_subtitle("Zigbee/Thread/15.4 (TI Sniffer):")
+            print_alias_item(
+                "zigbee", "Texas Instruments multiprotocol sniffer", pad=18
             )
-            console.print(
-                "    [green]thread[/green]  → (same as zigbee - supports both)"
-            )
-            console.print(
-                "    [green]15.4[/green]    → (same as zigbee - supports 802.15.4)"
-            )
-            console.print("    [green]ti[/green]      → Texas Instruments sniffer")
-            console.print(
-                "    [green]multiprotocol[/green] → TI multiprotocol firmware"
-            )
+            print_alias_item("thread", "(same as zigbee - supports both)", pad=18)
+            print_alias_item("15.4", "(same as zigbee - supports 802.15.4)", pad=18)
+            print_alias_item("ti", "Texas Instruments sniffer", pad=18)
+            print_alias_item("multiprotocol", "TI multiprotocol firmware", pad=18)
 
             # Use Information
-            console.print("\n[cyan bold]Usage Examples:[/cyan bold]")
-            console.print(
-                "  [green]catnip.py flash zigbee[/green]          (TI multiprotocol sniffer)"
+            print_title("Usage Examples:")
+            print_example(
+                "catnip.py flash zigbee", "         (TI multiprotocol sniffer)"
             )
-            console.print(
-                "  [green]catnip.py flash thread[/green]         (same TI firmware)"
-            )
-            console.print(
-                "  [green]catnip.py flash ble[/green]            (Sniffle BLE)"
-            )
-            console.print(
-                "  [green]catnip.py flash lora-sniffer[/green]   (LoRa Sniffer)"
-            )
-            console.print(
-                "  [green]catnip.py flash airtag-scanner[/green] (Apple Airtag)"
-            )
-            console.print("  [green]catnip.py flash --device 1 zigbee[/green]")
+            print_example("catnip.py flash thread", "        (same TI firmware)")
+            print_example("catnip.py flash ble", "           (Sniffle BLE)")
+            print_example("catnip.py flash lora-sniffer", "  (LoRa Sniffer)")
+            print_example("catnip.py flash airtag-scanner", "(Apple Airtag)")
+            print_example("catnip.py flash --device 1 zigbee")
 
             return
 
@@ -1006,12 +1139,11 @@ def flash(firmware, device, list, full) -> None:
     # If flash is requested but no firmware is specified
     if firmware is None:
         print_error("No firmware specified!")
-        console.print(
-            "\nUse 'catnip flash --list' to see available firmware images and aliases."
+        print_empty_line()
+        print_info(
+            "Use 'catnip flash --list' to see available firmware images and aliases."
         )
-        console.print(
-            "Or specify a firmware name: catnip flash <firmware_name_or_alias>"
-        )
+        print_info("Or specify a firmware name: catnip flash <firmware_name_or_alias>")
         exit(1)
 
     # If the input is a valid file path, we skip alias resolution to avoid confusion
@@ -1028,7 +1160,7 @@ def flash(firmware, device, list, full) -> None:
         devs = catnip_get_devices()
         if not devs:
             print_error("No CatSniffer devices found!")
-            console.print("    Make sure your CatSniffer is connected.")
+            print_dim("Make sure your CatSniffer is connected.")
             exit(1)
 
         # Select the first device by default
@@ -1039,15 +1171,15 @@ def flash(firmware, device, list, full) -> None:
         dev = catnip_get_device(device)
         if dev is None:
             print_error(f"CatSniffer device with ID {device} not found!")
-            console.print("    Use 'devices' command to list available devices.")
+            print_dim("Use 'devices' command to list available devices.")
             exit(1)
 
     # Verify that the device is valid
     if not dev.is_valid():
         print_warning(f"Not all ports detected for {dev}")
-        console.print(f"    Bridge: {dev.bridge_port}")
-        console.print(f"    LoRa:   {dev.lora_port}")
-        console.print(f"    Shell:  {dev.shell_port}")
+        print_dim(f"Bridge: {dev.bridge_port}")
+        print_dim(f"LoRa:   {dev.lora_port}")
+        print_dim(f"Shell:  {dev.shell_port}")
 
     print_info(f"Flashing firmware: {firmware} to device: {dev}")
 
@@ -1055,15 +1187,13 @@ def flash(firmware, device, list, full) -> None:
 
     if not flash_result:
         print_error(f"Error flashing: {firmware}")
-        console.print(f"\n[yellow]Troubleshooting tips:[/yellow]")
-        console.print(
-            f"1. Use [green]catnip flash --list[/green] to see all available firmwares"
+        print_warning("Troubleshooting tips:")
+        print_dim("1. Use 'catnip flash --list' to see all available firmwares")
+        print_dim(
+            "2. Available aliases: ble, zigbee, thread, lora-sniffer, airtag-scanner"
         )
-        console.print(
-            f"2. Available aliases: ble, zigbee, thread, lora-sniffer, airtag-scanner"
-        )
-        console.print(f"3. Use the exact filename from the list")
-        console.print(f"4. Note: 'zigbee' alias maps to TI multiprotocol firmware")
+        print_dim("3. Use the exact filename from the list")
+        print_dim("4. Note: 'zigbee' alias maps to TI multiprotocol firmware")
         return
 
     print_info("Waiting for device to restart...")
@@ -1075,11 +1205,19 @@ def flash(firmware, device, list, full) -> None:
 
 
 @cli.command()
-def devices() -> None:
+@click.option(
+    "--debug",
+    is_flag=True,
+    default=False,
+    help="Show raw USB port info for each interface (useful for diagnosing Windows port mapping).",
+)
+def devices(debug: bool) -> None:
     """List connected CatSniffer devices"""
     devs = catnip_get_devices()
     if not devs:
         print_warning("No CatSniffer devices found.")
+        if debug:
+            _print_raw_port_debug()
         return
 
     # Add a table to display devices
@@ -1096,8 +1234,46 @@ def devices() -> None:
 
         table.add_row(str(dev), bridge_status, lora_status, shell_status)
 
-    console.print()
+    print_empty_line()
     console.print(table)
+
+    if debug:
+        _print_raw_port_debug()
+
+
+def _print_raw_port_debug() -> None:
+    """Print raw pyserial port info for all CatSniffer interfaces."""
+    from serial.tools import list_ports
+
+    cat_ports = [
+        p
+        for p in list_ports.comports()
+        if p.vid == CATSNIFFER_VID and p.pid == CATSNIFFER_PID
+    ]
+
+    if not cat_ports:
+        console.print("[red]No CatSniffer USB interfaces visible to pyserial.[/red]")
+        return
+
+    raw = Table(title="Raw USB port info (debug)", box=box.SIMPLE)
+    raw.add_column("Port", style="cyan")
+    raw.add_column("Description")
+    raw.add_column("HWID")
+    raw.add_column("Location")
+    raw.add_column("Interface")
+    raw.add_column("Serial#")
+
+    for p in sorted(cat_ports, key=lambda x: x.device):
+        raw.add_row(
+            p.device,
+            p.description or "",
+            p.hwid or "",
+            p.location or "",
+            getattr(p, "interface", None) or "",
+            p.serial_number or "",
+        )
+
+    console.print(raw)
 
 
 @cli.command()
@@ -1110,8 +1286,6 @@ def devices() -> None:
 )
 def identify(device) -> None:
     """Send identification command to CatSniffer device"""
-    import serial
-
     dev = get_device_or_exit(device)
 
     if not dev.shell_port:
@@ -1121,22 +1295,11 @@ def identify(device) -> None:
     print_info(f"Sending 'Identify' command to {dev} on port {dev.shell_port}...")
 
     try:
-        with serial.Serial(dev.shell_port, 115200, timeout=1.0) as ser:
-            ser.reset_input_buffer()
-            ser.reset_output_buffer()
-
-            cmd_bytes = b"identify\r\n"
-            ser.write(cmd_bytes)
-            ser.flush()
-
-            time.sleep(0.3)
-
-            # Read any response (optional, not required)
-            if ser.in_waiting:
-                response = ser.read(ser.in_waiting)
-                response_str = response.decode("ascii", errors="ignore").strip()
-                if response_str:
-                    print_info(f"Response: {response_str}")
+        shell = ShellConnection(port=dev.shell_port, timeout=1.0)
+        with shell:
+            response = shell.send_command("identify", timeout=1.0)
+            if response:
+                print_info(f"Response: {response}")
 
         print_success("Identification command sent successfully!")
 
@@ -1171,8 +1334,8 @@ def verify(test_all, device, quiet):
         import serial
     except ImportError as e:
         print_error(f"Dependency missing: {e}")
-        console.print("\n[yellow]Install missing dependencies:[/yellow]")
-        console.print("  pip install pyusb pyserial")
+        print_warning("Install missing dependencies:")
+        print_dim("pip install pyusb pyserial")
         return 1
 
     # Run verification
@@ -1184,27 +1347,25 @@ def verify(test_all, device, quiet):
     if success:
         print_success("Verification completed successfully!")
         if test_all:
-            console.print(
-                "\n[green]✓ All devices are fully functional and ready for use![/green]"
-            )
+            print_success("All devices are fully functional and ready for use!")
         else:
-            console.print(
-                "\n[green]✓ Basic functionality verified. Use --test-all for comprehensive testing.[/green]"
+            print_success(
+                "Basic functionality verified. Use --test-all for comprehensive testing."
             )
         sys.exit(0)
     else:
         print_error("Verification failed!")
-        console.print("\n[yellow]Troubleshooting tips:[/yellow]")
-        console.print(
+        print_warning("Troubleshooting tips:")
+        print_dim(
             "1. Make sure all 3 USB endpoints are connected (Bridge, LoRa, Shell)"
         )
-        console.print("2. Try reconnecting the USB cable")
-        console.print("3. Check if the correct firmware is flashed")
-        console.print("4. Verify serial port permissions (Linux/Mac)")
+        print_dim("2. Try reconnecting the USB cable")
+        print_dim("3. Check if the correct firmware is flashed")
+        print_dim("4. Verify serial port permissions (Linux/Mac)")
         sys.exit(1)
 
 
-@cli.command()
+@click.command()
 @click.option(
     "--device",
     "-d",
@@ -1225,7 +1386,7 @@ def verify(test_all, device, quiet):
 )
 def cativity(device, channel, topology, protocol):
     """IQ Activity Monitor"""
-    from .cativity.runner import CativityRunner
+    from ..protocols.cativity.runner import CativityRunner
 
     dev = get_device_or_exit(device)
     cat = Catnip(dev.bridge_port)
@@ -1280,16 +1441,15 @@ def meshtastic():
 def meshtastic_decode(input, key):
     """Decrypt and decode a hex-encoded Meshtastic packet"""
     try:
-        from .meshtastic import MeshtasticDecoder
+        from ..protocols.meshtastic import MeshtasticDecoder
     except ImportError as e:
         print_error(
             f"The 'meshtastic' library is required for this command. (Error: {e})"
         )
-        console.print(
-            "\n[yellow]This library should be bundled with the package.[/yellow]"
-        )
-        console.print("If it's missing, you can install it manually:")
-        console.print("  pip install meshtastic protobuf pyyaml")
+        print_empty_line()
+        print_warning("This library should be bundled with the package.")
+        print_info("If it's missing, you can install it manually:")
+        print_dim("pip install meshtastic protobuf pyyaml")
         sys.exit(1)
 
     try:
@@ -1347,16 +1507,15 @@ def meshtastic_decode(input, key):
 def meshtastic_live(device, baudrate, frequency, preset):
     """Live Meshtastic decoder - Capture and decode packets in real-time"""
     try:
-        from .meshtastic import MeshtasticLiveDecoder
+        from ..protocols.meshtastic import MeshtasticLiveDecoder
     except ImportError as e:
         print_error(
             f"The 'meshtastic' library is required for this command. (Error: {e})"
         )
-        console.print(
-            "\n[yellow]This library should be bundled with the package.[/yellow]"
-        )
-        console.print("If it's missing, you can install it manually:")
-        console.print("  pip install meshtastic protobuf pyyaml")
+        print_empty_line()
+        print_warning("This library should be bundled with the package.")
+        print_info("If it's missing, you can install it manually:")
+        print_dim("pip install meshtastic protobuf pyyaml")
         sys.exit(1)
 
     # Get device or exit with error
@@ -1443,17 +1602,16 @@ def meshtastic_dashboard(device, baudrate, frequency, preset):
     import asyncio
 
     try:
-        from .meshtastic.core import configure_meshtastic_radio
-        from .meshtastic import MeshtasticChatApp, Monitor
+        from ..protocols.meshtastic.core import configure_meshtastic_radio
+        from ..protocols.meshtastic import MeshtasticChatApp, Monitor
     except ImportError as e:
         print_error(
             f"The 'meshtastic' library is required for this command. (Error: {e})"
         )
-        console.print(
-            "\n[yellow]This library should be bundled with the package.[/yellow]"
-        )
-        console.print("If it's missing, you can install it manually:")
-        console.print("  pip install meshtastic protobuf pyyaml")
+        print_empty_line()
+        print_warning("This library should be bundled with the package.")
+        print_info("If it's missing, you can install it manually:")
+        print_dim("pip install meshtastic protobuf pyyaml")
         sys.exit(1)
 
     # Get device or exit with error
@@ -1499,16 +1657,15 @@ def meshtastic_dashboard(device, baudrate, frequency, preset):
 def meshtastic_config(file):
     """Extract PSKs and config info from a Meshtastic JSONC config file"""
     try:
-        from .meshtastic import MeshtasticConfigExtractor
+        from ..protocols.meshtastic import MeshtasticConfigExtractor
     except ImportError as e:
         print_error(
             f"The 'meshtastic' library is required for this command. (Error: {e})"
         )
-        console.print(
-            "\n[yellow]This library should be bundled with the package.[/yellow]"
-        )
-        console.print("If it's missing, you can install it manually:")
-        console.print("  pip install meshtastic protobuf pyyaml")
+        print_empty_line()
+        print_warning("This library should be bundled with the package.")
+        print_info("If it's missing, you can install it manually:")
+        print_dim("pip install meshtastic protobuf pyyaml")
         sys.exit(1)
 
     extractor = MeshtasticConfigExtractor(file)
@@ -1562,7 +1719,7 @@ def lora():
 )
 def lora_spectrum(device, baudrate, start_freq, end_freq, offset):
     """Live Spectrum Scanner for SX1262 - Real-time frequency spectrum analyzer"""
-    from .sx1262.spectrum import SpectrumScan
+    from ..protocols.sx1262.spectrum import SpectrumScan
 
     # Get device or exit with error
     dev = get_device_or_exit(device)
@@ -1629,7 +1786,7 @@ def vhci_start(device, baud, verbose):
     Compatible tools: bluetoothctl, btmgmt, btmon, bleak, bettercap.
     """
     import signal
-    from .vhci import VHCIBridge
+    from ..protocols.vhci import VHCIBridge
 
     if os.geteuid() != 0 and not os.access("/dev/vhci", os.R_OK | os.W_OK):
         print_warning(
@@ -1638,7 +1795,7 @@ def vhci_start(device, baud, verbose):
 
     if not os.path.exists("/dev/vhci"):
         print_error("/dev/vhci not found. Load the kernel module first:")
-        console.print("  sudo modprobe hci_vhci")
+        print_dim("sudo modprobe hci_vhci")
         sys.exit(1)
 
     # Resolve device
@@ -1690,7 +1847,7 @@ def vhci_start(device, baud, verbose):
     bridge = VHCIBridge(dev.bridge_port, log)
 
     def _shutdown(sig, frame):
-        console.print("\n[yellow]Shutting down VHCI bridge...[/yellow]")
+        print_warning("Shutting down VHCI bridge...")
         bridge.stop()
         sys.exit(0)
 
@@ -1703,8 +1860,8 @@ def vhci_start(device, baud, verbose):
         print_error(f"Failed to start bridge: {e}")
         sys.exit(1)
 
-    console.print("[green]Bridge running. Device should appear as hciX.[/green]")
-    console.print("[dim]Check with: hciconfig -a   |   Press Ctrl+C to stop[/dim]")
+    print_success("Bridge running. Device should appear as hciX.")
+    print_dim("Check with: hciconfig -a   |   Press Ctrl+C to stop")
 
     try:
         bridge.run()
@@ -1723,12 +1880,12 @@ def vhci_check():
 
     # Permissions check
     if os.access("/dev/vhci", os.R_OK | os.W_OK):
-        console.print("[green]  permissions  : OK (access to /dev/vhci)[/green]")
+        print_success("  permissions  : OK (access to /dev/vhci)")
     elif os.geteuid() == 0:
-        console.print("[green]  root         : OK[/green]")
+        print_success("  root         : OK")
     else:
-        console.print(
-            "[yellow]  permissions  : Insufficient — bridge may fail to open /dev/vhci[/yellow]"
+        print_warning(
+            "  permissions  : Insufficient — bridge may fail to open /dev/vhci"
         )
         all_ok = False
 
@@ -1736,43 +1893,37 @@ def vhci_check():
     try:
         result = _sp.run(["lsmod"], capture_output=True, text=True, timeout=5)
         if "hci_vhci" in result.stdout:
-            console.print("[green]  hci_vhci     : loaded[/green]")
+            print_success("  hci_vhci     : loaded")
         else:
-            console.print(
-                "[yellow]  hci_vhci     : NOT loaded — run: sudo modprobe hci_vhci[/yellow]"
-            )
+            print_warning("  hci_vhci     : NOT loaded — run: sudo modprobe hci_vhci")
             all_ok = False
     except Exception:
-        console.print("[red]  hci_vhci     : could not run lsmod[/red]")
+        print_error("  hci_vhci     : could not run lsmod")
         all_ok = False
 
     # /dev/vhci
     if os.path.exists("/dev/vhci"):
-        console.print("[green]  /dev/vhci    : exists[/green]")
+        print_success("  /dev/vhci    : exists")
     else:
-        console.print(
-            "[yellow]  /dev/vhci    : missing — run: sudo modprobe hci_vhci[/yellow]"
-        )
+        print_warning("  /dev/vhci    : missing — run: sudo modprobe hci_vhci")
         all_ok = False
 
     # BlueZ (bluetoothctl)
     try:
         _sp.run(["bluetoothctl", "--version"], capture_output=True, timeout=3)
-        console.print("[green]  bluetoothctl : found[/green]")
+        print_success("  bluetoothctl : found")
     except FileNotFoundError:
-        console.print("[yellow]  bluetoothctl : not found — install bluez[/yellow]")
+        print_warning("  bluetoothctl : not found — install bluez")
         all_ok = False
     except Exception:
-        console.print("[yellow]  bluetoothctl : check failed[/yellow]")
+        print_warning("  bluetoothctl : check failed")
 
     # btmon
     try:
         _sp.run(["btmon", "--version"], capture_output=True, timeout=3)
-        console.print("[green]  btmon        : found[/green]")
+        print_success("  btmon        : found")
     except FileNotFoundError:
-        console.print(
-            "[dim]  btmon        : not found (optional — install bluez-utils)[/dim]"
-        )
+        print_dim("  btmon        : not found (optional — install bluez-utils)")
     except Exception:
         pass
 
@@ -1780,23 +1931,21 @@ def vhci_check():
     try:
         import bleak  # noqa: F401
 
-        console.print("[green]  bleak        : installed[/green]")
+        print_success("  bleak        : installed")
     except ImportError:
-        console.print(
-            "[dim]  bleak        : not installed (optional — pip install bleak)[/dim]"
-        )
+        print_dim("  bleak        : not installed (optional — pip install bleak)")
 
     # CatSniffer device
     devs = catnip_get_devices()
     if devs:
         for dev in devs:
             port = dev.bridge_port or "?"
-            console.print(f"[green]  CatSniffer   : {dev}  bridge={port}[/green]")
+            print_success(f"  CatSniffer   : {dev}  bridge={port}")
     else:
-        console.print("[yellow]  CatSniffer   : no device detected[/yellow]")
+        print_warning("  CatSniffer   : no device detected")
         all_ok = False
 
-    console.print("")
+    print_empty_line()
     if all_ok:
         if os.access("/dev/vhci", os.R_OK | os.W_OK):
             print_success("All prerequisites met. Run: catnip vhci start")
@@ -1833,14 +1982,14 @@ def update(device, force):
     If the device is not detected, provides instructions to manually
     enter Boot Mode for recovery.
     """
-    from .fw_update import (
+    from ..firmware.fw_update import (
         check_and_update_rp2040,
         force_update_rp2040,
         get_tool_version,
     )
 
     print_info(f"CatSniffer Firmware Update - Tool v{get_tool_version()}")
-    console.print("")
+    print_empty_line()
 
     # Initialize Flasher for release management
     flasher_inst = Flasher()
@@ -1864,7 +2013,74 @@ def update(device, force):
         print_success("Firmware update check complete!")
     else:
         print_error("Firmware update could not be completed.")
-        console.print("\n[dim]Use 'catnip update --force' to force an update.[/dim]")
+        print_empty_line()
+        print_dim("Use 'catnip update --force' to force an update.")
+
+
+# ===================== CC1352 Restore Command =====================
+
+
+@click.command()
+@click.argument("firmware", required=False, default=None)
+@click.option(
+    "--device",
+    "-d",
+    default=None,
+    type=int,
+    help="Device ID (for shell access to trigger BOOTSEL)",
+)
+@click.option(
+    "--tapid",
+    default="0x1BB7702F",
+    help="CC1352 JTAG TAPID (default: CC1352P7)",
+)
+def restore(firmware, device, tapid):
+    """Restore CC1352 when bootloader is broken.
+
+    Uses RP2040 as CMSIS-DAP JTAG programmer via OpenOCD to flash
+    the CC1352 directly. Requires OpenOCD installed.
+
+    If no firmware is specified, uses the default CatSniffer firmware
+    from the catnip release.
+
+    \b
+    Example:
+        catnip restore                    # default CatSniffer firmware
+        catnip restore firmware.hex       # custom firmware
+        catnip restore firmware.hex -d 1  # specific device
+    """
+    from ..firmware.restore import restore_cc1352
+
+    # If no device is specified, get all connected devices
+    if device is None:
+        devs = catnip_get_devices()
+        if not devs:
+            print_error("No CatSniffer devices found!")
+            print_dim("Make sure your CatSniffer is connected.")
+            exit(1)
+
+        # Select the first device by default
+        dev = devs[0]
+        print_warning(f"No device specified. Using first device: {dev}")
+    else:
+        # If an ID is specified, get that specific device
+        dev = catnip_get_device(device)
+        if dev is None:
+            print_error(f"CatSniffer device with ID {device} not found!")
+            print_dim("Use 'devices' command to list available devices.")
+            exit(1)
+
+    flasher_inst = Flasher()
+
+    success = restore_cc1352(
+        hex_path=firmware,
+        device=dev,
+        flasher=flasher_inst,
+        tapid=tapid,
+    )
+
+    if not success:
+        print_error("Restore failed. Check the output above for details.")
 
 
 # ===================== Shell Completion Commands =====================
@@ -1998,13 +2214,14 @@ def completion_install(shell):
             "\n"
             "# Enable completion when invoked as 'python catnip.py' or './catnip.py'\n"
             "_catnip_completion_python_wrapper() {\n"
-            "  # $words[1] is 'python'/'python3', $words[2] is the script path\n"
             "  local script_name=${words[2]:t}  # basename of the script argument\n"
             "  if [[ $script_name == catnip.py ]]; then\n"
-            "    # Shift the completion context so Click sees sub-commands correctly\n"
+            f"    (( ! $+functions[_catnip_completion] )) && source {target}\n"
             '    words=(catnip "${words[@]:2}")\n'
             "    (( CURRENT-- ))\n"
             "    _catnip_completion\n"
+            "  else\n"
+            "    _files\n"
             "  fi\n"
             "}\n"
             "compdef _catnip_completion_python_wrapper python python3\n"
@@ -2061,19 +2278,17 @@ def completion_install(shell):
                 f.write(f"\n# catnip tab completion\n{rc_note}\n")
             print_success(f"Added fpath entry to {zshrc}")
         else:
-            console.print(
-                "[dim]  ~/.zfunc already in fpath — skipping .zshrc edit[/dim]"
-            )
+            print_dim("~/.zfunc already in fpath — skipping .zshrc edit")
 
-    console.print("")
+    print_empty_line()
     if shell == "bash":
-        console.print("Restart your shell or run:")
-        console.print(f"  [green]source {target}[/green]")
+        print_info("Restart your shell or run:")
+        print_example(f"source {target}")
     elif shell == "zsh":
-        console.print("Restart your shell or run:")
-        console.print("  [green]source ~/.zshrc && compinit -u[/green]")
+        print_info("Restart your shell or run:")
+        print_example("source ~/.zshrc && compinit -u")
     elif shell == "fish":
-        console.print("Completion is active immediately in new fish sessions.")
+        print_info("Completion is active immediately in new fish sessions.")
 
 
 @click.command("setup-env")
@@ -2086,7 +2301,7 @@ def setup_env():
     """
     if platform.system() != "Windows" and os.geteuid() != 0:
         print_error("Root privileges required. Please run with sudo:")
-        console.print(f"  sudo {sys.argv[0]} setup-env")
+        print_dim(f"sudo {sys.argv[0]} setup-env")
         sys.exit(1)
 
     # 1. Install udev rules
@@ -2132,8 +2347,8 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="00c0", MODE="0660"
     except Exception as e:
         print_warning(f"Could not reload udev rules automatically: {e}")
 
-    console.print("\n[bold green]Environment setup complete![/bold green]")
-    console.print("Please log out and log back in for group changes to take effect.")
+    print_success("Environment setup complete!")
+    print_info("Please log out and log back in for group changes to take effect.")
 
 
 def main_cli() -> None:
@@ -2143,6 +2358,7 @@ def main_cli() -> None:
     cli.add_command(sniff)
     cli.add_command(cativity)
     cli.add_command(meshtastic)
+    cli.add_command(restore)
     cli.add_command(lora)
     if platform.system() == "Linux":
         cli.add_command(vhci)

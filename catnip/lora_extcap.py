@@ -17,14 +17,14 @@ import threading
 import platform
 from serial.tools.list_ports import comports
 
-from modules.catnip import (
+from modules.core.catnip import (
     ShellConnection,
     LoRaConnection,
     catnip_get_devices,
     CATSNIFFER_VID,
     CATSNIFFER_PID,
 )
-from modules.pipes import UnixPipe, WindowsPipe, DEFAULT_UNIX_PATH
+from modules.core.pipes import UnixPipe, WindowsPipe, DEFAULT_UNIX_PATH
 from protocol.sniffer_sx import SnifferSx
 from protocol.common import get_global_header
 

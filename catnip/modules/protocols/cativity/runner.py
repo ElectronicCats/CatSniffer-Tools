@@ -3,7 +3,7 @@ import threading
 import queue
 import os
 import sys
-from ..catnip import Catnip, CatSnifferDevice
+from ...core.catnip import Catnip, CatSnifferDevice
 from protocol.sniffer_ti import SnifferTI, PacketCategory
 from protocol.common import START_OF_FRAME, END_OF_FRAME
 from .graphs import Graphs

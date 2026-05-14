@@ -106,20 +106,20 @@ uname -m
 #### For Intel Macs(x86_64)
 ```bash
 # Download the Intel package
-curl -LO https://github.com/ElectronicCats/catsniffer-tools/releases/download/latest/catnip-3.3.1.0-x86_64.pkg
+curl -LO https://github.com/ElectronicCats/catsniffer-tools/releases/download/latest/catnip-3.3.2.0-x86_64.pkg
 
 # Install the package
-sudo installer -allowUntrusted -pkg catnip-3.3.1.0-x86_64.pkg -target /
+sudo installer -allowUntrusted -pkg catnip-3.3.2.0-x86_64.pkg -target /
 ```
 
 #### For Apple Silicon Macs (ARM64)
 
 ```bash
 # Download the ARM64 package
-curl -LO https://github.com/ElectronicCats/catsniffer-tools/releases/download/latest/catnip-3.3.1.0-arm64.pkg
+curl -LO https://github.com/ElectronicCats/catsniffer-tools/releases/download/latest/catnip-3.3.2.0-arm64.pkg
 
 # Install the package
-sudo installer -allowUntrusted -pkg catnip-3.3.1.0-arm64.pkg -target /
+sudo installer -allowUntrusted -pkg catnip-3.3.2.0-arm64.pkg -target /
 ```
 
 ### Post-Installation (macOS)
@@ -149,10 +149,10 @@ sudo catnip setup-env
 
 ```bash
 # Download the .deb package
-wget https://github.com/ElectronicCats/catsniffer-tools/releases/download/latest/catnip-3.3.1.0.deb
+wget https://github.com/ElectronicCats/catsniffer-tools/releases/download/latest/catnip-3.3.2.0.deb
 
 # Install the package
-sudo dpkg -i catnip-3.3.1.0.deb
+sudo dpkg -i catnip-3.3.2.0.deb
 
 # Install dependencies (if any are missing)
 sudo apt-get install -f
@@ -172,10 +172,10 @@ catnip --version
 
 ```bash
 # Download the package
-wget https://github.com/ElectronicCats/catsniffer-tools/releases/download/latest/catnip-3.3.1.0.pkg.tar.zst
+wget https://github.com/ElectronicCats/catsniffer-tools/releases/download/latest/catnip-3.3.2.0.pkg.tar.zst
 
 # Install the package
-sudo pacman -U catnip-3.3.1.0.pkg.tar.zst
+sudo pacman -U catnip-3.3.2.0.pkg.tar.zst
 
 # Verify installation
 catnip --version

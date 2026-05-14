@@ -45,7 +45,7 @@ import os
 import struct
 import binascii
 import serial
-from rich.console import Console
+from ..utils.output import console
 
 try:
     import magic
@@ -67,8 +67,6 @@ __version__ = "2.1"
 
 # Verbose level
 QUIET = 5
-
-console = Console()
 
 
 def mdebug(level, message, attr="\n"):
@@ -126,36 +124,53 @@ class FirmwareFile(object):
         """
         self._crc32 = None
         firmware_is_hex = False
+        file_type = None
 
         if have_magic:
-            file_type = magic.from_file(path, mime=True)
+            try:
+                file_type = magic.from_file(path, mime=True)
+            except Exception as e:
+                # If magic fails (common on macOS if libmagic is missing), we fall back to extension
+                mdebug(
+                    5, f"Magic failed: {e}. Falling back to extension-based detection."
+                )
+                file_type = None
 
-            if file_type == "text/plain":
-                firmware_is_hex = True
-                mdebug(5, "Firmware file: Intel Hex")
-            elif file_type == "text/x-hex":
+        if file_type:
+            if file_type in ("text/plain", "text/x-hex"):
                 firmware_is_hex = True
                 mdebug(5, "Firmware file: Intel Hex")
             elif file_type == "application/octet-stream":
                 mdebug(5, "Firmware file: Raw Binary")
             else:
-                error_str = (
-                    "Could not determine firmware type. Magic "
-                    "indicates '%s'" % (file_type)
-                )
-                raise CmdException(error_str)
+                # Still try to fall back to extension if magic returns something unexpected
+                ext = os.path.splitext(path)[1][1:].lower()
+                if ext in self.HEX_FILE_EXTENSIONS:
+                    firmware_is_hex = True
+                    mdebug(
+                        5,
+                        f"Magic said {file_type}, but extension suggests Intel Hex. Using Hex.",
+                    )
+                else:
+                    error_str = (
+                        "Could not determine firmware type. Magic "
+                        "indicates '%s'" % (file_type)
+                    )
+                    raise CmdException(error_str)
         else:
-            if os.path.splitext(path)[1][1:] in self.HEX_FILE_EXTENSIONS:
+            # Fallback to extension detection
+            ext = os.path.splitext(path)[1][1:].lower()
+            if ext in self.HEX_FILE_EXTENSIONS:
                 firmware_is_hex = True
                 mdebug(5, "Your firmware looks like an Intel Hex file")
             else:
                 mdebug(5, "Cannot auto-detect firmware filetype: Assuming .bin")
 
-            mdebug(
-                10,
-                "For more solid firmware type auto-detection, install " "python-magic.",
-            )
-            mdebug(10, "Please see the readme for more details.")
+            if not have_magic:
+                mdebug(
+                    10,
+                    "For more solid firmware type auto-detection, install python-magic.",
+                )
 
         if firmware_is_hex:
             if have_hex_support:
@@ -194,15 +209,6 @@ class CommandInterface(object):
     NACK_BYTE = 0x33
 
     def open(self, aport=None, abaudrate=500000):
-        # Try to create the object using serial_for_url(), or fall back to the
-        # old serial.Serial() where serial_for_url() is not supported.
-        # serial_for_url() is a factory class and will return a different
-        # object based on the URL. For example serial_for_url("/dev/tty.<xyz>")
-        # will return a serialposix.Serial object for Ubuntu or Mac OS;
-        # serial_for_url("COMx") will return a serialwin32.Serial oject for Windows OS.
-        # For that reason, we need to make sure the port doesn't get opened at
-        # this stage: We need to set its attributes up depending on what object
-        # we get.
         try:
             self.sp = serial.serial_for_url(
                 aport, do_not_open=True, timeout=10, write_timeout=10
@@ -211,18 +217,30 @@ class CommandInterface(object):
             self.sp = serial.Serial(port=None, timeout=10, write_timeout=10)
             self.sp.port = aport
 
-        if (os.name == "nt" and isinstance(self.sp, serial.serialwin32.Serial)) or (
-            os.name == "posix" and isinstance(self.sp, serial.serialposix.Serial)
-        ):
-            self.sp.baudrate = abaudrate  # baudrate
-            self.sp.bytesize = 8  # number of databits
-            self.sp.parity = serial.PARITY_NONE  # parity
-            self.sp.stopbits = 1  # stop bits
-            self.sp.xonxoff = 0  # s/w (XON/XOFF) flow control
-            self.sp.rtscts = 0  # h/w (RTS/CTS) flow control
-            self.sp.timeout = 0.5  # set the timeout value
+        # Apply settings unconditionally — the isinstance check was fragile and
+        # could silently skip all of these on some pyserial/platform combinations.
+        self.sp.baudrate = abaudrate
+        self.sp.bytesize = 8
+        self.sp.parity = serial.PARITY_NONE
+        self.sp.stopbits = 1
+        self.sp.xonxoff = False
+        self.sp.rtscts = False
+        # dsrdtr=False prevents the Windows CDC driver from asserting DTR on
+        # port open, which can inadvertently reset the CC1352 before the
+        # bootloader entry command is sent.
+        self.sp.dsrdtr = False
+        self.sp.timeout = 0.5
+        self.sp.write_timeout = 10
 
         self.sp.open()
+
+        # Explicitly de-assert control lines and clear driver buffers.
+        # On Windows, opening a COM port may briefly assert DTR/RTS even with
+        # dsrdtr=False, so we force them low immediately after open.
+        self.sp.setDTR(False)
+        self.sp.setRTS(False)
+        self.sp.reset_input_buffer()
+        self.sp.reset_output_buffer()
 
     def invoke_bootloader(self, dtr_active_high=False, inverted=False):
         # Use the DTR and RTS lines to control bootloader and the !RESET pin.
@@ -372,14 +390,26 @@ class CommandInterface(object):
     def sendSynch(self):
         cmd = 0x55
 
-        # flush serial input buffer for first ACK reception
-        self.sp.flushInput()
-        self.sp.flush()
+        for attempt in range(3):
+            # reset_input_buffer/reset_output_buffer are the modern equivalents
+            # of the deprecated flushInput()/flush() and work correctly on
+            # Windows CDC serial ports.
+            self.sp.reset_input_buffer()
+            self.sp.reset_output_buffer()
+            # Brief pause so the Windows CDC driver finishes draining before
+            # we write — without this, stale bytes can corrupt the ACK window.
+            time.sleep(0.05)
 
-        mdebug(10, "*** sending synch sequence")
-        self._write(cmd)  # send U
-        self._write(cmd)  # send U
-        return self._wait_for_ack("Synch (0x55 0x55)", 2)
+            mdebug(10, "*** sending synch sequence")
+            self._write(cmd)  # send U
+            self._write(cmd)  # send U
+            try:
+                return self._wait_for_ack("Synch (0x55 0x55)", 2)
+            except CmdException:
+                if attempt == 2:
+                    raise
+                mdebug(10, f"*** Synch attempt {attempt + 1} timed out, retrying")
+                time.sleep(0.5)
 
     def checkLastCmd(self):
         stat = self.cmdGetStatus()
