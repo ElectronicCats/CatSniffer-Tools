@@ -306,7 +306,12 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
                 pipe_ws.remove()
                 pipe_plugin.remove()
                 return False
-            cmd = [python_exe, extcap_path]
+            # Resolve the symlink so Python sets sys.path[0] to the real
+            # directory (where the sniffle/ package lives), not the extcap
+            # directory where the symlink sits. Without this, Windows Python
+            # cannot find `from sniffle.constant import BLE_ADV_AA`.
+            real_extcap_path = str(Path(extcap_path).resolve())
+            cmd = [python_exe, real_extcap_path]
         else:
             cmd = [extcap_path]
 
@@ -326,10 +331,24 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
             ]
         )
 
+        # Build subprocess environment: add the real extcap script directory
+        # to PYTHONPATH so relative package imports inside sniffle_extcap.py
+        # work even if Python's automatic sys.path resolution falls short.
+        extcap_env = os.environ.copy()
+        if extcap_path.endswith(".py"):
+            real_extcap_dir = str(Path(extcap_path).resolve().parent)
+            existing_pp = extcap_env.get("PYTHONPATH", "")
+            extcap_env["PYTHONPATH"] = (
+                real_extcap_dir + os.pathsep + existing_pp
+                if existing_pp
+                else real_extcap_dir
+            )
+
         # 4. Start the plugin FIRST
         print_info(f"Starting Sniffle extcap...")
         extcap_proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False,
+            env=extcap_env,
         )
 
         # 5. Bridge worker: Cache the header and then relay
