@@ -149,16 +149,17 @@ class TestWindowsPipe:
         assert pipe.pipe_writer is None
         assert not pipe.ready_event.is_set()
 
-    @patch("modules.core.pipes.os.path.exists", return_value=True)
-    @patch("modules.core.pipes.os.remove")
+    @patch("modules.core.pipes.win32file", create=True)
     @patch("modules.core.pipes.win32pipe", create=True)
-    def test_remove(self, mock_win32pipe, mock_remove, mock_exists):
+    def test_remove(self, mock_win32pipe, mock_win32file):
         pipe = WindowsPipe(path=r"\\.\pipe\test")
-        mock_writer = MagicMock()
-        pipe.pipe_writer = mock_writer
+        pipe.pipe_writer = "fake_handle"
+        pipe.ready_event.set()
         pipe.remove()
-        mock_writer.close.assert_called_once()
-        mock_remove.assert_called_once_with(r"\\.\pipe\test")
+        mock_win32pipe.DisconnectNamedPipe.assert_called_once_with("fake_handle")
+        mock_win32file.CloseHandle.assert_called_once_with("fake_handle")
+        assert pipe.pipe_writer is None
+        assert not pipe.ready_event.is_set()
 
     @patch("modules.core.pipes.win32file", create=True)
     @patch("modules.core.pipes.win32pipe", create=True)

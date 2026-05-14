@@ -149,7 +149,10 @@ class WindowsPipe:
     def read(self, size=1024) -> bytes:
         try:
             if self.pipe_writer:
-                hr, data = win32file.ReadFile(self.pipe_writer, size)
+                _, available, _ = win32pipe.PeekNamedPipe(self.pipe_writer, 0)
+                if available == 0:
+                    return b""
+                hr, data = win32file.ReadFile(self.pipe_writer, min(size, available))
                 return data
             return b""
         except Exception:
@@ -169,9 +172,13 @@ class WindowsPipe:
     def remove(self) -> None:
         try:
             if self.pipe_writer:
-                self.pipe_writer.close()
-            if os.path.exists(self.pipe_path):
-                os.remove(self.pipe_path)
+                try:
+                    win32pipe.DisconnectNamedPipe(self.pipe_writer)
+                except Exception:
+                    pass
+                win32file.CloseHandle(self.pipe_writer)
+                self.pipe_writer = None
+            self.ready_event.clear()
             logger.info(f"[*] Pipeline removed: {self.pipe_path}")
         except Exception as e:
             show_generic_error("Removing Pipeline", e)

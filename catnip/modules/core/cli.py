@@ -334,17 +334,23 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
         def bridge_worker():
             try:
                 # Wait for plugin to connect and send the initial header
-                pipe_plugin.ready_event.wait()
-                
-                # Read initial data (PCAP header)
-                first_chunk = pipe_plugin.read(4096)
-                if first_chunk:
-                    cached_data.append(first_chunk)
-                    header_captured.set()
-                
+                if not pipe_plugin.ready_event.wait(timeout=30):
+                    return
+
+                # Read initial PCAP header; on Windows read() is non-blocking so loop
+                while not stop_event.is_set():
+                    first_chunk = pipe_plugin.read(4096)
+                    if first_chunk:
+                        cached_data.append(first_chunk)
+                        header_captured.set()
+                        break
+                    if extcap_proc.poll() is not None:
+                        return
+                    time.sleep(0.01)
+
                 # Now wait for Wireshark to be ready (this is set after launching Wireshark)
-                pipe_ws.ready_event.wait()
-                
+                pipe_ws.ready_event.wait(timeout=35)
+
                 # Send cached header
                 for chunk in cached_data:
                     pipe_ws.write_packet(chunk)
@@ -360,7 +366,7 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
                         # Short sleep to avoid CPU spinning
                         time.sleep(0.01)
                         continue
-                    
+
                     # If Wireshark is gone, stop bridging
                     if ws.wireshark_process and ws.wireshark_process.poll() is not None:
                         break
