@@ -134,6 +134,8 @@ def run_sx_bridge(
     wireshark: bool = False,
     verbose: bool = False,
     sync_word: str = "private",
+    raw_file: str = None,
+    ascii_file: str = None,
 ):
     """
     Run the LoRa sniffer bridge for the unified RP2040 firmware.
@@ -161,6 +163,8 @@ def run_sx_bridge(
         tx_power:      dBm.
         wireshark:     Launch Wireshark when True.
         verbose:       Show packet output in terminal when True.
+        raw_file:      Path to append packets as raw hex, or None to disable.
+        ascii_file:    Path to append packets as decoded ASCII, or None to disable.
     """
 
     # ── 1. Validate ports ────────────────────────────────────────────────────
@@ -258,6 +262,14 @@ def run_sx_bridge(
     if show_output:
         print_success("Capture running — press Ctrl+C to stop")
 
+    # ── Open log files (append) if requested ──────────────────────────────────
+    raw_fh = open(raw_file, "a", encoding="ascii") if raw_file else None
+    ascii_fh = open(ascii_file, "a", encoding="ascii") if ascii_file else None
+    if raw_fh:
+        print_success(f"Logging raw hex to {raw_file}")
+    if ascii_fh:
+        print_success(f"Logging ASCII to {ascii_file}")
+
     header_written = False
     packet_count = 0
     error_count = 0
@@ -290,6 +302,19 @@ def run_sx_bridge(
                 pipe.write_packet(packet.pcap)
                 packet_count += 1
 
+                # Persist only the relevant fields to the log file(s)
+                if raw_fh or ascii_fh:
+                    meta = f"RSSI: {int(packet.rssi)} | SNR: {int(packet.snr)}"
+                    if raw_fh:
+                        raw_fh.write(f"RX: {packet.payload.hex()} | {meta}\n")
+                        raw_fh.flush()
+                    if ascii_fh:
+                        ascii_str_log = "".join(
+                            chr(b) if 32 <= b < 127 else "." for b in packet.payload
+                        )
+                        ascii_fh.write(f"RX: {ascii_str_log} | {meta}\n")
+                        ascii_fh.flush()
+
                 if show_output:
                     ascii_str = "".join(
                         chr(b) if 32 <= b < 127 else "." for b in packet.payload
@@ -317,6 +342,12 @@ def run_sx_bridge(
         )
     finally:
         _keepalive_stop.set()
+        for fh in (raw_fh, ascii_fh):
+            if fh:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
         _stop_lora_capture(shell, lora, pipe)
 
 
