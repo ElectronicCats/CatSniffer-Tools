@@ -688,7 +688,23 @@ def sniff_ble(device, wireshark, channel, mode):
     type=int,
     help="Device ID (for multiple CatSniffers)",
 )
-def sniff_zigbee(ws, channel, device):
+@click.option(
+    "--raw",
+    "-r",
+    "raw_file",
+    default=None,
+    type=click.Path(dir_okay=False, writable=True),
+    help="Save captured packets as raw hex to FILE (RX: <hex> | RSSI: <rssi>)",
+)
+@click.option(
+    "-ascii",
+    "--ascii",
+    "ascii_file",
+    default=None,
+    type=click.Path(dir_okay=False, writable=True),
+    help="Save captured packets as decoded ASCII to FILE (RX: <ascii> | RSSI: <rssi>)",
+)
+def sniff_zigbee(ws, channel, device, raw_file, ascii_file):
     """Sniffing Zigbee with Sniffer TI firmware"""
     flasher = Flasher()
     dev = get_device_or_exit(device)
@@ -711,7 +727,18 @@ def sniff_zigbee(ws, channel, device):
     send_identify_command(dev)
 
     print_info(f"[{dev}] Sniffing Zigbee at channel: {channel}")
-    run_bridge(dev, channel, ws, profile="Zigbee")
+    if raw_file:
+        print_dim(f"Raw log:          {raw_file}")
+    if ascii_file:
+        print_dim(f"ASCII log:        {ascii_file}")
+    run_bridge(
+        dev,
+        channel,
+        ws,
+        profile="Zigbee",
+        raw_file=raw_file,
+        ascii_file=ascii_file,
+    )
 
 
 @sniff.command(SniffingFirmware.THREAD.name.lower())
@@ -726,7 +753,23 @@ def sniff_zigbee(ws, channel, device):
     type=int,
     help="Device ID (for multiple CatSniffers)",
 )
-def sniff_thread(ws, channel, device):
+@click.option(
+    "--raw",
+    "-r",
+    "raw_file",
+    default=None,
+    type=click.Path(dir_okay=False, writable=True),
+    help="Save captured packets as raw hex to FILE (RX: <hex> | RSSI: <rssi>)",
+)
+@click.option(
+    "-ascii",
+    "--ascii",
+    "ascii_file",
+    default=None,
+    type=click.Path(dir_okay=False, writable=True),
+    help="Save captured packets as decoded ASCII to FILE (RX: <ascii> | RSSI: <rssi>)",
+)
+def sniff_thread(ws, channel, device, raw_file, ascii_file):
     """Sniffing Thread with Sniffer TI firmware"""
     flasher = Flasher()
     dev = get_device_or_exit(device)
@@ -749,7 +792,18 @@ def sniff_thread(ws, channel, device):
     send_identify_command(dev)
 
     print_info(f"[{dev}] Sniffing Thread at channel: {channel}")
-    run_bridge(dev, channel, ws, profile="Thread")
+    if raw_file:
+        print_dim(f"Raw log:          {raw_file}")
+    if ascii_file:
+        print_dim(f"ASCII log:        {ascii_file}")
+    run_bridge(
+        dev,
+        channel,
+        ws,
+        profile="Thread",
+        raw_file=raw_file,
+        ascii_file=ascii_file,
+    )
 
 
 @sniff.command(SniffingFirmware.LORA.name.lower())
@@ -804,6 +858,22 @@ def sniff_thread(ws, channel, device):
     type=click.Choice(["public", "private"]),
     help="LoRa sync word: 'public' (0x34, LoRaWAN) or 'private' (0x12). Default: private.",
 )
+@click.option(
+    "--raw",
+    "-r",
+    "raw_file",
+    default=None,
+    type=click.Path(dir_okay=False, writable=True),
+    help="Save captured packets as raw hex to FILE (RX: <hex> | RSSI: <rssi> | SNR: <snr>)",
+)
+@click.option(
+    "-ascii",
+    "--ascii",
+    "ascii_file",
+    default=None,
+    type=click.Path(dir_okay=False, writable=True),
+    help="Save captured packets as decoded ASCII to FILE (RX: <ascii> | RSSI: <rssi> | SNR: <snr>)",
+)
 def sniff_lora(
     ws,
     verbose,
@@ -814,6 +884,8 @@ def sniff_lora(
     tx_power,
     device,
     sync_word,
+    raw_file,
+    ascii_file,
 ):
     """Sniffing LoRa with Sniffer SX1262 firmware"""
     dev = get_device_or_exit(device)
@@ -828,6 +900,10 @@ def sniff_lora(
     print_dim(f"Coding Rate:      4/{coding_rate}")
     print_dim(f"TX Power:         {tx_power} dBm")
     print_dim(f"Sync Word:        {sync_word}")
+    if raw_file:
+        print_dim(f"Raw log:          {raw_file}")
+    if ascii_file:
+        print_dim(f"ASCII log:        {ascii_file}")
 
     run_sx_bridge(
         dev,
@@ -839,6 +915,8 @@ def sniff_lora(
         ws,
         verbose,
         sync_word,
+        raw_file,
+        ascii_file,
     )
 
 

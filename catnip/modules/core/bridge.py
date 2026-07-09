@@ -46,6 +46,62 @@ _IGNORE_PREFIXES = (b"LoRa Control Port", b"LoRa mode set")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Packet logging (shared by all sniff bridges)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class PacketLogWriter:
+    """Append captured packets to raw-hex and/or decoded-ASCII log files.
+
+    Both destinations are optional. Every line has the shape:
+
+        RX: <payload> | <meta>
+
+    where ``<payload>`` is either the hex dump (raw file) or the printable
+    ASCII rendering (ascii file), and ``<meta>`` is a protocol-specific tail.
+    The metadata is passed in per packet by the caller, so each protocol logs
+    only the fields that make sense for it — e.g. ``RSSI: -30 | SNR: 7`` for
+    LoRa but just ``RSSI: -45`` for Zigbee/Thread (802.15.4 has no SNR).
+    If ``meta`` is empty the trailing separator is omitted.
+    """
+
+    def __init__(self, raw_file: str = None, ascii_file: str = None):
+        self.raw_fh = open(raw_file, "a", encoding="ascii") if raw_file else None
+        self.ascii_fh = open(ascii_file, "a", encoding="ascii") if ascii_file else None
+        if self.raw_fh:
+            print_success(f"Logging raw hex to {raw_file}")
+        if self.ascii_fh:
+            print_success(f"Logging ASCII to {ascii_file}")
+
+    @property
+    def enabled(self) -> bool:
+        return self.raw_fh is not None or self.ascii_fh is not None
+
+    @staticmethod
+    def _to_ascii(payload: bytes) -> str:
+        return "".join(chr(b) if 32 <= b < 127 else "." for b in payload)
+
+    def write(self, payload: bytes, meta: str = "") -> None:
+        if not self.enabled:
+            return
+        suffix = f" | {meta}" if meta else ""
+        if self.raw_fh:
+            self.raw_fh.write(f"RX: {payload.hex()}{suffix}\n")
+            self.raw_fh.flush()
+        if self.ascii_fh:
+            self.ascii_fh.write(f"RX: {self._to_ascii(payload)}{suffix}\n")
+            self.ascii_fh.flush()
+
+    def close(self) -> None:
+        for fh in (self.raw_fh, self.ascii_fh):
+            if fh:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Internal helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -134,6 +190,8 @@ def run_sx_bridge(
     wireshark: bool = False,
     verbose: bool = False,
     sync_word: str = "private",
+    raw_file: str = None,
+    ascii_file: str = None,
 ):
     """
     Run the LoRa sniffer bridge for the unified RP2040 firmware.
@@ -161,6 +219,8 @@ def run_sx_bridge(
         tx_power:      dBm.
         wireshark:     Launch Wireshark when True.
         verbose:       Show packet output in terminal when True.
+        raw_file:      Path to append packets as raw hex, or None to disable.
+        ascii_file:    Path to append packets as decoded ASCII, or None to disable.
     """
 
     # ── 1. Validate ports ────────────────────────────────────────────────────
@@ -258,6 +318,9 @@ def run_sx_bridge(
     if show_output:
         print_success("Capture running — press Ctrl+C to stop")
 
+    # ── Open log files (append) if requested ──────────────────────────────────
+    log_writer = PacketLogWriter(raw_file, ascii_file)
+
     header_written = False
     packet_count = 0
     error_count = 0
@@ -290,6 +353,13 @@ def run_sx_bridge(
                 pipe.write_packet(packet.pcap)
                 packet_count += 1
 
+                # Persist only the relevant fields to the log file(s).
+                # LoRa carries both RSSI and SNR.
+                log_writer.write(
+                    packet.payload,
+                    meta=f"RSSI: {int(packet.rssi)} | SNR: {int(packet.snr)}",
+                )
+
                 if show_output:
                     ascii_str = "".join(
                         chr(b) if 32 <= b < 127 else "." for b in packet.payload
@@ -317,6 +387,7 @@ def run_sx_bridge(
         )
     finally:
         _keepalive_stop.set()
+        log_writer.close()
         _stop_lora_capture(shell, lora, pipe)
 
 
@@ -330,8 +401,19 @@ def run_bridge(
     channel: int = 11,
     wireshark: bool = False,
     profile: str = None,
+    raw_file: str = None,
+    ascii_file: str = None,
 ):
-    """Run TI sniffer bridge for Zigbee/Thread."""
+    """Run TI sniffer bridge for Zigbee/Thread.
+
+    Args:
+        device:     CatSnifferDevice with bridge_port.
+        channel:    IEEE 802.15.4 channel (11-26).
+        wireshark:  Launch Wireshark when True.
+        profile:    Wireshark profile name.
+        raw_file:   Path to append packets as raw hex, or None to disable.
+        ascii_file: Path to append packets as decoded ASCII, or None to disable.
+    """
     pipe = WindowsPipe() if platform.system() == "Windows" else UnixPipe()
     opening_worker = threading.Thread(target=pipe.open, daemon=True)
 
@@ -351,7 +433,17 @@ def run_bridge(
         print_info("Waiting for Wireshark to open the pipe...")
         pipe.ready_event.wait()
 
+    # ── Open log files (append) if requested ──────────────────────────────────
+    log_writer = PacketLogWriter(raw_file, ascii_file)
+
+    # Show packets in the terminal when Wireshark is not driving the capture,
+    # mirroring the LoRa bridge behaviour.
+    show_output = not wireshark
+    if show_output:
+        print_success("Capture running — press Ctrl+C to stop")
+
     header_flag = False
+    packet_count = 0
 
     while True:
         try:
@@ -363,9 +455,28 @@ def run_bridge(
                         header_flag = True
                         pipe.write_packet(get_global_header())
                     pipe.write_packet(ti_packet.pcap)
+                    packet_count += 1
+
+                    # 802.15.4 (Zigbee/Thread) carries RSSI but no SNR; the TI
+                    # firmware reports RSSI as a signed 8-bit dBm value.
+                    rssi = ti_packet.rssi
+                    rssi = rssi - 256 if rssi > 127 else rssi
+
+                    # Persist only the relevant fields to the log file(s).
+                    log_writer.write(ti_packet.payload, meta=f"RSSI: {rssi}")
+
+                    # Terminal output: hex only (no ASCII), unlike LoRa.
+                    if show_output:
+                        console.print(
+                            f"[green]  [{packet_count:>5}][/green] "
+                            f"len={len(ti_packet.payload):>4}B  "
+                            f"RSSI={rssi:>4} dBm\n"
+                            f"         hex={ti_packet.payload.hex()}"
+                        )
             time.sleep(0.1)
         except KeyboardInterrupt:
-            print_info("Stopping TI capture...")
+            print_info(f"Stopping TI capture — {packet_count} packet(s)")
+            log_writer.close()
             pipe.remove()
             opening_worker.join(timeout=1)
             serial_worker.write(snifferTICmd.stop())
