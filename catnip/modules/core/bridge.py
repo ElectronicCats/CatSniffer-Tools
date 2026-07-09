@@ -436,7 +436,14 @@ def run_bridge(
     # ── Open log files (append) if requested ──────────────────────────────────
     log_writer = PacketLogWriter(raw_file, ascii_file)
 
+    # Show packets in the terminal when Wireshark is not driving the capture,
+    # mirroring the LoRa bridge behaviour.
+    show_output = not wireshark
+    if show_output:
+        print_success("Capture running — press Ctrl+C to stop")
+
     header_flag = False
+    packet_count = 0
 
     while True:
         try:
@@ -448,17 +455,28 @@ def run_bridge(
                         header_flag = True
                         pipe.write_packet(get_global_header())
                     pipe.write_packet(ti_packet.pcap)
+                    packet_count += 1
 
-                    # Persist only the relevant fields to the log file(s).
                     # 802.15.4 (Zigbee/Thread) carries RSSI but no SNR; the TI
                     # firmware reports RSSI as a signed 8-bit dBm value.
-                    if log_writer.enabled:
-                        rssi = ti_packet.rssi
-                        rssi = rssi - 256 if rssi > 127 else rssi
-                        log_writer.write(ti_packet.payload, meta=f"RSSI: {rssi}")
+                    rssi = ti_packet.rssi
+                    rssi = rssi - 256 if rssi > 127 else rssi
+
+                    # Persist only the relevant fields to the log file(s).
+                    log_writer.write(ti_packet.payload, meta=f"RSSI: {rssi}")
+
+                    # Terminal output: ASCII only (no hex), unlike LoRa.
+                    if show_output:
+                        ascii_str = PacketLogWriter._to_ascii(ti_packet.payload)
+                        console.print(
+                            f"[green]  [{packet_count:>5}][/green] "
+                            f"len={len(ti_packet.payload):>4}B  "
+                            f"RSSI={rssi:>4} dBm\n"
+                            f"         ascii=[italic]{ascii_str}[/italic]"
+                        )
             time.sleep(0.1)
         except KeyboardInterrupt:
-            print_info("Stopping TI capture...")
+            print_info(f"Stopping TI capture — {packet_count} packet(s)")
             log_writer.close()
             pipe.remove()
             opening_worker.join(timeout=1)
