@@ -465,14 +465,13 @@ def run_bridge(
                     # Persist only the relevant fields to the log file(s).
                     log_writer.write(ti_packet.payload, meta=f"RSSI: {rssi}")
 
-                    # Terminal output: ASCII only (no hex), unlike LoRa.
+                    # Terminal output: hex only (no ASCII), unlike LoRa.
                     if show_output:
-                        ascii_str = PacketLogWriter._to_ascii(ti_packet.payload)
                         console.print(
                             f"[green]  [{packet_count:>5}][/green] "
                             f"len={len(ti_packet.payload):>4}B  "
                             f"RSSI={rssi:>4} dBm\n"
-                            f"         ascii=[italic]{ascii_str}[/italic]"
+                            f"         hex={ti_packet.payload.hex()}"
                         )
             time.sleep(0.1)
         except KeyboardInterrupt:
