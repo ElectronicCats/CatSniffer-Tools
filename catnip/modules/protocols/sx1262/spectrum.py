@@ -100,18 +100,48 @@ class SpectrumScan:
                 except (ValueError, IndexError) as e:
                     LOG_WARNING(f"Malformed SCAN frame: {plot_data!r} ({e})")
 
+    def __firmware_supports_scan(self):
+        """
+        Check that the flashed firmware understands the spectral scan protocol.
+
+        The unified catnip_v3 shell answers "Unknown command" to set_start_freq:
+        the scan lives only in the dedicated spectrum-analyzer firmware.  Without
+        this check the scan would silently sit on an empty port, printing
+        "No data received" behind a plot window that never fills in.
+        """
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            try:
+                line = self.device_uart.readline().decode("utf-8", errors="ignore")
+            except (OSError, TypeError, AttributeError):
+                return True  # let the reader thread report the real failure
+            if "Unknown command" in line:
+                LOG_ERROR(
+                    "This firmware does not support the spectral scan "
+                    "(the shell rejected 'set_start_freq')."
+                )
+                LOG_INFO(
+                    "The scan requires the dedicated SX1262 spectrum-analyzer "
+                    "firmware, not the unified catnip_v3 shell firmware."
+                )
+                return False
+        return True
+
     def on_close(self, event):
         self.recv_running = False
 
     def stop_task(self):
         self.recv_running = False
+        # Let the reader thread leave readline() before closing the port:
+        # closing it under a blocked read leaves pyserial with fd=None and the
+        # pending os.read() raises TypeError inside the thread.
+        if threading.current_thread() is not self.recv_worker:
+            if self.recv_worker and self.recv_worker.is_alive():
+                self.recv_worker.join(timeout=3)
         if self.device_uart and self.device_uart.is_open:
             self.device_uart.reset_input_buffer()
             self.device_uart.reset_output_buffer()
             self.device_uart.close()
-        if threading.current_thread() is not self.recv_worker:
-            if self.recv_worker and self.recv_worker.is_alive():
-                self.recv_worker.join(timeout=2)
 
     def recv_task(self):
         while self.recv_running:
@@ -137,6 +167,11 @@ class SpectrumScan:
                 )
                 LOG_ERROR(e)
                 continue
+            except (OSError, TypeError, AttributeError) as e:
+                # Port closed (or closing) underneath the blocked read.
+                if self.recv_running:
+                    LOG_ERROR(f"Serial read failed: {e}")
+                break
 
         self.stop_task()
 
@@ -230,6 +265,11 @@ class SpectrumScan:
 
         self.device_uart.write("stop\r\n".encode())
         self.device_uart.write(f"set_start_freq {self.start_freq}\r\n".encode())
+
+        if not self.__firmware_supports_scan():
+            self.stop_task()
+            return False
+
         self.device_uart.write(f"set_end_freq {self.end_freq}\r\n".encode())
         self.device_uart.write("start\r\n".encode())
 
