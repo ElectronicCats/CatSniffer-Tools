@@ -1802,10 +1802,12 @@ def lora_spectrum(device, baudrate, start_freq, end_freq, offset):
     # Get device or exit with error
     dev = get_device_or_exit(device)
 
-    # Use the LoRa port from the device
-    port = dev.lora_port
+    # The spectral scan is driven by the RP2040 text shell (CDC2), not the
+    # LoRa data stream: it sends set_start_freq/set_end_freq/start and reads
+    # back the FREQ/SCAN frames on that same port.
+    port = dev.shell_port
     if not port:
-        print_error("LoRa port not found for device!")
+        print_error("Shell port not found for device! Required for spectrum scan.")
         return
 
     print_info(f"Using device: {dev}")
