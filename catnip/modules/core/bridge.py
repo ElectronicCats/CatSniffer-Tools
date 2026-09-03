@@ -2,6 +2,7 @@ import time
 import threading
 import platform
 import struct
+import serial
 
 # Internal
 from .catnip import (
@@ -11,7 +12,7 @@ from .catnip import (
     LoRaConnection,
 )
 from .pipes import UnixPipe, WindowsPipe, Wireshark
-from protocol.sniffer_sx import SnifferSx
+from protocol.sniffer_sx import SnifferSx, LORATAP_DLT
 from protocol.sniffer_ti import SnifferTI, PacketCategory
 from protocol.common import START_OF_FRAME, END_OF_FRAME, get_global_header
 
@@ -236,7 +237,7 @@ def run_sx_bridge(
     threading.Thread(target=pipe.open, daemon=True).start()
 
     if wireshark:
-        Wireshark().run()
+        Wireshark().start()
 
     # ── 3. Open shell and configure ───────────────────────────────────────────
     shell = ShellConnection(port=device.shell_port)
@@ -309,6 +310,7 @@ def run_sx_bridge(
         "bandwidth": bandwidth,
         "spread_factor": spread_factor,
         "coding_rate": coding_rate,
+        "sync_word": sync_word,
     }
 
     # Determine if we should show verbose output
@@ -327,9 +329,18 @@ def run_sx_bridge(
 
     try:
         while True:
+            # Check if connection is still alive before reading
+            if not lora.connection or not lora.connection.is_open:
+                print_warning("LoRa port closed — device disconnected")
+                break
+
             # readline() returns when it sees \n or after the serial timeout.
             # LoRaConnection.STREAM_TIMEOUT = 0.5 s, so this never blocks long.
-            raw = lora.connection.readline()
+            try:
+                raw = lora.connection.readline()
+            except serial.SerialException as exc:
+                print_warning(f"Serial error (device disconnected?): {exc}")
+                break
 
             if not raw:
                 continue
@@ -347,7 +358,7 @@ def run_sx_bridge(
                 packet = snifferSx.Packet(raw, context=lora_context)
 
                 if not header_written:
-                    pipe.write_packet(get_global_header(148))
+                    pipe.write_packet(get_global_header(LORATAP_DLT))
                     header_written = True
 
                 pipe.write_packet(packet.pcap)
@@ -418,7 +429,7 @@ def run_bridge(
     opening_worker = threading.Thread(target=pipe.open, daemon=True)
 
     if wireshark:
-        Wireshark(profile=profile).run()
+        Wireshark(profile=profile).start()
 
     opening_worker.start()
 
@@ -447,7 +458,17 @@ def run_bridge(
 
     while True:
         try:
-            data = serial_worker.read_until((END_OF_FRAME + START_OF_FRAME))
+            # Check if connection is still alive before reading
+            if not serial_worker.connection or not serial_worker.connection.is_open:
+                print_warning("Serial port closed — device disconnected")
+                break
+
+            try:
+                data = serial_worker.read_until((END_OF_FRAME + START_OF_FRAME))
+            except serial.SerialException as exc:
+                print_warning(f"Serial error (device disconnected?): {exc}")
+                break
+
             if data:
                 ti_packet = sniffer.Packet((START_OF_FRAME + data), channel)
                 if ti_packet.category == PacketCategory.DATA_STREAMING_AND_ERROR.value:
@@ -505,7 +526,7 @@ def run_sx_bridge_legacy(
     pipe = WindowsPipe() if platform.system() == "Windows" else UnixPipe()
     threading.Thread(target=pipe.open, daemon=True).start()
     if wireshark:
-        Wireshark().run()
+        Wireshark().start()
     serial_worker.connect()
 
     serial_worker.write(bytes(f"set_freq {frequency}\r\n", "utf-8"))
@@ -524,7 +545,17 @@ def run_sx_bridge_legacy(
 
     while True:
         try:
-            data = serial_worker.readline()
+            # Check if connection is still alive before reading
+            if not serial_worker.connection or not serial_worker.connection.is_open:
+                print_warning("Serial port closed — device disconnected")
+                break
+
+            try:
+                data = serial_worker.readline()
+            except serial.SerialException as exc:
+                print_warning(f"Serial error (device disconnected?): {exc}")
+                break
+
             if data and data.startswith(START_OF_FRAME):
                 packet = snifferSx.Packet(
                     (START_OF_FRAME + data),
@@ -533,11 +564,12 @@ def run_sx_bridge_legacy(
                         "bandwidth": bandwidth,
                         "spread_factor": spread_factor,
                         "coding_rate": coding_rate,
+                        "sync_word": sync_word,
                     },
                 )
                 if not header_flag:
                     header_flag = True
-                    pipe.write_packet(get_global_header(148))
+                    pipe.write_packet(get_global_header(LORATAP_DLT))
                 pipe.write_packet(packet.pcap)
             time.sleep(0.5)
         except KeyboardInterrupt:
