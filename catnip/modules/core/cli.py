@@ -2247,7 +2247,7 @@ def completion_install(shell):
             text=True,
         )
         script = result.stdout
-    except Exception as e:
+    except OSError as e:
         print_error(f"Failed to generate completion script: {e}")
         sys.exit(1)
 
@@ -2257,6 +2257,8 @@ def completion_install(shell):
             "Make sure you are running this command via:\n"
             f"  python {script_abs} completion install"
         )
+        if result.stderr.strip():
+            print_dim(result.stderr.strip())
         sys.exit(1)
 
     # ------------------------------------------------------------------ #
@@ -2309,14 +2311,22 @@ def completion_install(shell):
         script += extra
 
     elif shell == "bash":
-        # Click 8 emits:  _CATNIP_COMPLETE=bash_complete catnip
+        # Click <=8.0 emits:  _CATNIP_COMPLETE=bash_complete catnip
+        # Click >=8.1 emits:  _CATNIP_COMPLETE=bash_complete $1
         script = script.replace(
             f"{env_var}=bash_complete catnip", f"{env_var}=bash_complete {cmd_to_call}"
         )
-        # Register for both 'catnip' and 'catnip.py'
+        script = script.replace(
+            f"{env_var}=bash_complete $1", f"{env_var}=bash_complete {cmd_to_call}"
+        )
+        # Register for both 'catnip' and 'catnip.py' (Click 8.1 adds -o nosort)
         script = script.replace(
             "complete -F _catnip_completion catnip",
             "complete -F _catnip_completion catnip catnip.py",
+        )
+        script = script.replace(
+            "complete -o nosort -F _catnip_completion catnip",
+            "complete -o nosort -F _catnip_completion catnip catnip.py",
         )
         # Append a wrapper that intercepts 'python catnip.py <TAB>'
         extra = (
@@ -2339,23 +2349,48 @@ def completion_install(shell):
         script += extra
 
     elif shell == "fish":
-        # Fish uses a different mechanism; just replace the bare program name
+        # Fish uses a different mechanism; just replace the bare program name.
+        # Click <=8.0 puts it right after the env var, >=8.1 after COMP_CWORD.
         script = script.replace(
             f"{env_var}=fish_complete catnip", f"{env_var}=fish_complete {cmd_to_call}"
         )
+        script = script.replace(
+            "COMP_CWORD=(commandline -t) catnip)",
+            f"COMP_CWORD=(commandline -t) {cmd_to_call})",
+        )
+        # Also complete when invoked as './catnip.py'
+        script += (
+            "\ncomplete --no-files --command catnip.py "
+            '--arguments "(_catnip_completion)"\n'
+        )
 
     # Write script
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(script)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(script, encoding="utf-8")
+    except OSError as e:
+        print_error(f"could not write completion script to {target}: {e}")
+        sys.exit(1)
     print_success(f"Completion script written to: {target}")
 
     # zsh needs fpath entry in .zshrc
     if rc_note:
         zshrc = Path.home() / ".zshrc"
-        existing = zshrc.read_text() if zshrc.exists() else ""
+        try:
+            existing = zshrc.read_text(encoding="utf-8") if zshrc.exists() else ""
+        except OSError as e:
+            print_error(f"could not read {zshrc}: {e}")
+            sys.exit(1)
         if "~/.zfunc" not in existing and ".zfunc" not in existing:
-            with zshrc.open("a") as f:
-                f.write(f"\n# catnip tab completion\n{rc_note}\n")
+            try:
+                if zshrc.exists():
+                    backup = zshrc.with_name(".zshrc.bak-catnip")
+                    backup.write_text(existing, encoding="utf-8")
+                with zshrc.open("a", encoding="utf-8") as f:
+                    f.write(f"\n# catnip tab completion\n{rc_note}\n")
+            except OSError as e:
+                print_error(f"could not update {zshrc}: {e}")
+                sys.exit(1)
             print_success(f"Added fpath entry to {zshrc}")
         else:
             print_dim("~/.zfunc already in fpath — skipping .zshrc edit")
