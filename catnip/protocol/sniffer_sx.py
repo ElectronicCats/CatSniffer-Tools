@@ -4,6 +4,18 @@ import time
 from .common import *
 
 
+# pcap linktype 270 = LORATAP, a link type Wireshark can dissect natively
+# (built-in packet-loratap.c), unlike the previous private/USER1 (148) format
+# which Wireshark has no dissector for and just shows as raw "Packet" bytes.
+LORATAP_DLT = 270
+
+# loratap.channel.bandwidth is an enum, not the raw kHz value
+_LORATAP_BANDWIDTH = {125: 1, 250: 2, 500: 4}
+
+# loratap.syncword: 0x12 = private LoRa, 0x34 = LoRaWAN
+_LORATAP_SYNCWORD = {"private": 0x12, "public": 0x34}
+
+
 class LoRaShellCommands:
     """Shell commands for LoRa configuration via Cat-Shell port."""
 
@@ -189,22 +201,30 @@ class SnifferSx:
 
         def _build_pcap(self) -> None:
             """
-            Build a PCAP record for Wireshark's LoRa dissector (link-type 148).
+            Build a PCAP record using Wireshark's built-in LoRaTap header
+            (link-type 270), so frequency/bandwidth/SF/RSSI/SNR/sync word show
+            up in the packet details pane instead of raw undissected bytes.
             """
-            freq_mhz = self.context["frequency"] // 1_000_000
+            bandwidth_enum = _LORATAP_BANDWIDTH.get(self.context["bandwidth"], 1)
+            sync_word = _LORATAP_SYNCWORD.get(
+                self.context.get("sync_word", "private"), 0x12
+            )
+
+            # loratap.rssi.* are stored as (dBm + 139), clamped to a byte
+            rssi_byte = max(0, min(255, round(self.rssi) + 139))
+            # loratap.rssi.snr is stored as (dB * 4) in a signed byte
+            snr_byte = max(-128, min(127, round(self.snr * 4))) & 0xFF
 
             header = (
-                b"\x00"  # version
-                + self.length.to_bytes(2, "little")  # payload length
-                + b"\x03\x00"  # interface ID
-                + b"\x05"  # protocol
-                + b"\x06"  # PHY
-                + freq_mhz.to_bytes(4, "little")  # frequency MHz
-                + self.context["bandwidth"].to_bytes(1, "little")
-                + self.context["spread_factor"].to_bytes(1, "little")
-                + self.context["coding_rate"].to_bytes(1, "little")
-                + struct.pack("<f", self.rssi)
-                + struct.pack("<f", self.snr)
+                struct.pack(">BBH", 0, 0, 15)  # version, padding, header_length
+                + struct.pack(
+                    ">IBB",
+                    self.context["frequency"],
+                    bandwidth_enum,
+                    self.context["spread_factor"],
+                )
+                + struct.pack(">BBBB", rssi_byte, rssi_byte, rssi_byte, snr_byte)
+                + struct.pack(">B", sync_word)
             )
 
             pcap_record = Pcap(header + self.payload, time.time())
