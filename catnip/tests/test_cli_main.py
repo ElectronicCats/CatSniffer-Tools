@@ -13,8 +13,8 @@ sharp edge in two directions, so both are pinned here:
 * a value *returned* by a command now becomes its exit code, where Click used
   to discard it -- see ``test_no_cli_command_returns_a_value``.
 
-``tests/test_catsniffer.py::TestCLISubprocess`` covers the same ground through
-real subprocesses; these tests are the fast, hermetic half.
+The hermetic tests below stub ``build_cli``; ``TestEntryPointSubprocess`` at
+the end of this file covers the same contract through a real process.
 """
 
 import ast
@@ -207,3 +207,25 @@ def test_no_cli_command_returns_a_value(path):
     """
     offenders = [f"{path.name}:{lineno} in {name}" for name, lineno in _returns_a_value(path)]
     assert not offenders, f"Click callbacks returning a value: {offenders}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The same contract, through a real process
+#
+# Moved here from ``TestCLISubprocess`` in ``tests/test_catsniffer.py``
+# (BOMBERCAT_PARITY.md section 4).  The tests above stub ``build_cli``; these
+# run the binary users actually run, so they also cover the header, the entry
+# point in ``catnip.py`` and Click's own rendering.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.slow
+class TestEntryPointSubprocess:
+    def test_help_exits_zero(self, run_catnip):
+        result = run_catnip("--help")
+        assert result.returncode == 0
+        assert "Usage" in result.stdout or "usage" in result.stdout.lower()
+
+    def test_unknown_command(self, run_catnip):
+        result = run_catnip("nope_command")
+        assert result.returncode != 0

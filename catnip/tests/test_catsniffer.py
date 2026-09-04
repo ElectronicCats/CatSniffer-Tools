@@ -4,7 +4,7 @@ test_catnip.py
 Test suite for the CatSniffer CLI.
 
 Covers:
-  - CLI (catnip.py): flash, sniff, devices, verify, cativity commands
+  - modules/protocols/meshtastic: decoding and live decoder
   - modules/core/extcap.py: find_putty_path
   - modules/core/device_utils.py: get_device_or_exit
   - modules/flasher.py: CCLoader, Flasher.find_flash_firmware
@@ -18,6 +18,9 @@ Run with:
 
 Note: No physical hardware required. All serial/USB/network access
       is replaced with mocks.
+
+The CLI commands themselves are tested per module in tests/test_cli_*.py;
+see BOMBERCAT_PARITY.md section 4.
 """
 
 import io
@@ -977,89 +980,6 @@ class TestGetDeviceOrExit:
         ):
             dev = get_device_or_exit(device_id=1)
         assert dev is fake_device
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  5.  High-level CLI: catnip.py (subprocess invocation)
-# ═════════════════════════════════════════════════════════════════════════════
-
-
-class TestCLISubprocess:
-    """
-    Verifies CLI behavior by running it as an external process.
-    Only checks exit codes and basic messages; no hardware required.
-    """
-
-    def _run(self, *args, timeout=10):
-        import subprocess
-
-        cmd = [sys.executable, os.path.join(PROJECT_ROOT, "catnip.py")] + list(args)
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=PROJECT_ROOT,
-        )
-        return result
-
-    def test_help_exits_zero(self):
-        result = self._run("--help")
-        assert result.returncode == 0
-        assert "Usage" in result.stdout or "usage" in result.stdout.lower()
-
-    def test_flash_help(self):
-        result = self._run("flash", "--help")
-        assert result.returncode == 0
-
-    def test_flash_no_firmware_exits_nonzero(self):
-        result = self._run("flash")
-        # Without firmware should exit with error
-        assert result.returncode != 0 or "No firmware" in result.stdout + result.stderr
-
-    def test_flash_list_no_device_needed(self):
-        """--list only reads local files, no hardware needed."""
-        result = self._run("flash", "--list")
-        # May fail if no releases, but shouldn't crash with traceback
-        assert "Traceback" not in result.stderr or result.returncode == 0
-
-    def test_devices_no_devices_connected(self):
-        result = self._run("devices")
-        # Without hardware should indicate no devices
-        assert (
-            result.returncode == 0 or "No CatSniffer" in result.stdout + result.stderr
-        )
-
-    def test_verify_no_device(self):
-        result = self._run("verify", "--device", "99")
-        # Check if command either:
-        # 1. Returns non-zero exit code, OR
-        # 2. Returns zero exit code but shows "No device found" message
-        assert (
-            result.returncode != 0
-            or "No CatSniffer device found!" in result.stdout + result.stderr
-            or "not found" in result.stdout + result.stderr
-        )
-
-    def test_sniff_missing_required_args(self):
-        result = self._run("sniff")
-        # Should ask for arguments or show error
-        assert result.returncode != 0 or "Error" in result.stdout + result.stderr
-
-    def test_unknown_command(self):
-        result = self._run("nope_command")
-        assert result.returncode != 0
-
-    def test_flash_invalid_device_id(self):
-        result = self._run("flash", "--device", "9999", "ble")
-        assert result.returncode != 0 or "not found" in result.stdout + result.stderr
-
-    def test_verify_device_flag(self):
-        result = self._run("verify", "--device", "99")
-        assert (
-            result.returncode != 0
-            or "No CatSniffer device(s) found" in result.stdout + result.stderr
-        )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
