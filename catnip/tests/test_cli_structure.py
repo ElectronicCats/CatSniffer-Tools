@@ -39,8 +39,14 @@ from modules.core.cli import build_cli
 EXPECTED_PARAMS = {
     "catnip": ["--verbose", "-v"],
     "catnip cativity": [
-        "--channel", "--device", "--protocol", "--topology",
-        "-c", "-d", "-p", "-t",
+        "--channel",
+        "--device",
+        "--protocol",
+        "--topology",
+        "-c",
+        "-d",
+        "-p",
+        "-t",
     ],
     "catnip completion": [],
     "catnip completion install": ["--shell"],
@@ -49,41 +55,95 @@ EXPECTED_PARAMS = {
     "catnip identify": ["--device", "-d"],
     "catnip lora": [],
     "catnip lora spectrum": [
-        "--baudrate", "--device", "--end-freq", "--offset", "--start-freq",
-        "-b", "-d",
+        "--baudrate",
+        "--device",
+        "--end-freq",
+        "--offset",
+        "--start-freq",
+        "-b",
+        "-d",
     ],
     "catnip meshtastic": [],
     "catnip meshtastic config": ["<file>"],
     "catnip meshtastic dashboard": [
-        "--baudrate", "--device", "--frequency", "--preset",
-        "-baud", "-d", "-f", "-ps",
+        "--baudrate",
+        "--device",
+        "--frequency",
+        "--preset",
+        "-baud",
+        "-d",
+        "-f",
+        "-ps",
     ],
     "catnip meshtastic decode": ["--input", "--key", "-i", "-k"],
     "catnip meshtastic live": [
-        "--baudrate", "--device", "--frequency", "--preset",
-        "-baud", "-d", "-f", "-ps",
+        "--baudrate",
+        "--device",
+        "--frequency",
+        "--preset",
+        "-baud",
+        "-d",
+        "-f",
+        "-ps",
     ],
     "catnip restore": ["--device", "--tapid", "-d", "<firmware>"],
     "catnip setup-env": [],
     "catnip sniff": ["--verbose", "-v"],
     "catnip sniff airtag_scanner": ["--device", "--putty", "-d"],
     "catnip sniff ble": [
-        "--channel", "--device", "--mode", "--wireshark",
-        "-c", "-d", "-m", "-ws",
+        "--channel",
+        "--device",
+        "--mode",
+        "--wireshark",
+        "-c",
+        "-d",
+        "-m",
+        "-ws",
     ],
     "catnip sniff lora": [
-        "--ascii", "--bandwidth", "--coding_rate", "--device", "--frequency",
-        "--raw", "--spread_factor", "--sync-word", "--tx_power", "--verbose",
-        "-ascii", "-bw", "-cr", "-d", "-freq", "-pw", "-r", "-sf", "-sw",
-        "-v", "-ws",
+        "--ascii",
+        "--bandwidth",
+        "--coding_rate",
+        "--device",
+        "--frequency",
+        "--raw",
+        "--spread_factor",
+        "--sync-word",
+        "--tx_power",
+        "--verbose",
+        "-ascii",
+        "-bw",
+        "-cr",
+        "-d",
+        "-freq",
+        "-pw",
+        "-r",
+        "-sf",
+        "-sw",
+        "-v",
+        "-ws",
     ],
     "catnip sniff thread": [
-        "--ascii", "--channel", "--device", "--raw",
-        "-ascii", "-c", "-d", "-r", "-ws",
+        "--ascii",
+        "--channel",
+        "--device",
+        "--raw",
+        "-ascii",
+        "-c",
+        "-d",
+        "-r",
+        "-ws",
     ],
     "catnip sniff zigbee": [
-        "--ascii", "--channel", "--device", "--raw",
-        "-ascii", "-c", "-d", "-r", "-ws",
+        "--ascii",
+        "--channel",
+        "--device",
+        "--raw",
+        "-ascii",
+        "-c",
+        "-d",
+        "-r",
+        "-ws",
     ],
     "catnip update": ["--device", "--force", "-d", "-f"],
     "catnip verify": ["--device", "--quiet", "--test-all", "-d", "-q"],
@@ -183,7 +243,7 @@ def test_group_and_command_kinds_are_preserved(path):
 def test_every_command_has_help_text(path):
     """``catnip --help`` lists commands by their docstring; none may be blank."""
     command = _actual_tree()[path]
-    assert (command.help or command.short_help), f"{path!r} has no help text"
+    assert command.help or command.short_help, f"{path!r} has no help text"
 
 
 @pytest.mark.unit
@@ -221,16 +281,26 @@ def test_every_package_under_modules_has_an_init():
 def test_feature_cli_modules_do_not_import_core_cli():
     """Invariant §2.3: the dependency between CLI modules only points one way.
 
-    ``core/cli.py`` imports the feature ``cli.py`` modules.  If one of them
-    imports back from ``modules.core.cli`` the result is an import cycle;
-    shared helpers belong in a Click-free module instead.
+    ``core/cli.py`` imports the feature CLI modules.  If one of them imports
+    back from ``modules.core.cli`` the result is an import cycle; shared
+    helpers belong in a Click-free module instead.
+
+    Covers both layouts in use: ``modules/<feature>/cli.py`` and the
+    ``modules/protocols/cli/<protocol>.py`` subpackage, which exists because
+    the protocol packages' own ``__init__.py`` eagerly import matplotlib, the
+    ``meshtastic`` library and ``fcntl``.
     """
+    candidates = set(_MODULES_DIR.rglob("cli.py"))
+    candidates |= set((_MODULES_DIR / "protocols" / "cli").glob("*.py"))
     offenders = []
-    for path in sorted(_MODULES_DIR.rglob("cli.py")):
+    for path in sorted(candidates):
         if path == _MODULES_DIR / "core" / "cli.py":
             continue
         source = path.read_text(encoding="utf-8")
-        if re.search(r"^\s*from\s+\S*core\.cli\s+import|^\s*import\s+\S*core\.cli",
-                     source, re.MULTILINE):
+        if re.search(
+            r"^\s*from\s+\S*core\.cli\s+import|^\s*import\s+\S*core\.cli",
+            source,
+            re.MULTILINE,
+        ):
             offenders.append(str(path.relative_to(_MODULES_DIR.parent)))
     assert not offenders, f"modules importing from core.cli: {offenders}"
