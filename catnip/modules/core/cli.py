@@ -582,8 +582,8 @@ def sniff(verbose):
     help="Sniffle mode",
 )
 def sniff_ble(device, wireshark, channel, mode):
-    flasher = Flasher()
     """Sniffing BLE with Sniffle firmware"""
+    flasher = Flasher()
     dev = get_device_or_exit(device)
 
     # Verify firmware
@@ -2466,10 +2466,12 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="00c0", MODE="0660"
     print_info("Please log out and log back in for group changes to take effect.")
 
 
-def main_cli() -> None:
-    if not os.environ.get("_CATNIP_COMPLETE"):
-        module = next((a for a in sys.argv[1:] if not a.startswith("-")), None)
-        print_header(module)
+def build_cli() -> click.Group:
+    """Register every command on the root group and return it assembled.
+
+    Kept apart from :func:`main_cli` so the command tree can be inspected
+    without running it (tests, snapshot dumps).
+    """
     cli.add_command(sniff)
     cli.add_command(cativity)
     cli.add_command(meshtastic)
@@ -2481,4 +2483,11 @@ def main_cli() -> None:
     cli.add_command(verify)
     if platform.system() in ["Linux", "Darwin"]:
         cli.add_command(completion)
-    cli(prog_name="catnip")
+    return cli
+
+
+def main_cli() -> None:
+    if not os.environ.get("_CATNIP_COMPLETE"):
+        module = next((a for a in sys.argv[1:] if not a.startswith("-")), None)
+        print_header(module)
+    build_cli()(prog_name="catnip")
