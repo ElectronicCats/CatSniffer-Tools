@@ -22,8 +22,8 @@ import pytest
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, PROJECT_ROOT)
 
-from modules import board as board_mod  # noqa: E402
-from modules.board import (  # noqa: E402
+from modules.firmware import board as board_mod  # noqa: E402
+from modules.firmware.board import (  # noqa: E402
     BOARD_V2,
     BOARD_V3,
     board_for_chip_size,
@@ -32,7 +32,7 @@ from modules.board import (  # noqa: E402
     image_variant,
     parse_board_line,
 )
-from modules import fw_aliases  # noqa: E402
+from modules.firmware import fw_aliases  # noqa: E402
 
 
 V2_FW_VERSION = (
@@ -80,18 +80,18 @@ class TestDetectBoard:
         return shell
 
     def test_detects_v2(self):
-        with patch("modules.catnip.ShellConnection", return_value=self._shell(V2_FW_VERSION)):
+        with patch("modules.core.usb_connection.ShellConnection", return_value=self._shell(V2_FW_VERSION)):
             assert board_mod.detect_board("/dev/ttyACM2") is BOARD_V2
 
     def test_no_shell_port(self):
         assert board_mod.detect_board(None) is None
 
     def test_unreachable_shell_is_unknown(self):
-        with patch("modules.catnip.ShellConnection", return_value=self._shell("", connected=False)):
+        with patch("modules.core.usb_connection.ShellConnection", return_value=self._shell("", connected=False)):
             assert board_mod.detect_board("/dev/ttyACM2") is None
 
     def test_garbage_reply_is_unknown(self):
-        with patch("modules.catnip.ShellConnection", return_value=self._shell("Unknown command")):
+        with patch("modules.core.usb_connection.ShellConnection", return_value=self._shell("Unknown command")):
             assert board_mod.detect_board("/dev/ttyACM2") is None
 
 
@@ -185,13 +185,13 @@ class TestBoardCatalog:
 
 class TestFwUpdateBoardAware:
     def test_parse_fw_version_keeps_board(self):
-        from modules.fw_update import parse_fw_version_response
+        from modules.firmware.fw_update import parse_fw_version_response
 
         parsed = parse_fw_version_response(V2_FW_VERSION)
         assert parsed["board"].startswith("v2")
 
     def test_find_board_uf2_picks_board_asset(self, tmp_path):
-        from modules.fw_update import find_board_uf2
+        from modules.firmware.fw_update import find_board_uf2
 
         (tmp_path / "catsniffer-v3.1.0.0.uf2").write_bytes(b"x")
         (tmp_path / "catsniffer-v2.0.1.0.uf2").write_bytes(b"x")
@@ -201,7 +201,7 @@ class TestFwUpdateBoardAware:
         assert find_board_uf2(flasher, BOARD_V3).endswith("catsniffer-v3.1.0.0.uf2")
 
     def test_find_board_uf2_none_when_absent(self, tmp_path):
-        from modules.fw_update import find_board_uf2
+        from modules.firmware.fw_update import find_board_uf2
 
         (tmp_path / "catsniffer-v3.1.0.0.uf2").write_bytes(b"x")
         flasher = MagicMock()
@@ -210,7 +210,7 @@ class TestFwUpdateBoardAware:
 
     def test_v2_update_without_release_does_not_reboot(self):
         """A v2 with no v2 release must return False before any reboot."""
-        from modules import fw_update
+        from modules.firmware import fw_update
 
         flasher = MagicMock()
         flasher.release_tag = "v3.1.0.0"
@@ -226,7 +226,7 @@ class TestFwUpdateBoardAware:
             perform.assert_not_called()
 
     def test_perform_update_needs_confirmation(self, tmp_path):
-        from modules import fw_update
+        from modules.firmware import fw_update
 
         (tmp_path / "catsniffer-v2.0.1.0.uf2").write_bytes(b"x")
         flasher = MagicMock()
@@ -239,7 +239,7 @@ class TestFwUpdateBoardAware:
             reboot.assert_not_called()
 
     def test_perform_update_without_uf2_never_reboots(self, tmp_path):
-        from modules import fw_update
+        from modules.firmware import fw_update
 
         flasher = MagicMock()
         flasher.get_releases_path.return_value = str(tmp_path)
@@ -251,7 +251,7 @@ class TestFwUpdateBoardAware:
             reboot.assert_not_called()
 
     def test_board_mount_point_uses_volume_name(self, tmp_path):
-        from modules import fw_update
+        from modules.firmware import fw_update
 
         with patch.object(fw_update.platform, "system", return_value="Darwin"), \
              patch.object(fw_update.os.path, "exists", side_effect=lambda p: p == "/Volumes/SNIFFER"):

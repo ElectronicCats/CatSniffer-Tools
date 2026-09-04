@@ -3,7 +3,7 @@ import threading
 import queue
 import os
 import sys
-from ..catnip import Catnip, CatSnifferDevice
+from ...core.catnip import Catnip, CatSnifferDevice
 from protocol.sniffer_ti import SnifferTI, PacketCategory
 from protocol.common import START_OF_FRAME, END_OF_FRAME
 from .graphs import Graphs
@@ -57,6 +57,12 @@ class CativityRunner:
                     self.catnip.write(self.ti_cmd.config_freq(channel))
                     time.sleep(0.05)
                     self.catnip.write(self.ti_cmd.start())
+
+                    # Discard any packets still in flight from the previous
+                    # channel (received over USB after we already switched)
+                    # so they aren't misattributed to this channel's count.
+                    while not self.packet_received.empty():
+                        self.packet_received.get()
 
                     self.grapher.update_channel(channel)
                     time.sleep(CHANNEL_HOPPING_INTERVAL)

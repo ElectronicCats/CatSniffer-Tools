@@ -97,7 +97,7 @@ def detect_board(shell_port: Optional[str], timeout: float = 2.0) -> Optional[Bo
         return None
     # Imported here to keep this module importable in unit tests without
     # hardware dependencies.
-    from .catnip import ShellConnection
+    from ..core.usb_connection import ShellConnection
 
     shell = None
     try:

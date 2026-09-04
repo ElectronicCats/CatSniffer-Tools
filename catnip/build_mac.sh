@@ -4,6 +4,8 @@ set -e
 # Prerequisites (macOS): native libraries must be installed before running this script.
 #   brew install libusb libmagic
 # In CI these are installed by the GitHub Actions workflow before this script is called.
+# Note: openocd is NOT a build prerequisite — it is installed on the end user's machine
+# via the postinstall script bundled in the .pkg (packaging/macos/scripts/postinstall).
 
 echo "[*] Installing Python dependencies..."
 pip install -r requirements.txt
@@ -65,8 +67,7 @@ cp -R dist/lora_extcap "${PKG_ROOT}${INSTALL_LOCATION}/"
 ln -sf "${INSTALL_LOCATION}/catnip/catnip" "${PKG_ROOT}${BIN_DIR}/catnip"
 ln -sf "${INSTALL_LOCATION}/lora_extcap/lora_extcap" "${PKG_ROOT}${BIN_DIR}/lora_extcap"
 
-# Extract version from catnip.py or setup.py (assuming 3.3.1.0 from setup.py)
-VERSION=$(grep -E "version=" setup.py | cut -d'"' -f2)
+VERSION=$(cat VERSION | tr -d '[:space:]')
 if [ -z "$VERSION" ]; then
   VERSION="1.0.0"
 fi
@@ -77,6 +78,7 @@ pkgbuild --root "${PKG_ROOT}" \
          --identifier "${IDENTIFIER}" \
          --version "${VERSION}" \
          --install-location "/" \
+         --scripts "packaging/macos/scripts" \
          "catnip-${VERSION}.pkg"
 
 echo "[+] Build successful. Installer created: catnip-${VERSION}.pkg"

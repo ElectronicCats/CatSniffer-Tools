@@ -20,7 +20,7 @@ if pkg_dir not in sys.path:
     sys.path.insert(0, pkg_dir)
 
 # Internal
-from catnip.modules.cli import main_cli
+from catnip.modules.core.cli import main_cli
 
 if __name__ == "__main__":
     main_cli()

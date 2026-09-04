@@ -30,7 +30,11 @@ sys.modules.setdefault("matplotlib.animation", MagicMock())
 
 
 # Now we can import
-from modules.sx1262.spectrum import SpectrumScan, DEFAULT_BAUDRATE, DEFAULT_START_FREQ
+from modules.protocols.sx1262.spectrum import (
+    SpectrumScan,
+    DEFAULT_BAUDRATE,
+    DEFAULT_START_FREQ,
+)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -43,7 +47,7 @@ class TestSpectrumScan:
 
     def test_init(self):
         with patch(
-            "modules.sx1262.spectrum.plt.subplots",
+            "modules.protocols.sx1262.spectrum.plt.subplots",
             return_value=(MagicMock(), MagicMock()),
         ):
             scanner = SpectrumScan(port="/dev/ttyUSB0")
@@ -53,7 +57,7 @@ class TestSpectrumScan:
 
     def test_data_dissector_freq_mark(self):
         with patch(
-            "modules.sx1262.spectrum.plt.subplots",
+            "modules.protocols.sx1262.spectrum.plt.subplots",
             return_value=(MagicMock(), MagicMock()),
         ):
             scanner = SpectrumScan()
@@ -64,10 +68,10 @@ class TestSpectrumScan:
             scanner._SpectrumScan__data_dissector("FREQ 433.0")
             assert scanner.current_freq == 433.0
 
-    @patch("modules.sx1262.spectrum.np")
+    @patch("modules.protocols.sx1262.spectrum.np")
     def test_data_dissector_scan_data(self, mock_np):
         with patch(
-            "modules.sx1262.spectrum.plt.subplots",
+            "modules.protocols.sx1262.spectrum.plt.subplots",
             return_value=(MagicMock(), MagicMock()),
         ):
             scanner = SpectrumScan()
@@ -79,26 +83,29 @@ class TestSpectrumScan:
             # Simulate predefined numpy array
             scanner.data_matrix = MagicMock()
 
-            # Data line format: "SCAN -100,-95,-90,END"
-            scanner._SpectrumScan__data_dissector("SCAN -100,-95,-90,END")
+            # Data line format: "SCAN -100,-95,-90,... (33 values total),END"
+            scan_data = "SCAN " + ",".join(["-100"] * 33) + ",END"
+            scanner._SpectrumScan__data_dissector(scan_data)
 
             # matrix slicing operation check
             # The code tries to fill a column. MagicMock captures the manipulation
             assert scanner.data_matrix.__setitem__.called
 
-    @patch("modules.sx1262.spectrum.serial.Serial")
+    @patch("modules.protocols.sx1262.spectrum.serial.Serial")
     def test_run_success(self, mock_serial):
         with patch(
-            "modules.sx1262.spectrum.plt.subplots",
+            "modules.protocols.sx1262.spectrum.plt.subplots",
             return_value=(MagicMock(), MagicMock()),
         ):
             scanner = SpectrumScan(port="/dev/ttyUSB0")
 
             # Patch all plot and UI methods to run silently
             with patch.object(scanner, "create_plot"), patch(
-                "modules.sx1262.spectrum.plt.show"
-            ), patch("modules.sx1262.spectrum.animation.FuncAnimation"), patch(
-                "modules.sx1262.spectrum.threading.Thread"
+                "modules.protocols.sx1262.spectrum.plt.show"
+            ), patch(
+                "modules.protocols.sx1262.spectrum.animation.FuncAnimation"
+            ), patch(
+                "modules.protocols.sx1262.spectrum.threading.Thread"
             ):
 
                 res = scanner.run(start_freq=400, end_freq=500, rssi_offset=-20)
@@ -108,7 +115,11 @@ class TestSpectrumScan:
                 assert scanner.end_freq == 500
                 assert scanner.rssi_offset == -20
                 mock_serial.assert_called_once_with(
-                    "/dev/ttyUSB0", DEFAULT_BAUDRATE, timeout=2
+                    "/dev/ttyUSB0",
+                    DEFAULT_BAUDRATE,
+                    timeout=2,
+                    dsrdtr=False,
+                    rtscts=False,
                 )
 
                 # Correct commands should have been sent over serial
@@ -121,7 +132,7 @@ class TestSpectrumScan:
 
     def test_run_invalid_frequencies(self):
         with patch(
-            "modules.sx1262.spectrum.plt.subplots",
+            "modules.protocols.sx1262.spectrum.plt.subplots",
             return_value=(MagicMock(), MagicMock()),
         ):
             scanner = SpectrumScan(port="/dev/ttyUSB0")
@@ -134,7 +145,7 @@ class TestSpectrumScan:
             res2 = scanner.run(start_freq=1000, end_freq=1100)
             assert res2 is False
 
-    @patch("modules.sx1262.spectrum.serial.Serial")
+    @patch("modules.protocols.sx1262.spectrum.serial.Serial")
     def test_run_serial_exception(self, mock_serial):
         import serial
 
@@ -145,7 +156,7 @@ class TestSpectrumScan:
         mock_serial.side_effect = serial.SerialException("Port Busy")
 
         with patch(
-            "modules.sx1262.spectrum.plt.subplots",
+            "modules.protocols.sx1262.spectrum.plt.subplots",
             return_value=(MagicMock(), MagicMock()),
         ):
             scanner = SpectrumScan(port="/dev/ttyUSB0")
@@ -155,7 +166,7 @@ class TestSpectrumScan:
 
     def test_stop_task(self):
         with patch(
-            "modules.sx1262.spectrum.plt.subplots",
+            "modules.protocols.sx1262.spectrum.plt.subplots",
             return_value=(MagicMock(), MagicMock()),
         ):
             scanner = SpectrumScan(port="/dev/ttyUSB0")

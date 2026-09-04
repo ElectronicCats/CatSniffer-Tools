@@ -3,6 +3,8 @@ import re
 import time
 from typing import Dict, List, Optional, Tuple
 
+from modules.utils.output import console, print_success, print_error, print_info
+
 # Third-party
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -175,12 +177,12 @@ def configure_meshtastic_radio(
     shell_port: str, freq_hz: int, preset: str = "LongFast"
 ) -> bool:
     """Configure radio parameters using the shell port with proper values for Meshtastic"""
-    from modules.catnip import ShellConnection
+    from modules.core.catnip import ShellConnection
 
     preset_config = CHANNELS_PRESET.get(preset, CHANNELS_PRESET["LongFast"])
 
-    print(f"[*] Configuring radio via shell port {shell_port}")
-    print(f"[*] Preset: {preset}, Freq: {freq_hz} Hz")
+    print_info(f"Configuring radio via shell port {shell_port}")
+    print_info(f"Preset: {preset}, Freq: {freq_hz} Hz")
 
     try:
         shell = ShellConnection(shell_port)
@@ -198,17 +200,17 @@ def configure_meshtastic_radio(
         ]
 
         for cmd in commands:
-            print(f"  > {cmd}")
+            console.print(f"  > {cmd}")
             shell.send_command(cmd)
             time.sleep(0.1)
 
-        print("[*] Current LoRa configuration:")
+        print_info("Current LoRa configuration:")
         shell.send_command("lora_config")
         time.sleep(0.5)
 
         shell.disconnect()
-        print("[✓] Radio configured successfully")
+        print_success("Radio configured successfully")
         return True
     except Exception as e:
-        print(f"[ERROR] Failed to configure radio: {e}")
+        print_error(f"Failed to configure radio: {e}")
         return False

@@ -16,9 +16,15 @@ from protocol.sniffer_ti import SnifferTI, PacketCategory
 from protocol.common import START_OF_FRAME, END_OF_FRAME, get_global_header
 
 # External
-from rich.console import Console
+from ..utils.output import (
+    console,
+    print_success,
+    print_warning,
+    print_error,
+    print_info,
+    print_dim,
+)
 
-console = Console()
 sniffer = SnifferTI()
 snifferSx = SnifferSx()
 snifferTICmd = sniffer.Commands()
@@ -30,13 +36,69 @@ _SHELL_CMD_DELAY = 0.15
 # Seconds to wait for Wireshark to open the pipe
 _WIRESHARK_PIPE_TIMEOUT = 30
 
-# The RP2040 firmware (lora_rx_cb) emits lines beginning with this prefix
-# on the Cat-LoRa port.
+# The RP2040 firmware (lora_rx_cb) emits "LORA RX: ..." lines on Cat-LoRa.
+# We match with `in` instead of `startswith` to handle both "RX:" and "LORA RX:" variants.
 _LORA_LINE_PREFIX = b"RX:"
 
 # The firmware also sends a welcome banner on Cat-LoRa at startup and after
 # lora_mode changes — we skip those silently.
 _IGNORE_PREFIXES = (b"LoRa Control Port", b"LoRa mode set")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Packet logging (shared by all sniff bridges)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class PacketLogWriter:
+    """Append captured packets to raw-hex and/or decoded-ASCII log files.
+
+    Both destinations are optional. Every line has the shape:
+
+        RX: <payload> | <meta>
+
+    where ``<payload>`` is either the hex dump (raw file) or the printable
+    ASCII rendering (ascii file), and ``<meta>`` is a protocol-specific tail.
+    The metadata is passed in per packet by the caller, so each protocol logs
+    only the fields that make sense for it — e.g. ``RSSI: -30 | SNR: 7`` for
+    LoRa but just ``RSSI: -45`` for Zigbee/Thread (802.15.4 has no SNR).
+    If ``meta`` is empty the trailing separator is omitted.
+    """
+
+    def __init__(self, raw_file: str = None, ascii_file: str = None):
+        self.raw_fh = open(raw_file, "a", encoding="ascii") if raw_file else None
+        self.ascii_fh = open(ascii_file, "a", encoding="ascii") if ascii_file else None
+        if self.raw_fh:
+            print_success(f"Logging raw hex to {raw_file}")
+        if self.ascii_fh:
+            print_success(f"Logging ASCII to {ascii_file}")
+
+    @property
+    def enabled(self) -> bool:
+        return self.raw_fh is not None or self.ascii_fh is not None
+
+    @staticmethod
+    def _to_ascii(payload: bytes) -> str:
+        return "".join(chr(b) if 32 <= b < 127 else "." for b in payload)
+
+    def write(self, payload: bytes, meta: str = "") -> None:
+        if not self.enabled:
+            return
+        suffix = f" | {meta}" if meta else ""
+        if self.raw_fh:
+            self.raw_fh.write(f"RX: {payload.hex()}{suffix}\n")
+            self.raw_fh.flush()
+        if self.ascii_fh:
+            self.ascii_fh.write(f"RX: {self._to_ascii(payload)}{suffix}\n")
+            self.ascii_fh.flush()
+
+    def close(self) -> None:
+        for fh in (self.raw_fh, self.ascii_fh):
+            if fh:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -51,6 +113,7 @@ def _configure_lora(
     spread_factor: int,
     coding_rate: int,
     tx_power: int,
+    sync_word: str = "private",
 ) -> bool:
     """
     Send all LoRa configuration commands via Cat-Shell and apply them.
@@ -63,6 +126,7 @@ def _configure_lora(
         ("spread factor", snifferSxCmd.set_sf(spread_factor)),
         ("coding rate", snifferSxCmd.set_cr(coding_rate)),
         ("TX power", snifferSxCmd.set_power(tx_power)),
+        ("sync word", snifferSxCmd.set_syncword(sync_word)),
         ("apply", snifferSxCmd.apply_config()),
     ]
 
@@ -70,10 +134,10 @@ def _configure_lora(
     for label, cmd in steps:
         response = shell.send_command(cmd, timeout=1.5)
         if response is None:
-            console.print(f"  [yellow][!] No response while setting {label}[/yellow]")
+            print_warning(f"No response while setting {label}")
             all_ok = False
         else:
-            console.print(f"  [dim]{label}: {response[:80]}[/dim]")
+            print_dim(f"{label}: {response[:80]}")
         time.sleep(_SHELL_CMD_DELAY)
 
     return all_ok
@@ -88,17 +152,17 @@ def _stop_lora_capture(
     Switch the RP2040 back to command mode, close ports, and remove the pipe.
     Called from both the normal exit path and any early error path.
     """
-    console.print("[cyan][*] Switching RP2040 back to command mode...[/cyan]")
+    print_info("Switching RP2040 back to command mode...")
     try:
         if shell.connection is None:
             shell.connect()
         resp = shell.send_command(snifferSxCmd.start_command(), timeout=2.0)
         if resp is not None and "COMMAND" in resp.upper():
-            console.print("[green][✓] Command mode restored[/green]")
+            print_success("Command mode restored")
         else:
-            console.print(f"[yellow][!] Response to stop: {resp!r}[/yellow]")
+            print_warning(f"Response to stop: {resp!r}")
     except Exception as exc:
-        console.print(f"[yellow][!] Could not restore command mode: {exc}[/yellow]")
+        print_warning(f"Could not restore command mode: {exc}")
     finally:
         for conn in (shell, lora):
             try:
@@ -125,6 +189,9 @@ def run_sx_bridge(
     tx_power: int = 20,
     wireshark: bool = False,
     verbose: bool = False,
+    sync_word: str = "private",
+    raw_file: str = None,
+    ascii_file: str = None,
 ):
     """
     Run the LoRa sniffer bridge for the unified RP2040 firmware.
@@ -152,16 +219,16 @@ def run_sx_bridge(
         tx_power:      dBm.
         wireshark:     Launch Wireshark when True.
         verbose:       Show packet output in terminal when True.
+        raw_file:      Path to append packets as raw hex, or None to disable.
+        ascii_file:    Path to append packets as decoded ASCII, or None to disable.
     """
 
     # ── 1. Validate ports ────────────────────────────────────────────────────
     if not device.shell_port:
-        console.print("[red][X] No shell_port on device — cannot configure LoRa[/red]")
+        print_error("No shell_port on device — cannot configure LoRa")
         return
     if not device.lora_port:
-        console.print(
-            "[red][X] No lora_port on device — cannot receive LoRa stream[/red]"
-        )
+        print_error("No lora_port on device — cannot receive LoRa stream")
         return
 
     # ── 2. Set up PCAP pipe ───────────────────────────────────────────────────
@@ -174,28 +241,26 @@ def run_sx_bridge(
     # ── 3. Open shell and configure ───────────────────────────────────────────
     shell = ShellConnection(port=device.shell_port)
     if not shell.connect():
-        console.print(f"[red][X] Cannot open shell port: {device.shell_port}[/red]")
+        print_error(f"Cannot open shell port: {device.shell_port}")
         pipe.remove()
         return
 
-    console.print(f"\n[cyan][*] Configuring LoRa via {device.shell_port}...[/cyan]")
-    console.print(f"    Frequency:        {frequency / 1e6:.3f} MHz")
-    console.print(f"    Bandwidth:        {bandwidth} kHz")
-    console.print(f"    Spreading Factor: SF{spread_factor}")
-    console.print(f"    Coding Rate:      4/{coding_rate}")
-    console.print(f"    TX Power:         {tx_power} dBm\n")
+    print_info(f"Configuring LoRa via {device.shell_port}...")
+    print_dim(f"Frequency:        {frequency / 1e6:.3f} MHz")
+    print_dim(f"Bandwidth:        {bandwidth} kHz")
+    print_dim(f"Spreading Factor: SF{spread_factor}")
+    print_dim(f"Coding Rate:      4/{coding_rate}")
+    print_dim(f"TX Power:         {tx_power} dBm")
 
     if not _configure_lora(
-        shell, frequency, bandwidth, spread_factor, coding_rate, tx_power
+        shell, frequency, bandwidth, spread_factor, coding_rate, tx_power, sync_word
     ):
-        console.print(
-            "[yellow][!] Some config commands had no response — continuing[/yellow]"
-        )
+        print_warning("Some config commands had no response — continuing")
 
     # ── 4. Open Cat-LoRa data port ────────────────────────────────────────────
     lora = LoRaConnection(port=device.lora_port)
     if not lora.connect():
-        console.print(f"[red][X] Cannot open LoRa port: {device.lora_port}[/red]")
+        print_error(f"Cannot open LoRa port: {device.lora_port}")
         shell.disconnect()
         pipe.remove()
         return
@@ -208,41 +273,32 @@ def run_sx_bridge(
         pass
 
     # ── 5. Switch to stream mode ──────────────────────────────────────────────
-    console.print(f"[cyan][*] Switching RP2040 to stream mode...[/cyan]")
+    print_info("Switching RP2040 to stream mode...")
     stream_resp = shell.send_command(snifferSxCmd.start_streaming(), timeout=2.0)
     if stream_resp and "STREAM" in stream_resp.upper():
-        console.print("[green][✓] Stream mode active[/green]")
+        print_success("Stream mode active")
     else:
-        console.print(
-            f"[yellow][!] Unexpected stream response: {stream_resp!r} — continuing[/yellow]"
-        )
+        print_warning(f"Unexpected stream response: {stream_resp!r} — continuing")
 
     # ── 6. Keepalive thread ───────────────────────────────────────────────────
-    # The RP2040's lora_thread only calls lora_start_rx_async() when the
-    # semaphore fires, which happens when the host writes bytes to CDC1.
-    # We send a single null byte every 2 s to keep the semaphore alive and
-    # ensure the radio stays in RX mode.
+    # NOTE: Do NOT write bytes to CDC1 in stream mode — the RP2040 lora_thread
+    # treats any data on rb_usb_to_sx1262 as payload to transmit, which calls
+    # lora_stop_rx() and breaks reception for the duration of that TX.
+    # The lora_thread already loops on k_sem_take(K_MSEC(100)), so it keeps
+    # lora_start_rx_async() armed without any host-side stimulation.
     _keepalive_stop = threading.Event()
 
     def _keepalive():
-        while not _keepalive_stop.is_set():
-            try:
-                lora.connection.write(b"\x00")
-                lora.connection.flush()
-            except Exception:
-                pass
-            _keepalive_stop.wait(timeout=2.0)
+        _keepalive_stop.wait()  # just block until the capture ends
 
     ka_thread = threading.Thread(target=_keepalive, daemon=True)
     ka_thread.start()
 
     # ── 7. Wait for Wireshark ─────────────────────────────────────────────────
     if wireshark:
-        console.print(
-            f"[cyan][*] Waiting for Wireshark (timeout {_WIRESHARK_PIPE_TIMEOUT}s)...[/cyan]"
-        )
+        print_info(f"Waiting for Wireshark (timeout {_WIRESHARK_PIPE_TIMEOUT}s)...")
         if not pipe.ready_event.wait(timeout=_WIRESHARK_PIPE_TIMEOUT):
-            console.print("[red][X] Timed out waiting for Wireshark — aborting[/red]")
+            print_error("Timed out waiting for Wireshark — aborting")
             _keepalive_stop.set()
             _stop_lora_capture(shell, lora, pipe)
             return
@@ -260,7 +316,10 @@ def run_sx_bridge(
     show_output = verbose or not wireshark
 
     if show_output:
-        console.print("\n[green][*] Capture running — press Ctrl+C to stop[/green]\n")
+        print_success("Capture running — press Ctrl+C to stop")
+
+    # ── Open log files (append) if requested ──────────────────────────────────
+    log_writer = PacketLogWriter(raw_file, ascii_file)
 
     header_written = False
     packet_count = 0
@@ -279,11 +338,9 @@ def run_sx_bridge(
             stripped = raw.strip()
             if not stripped:
                 continue
-            if not stripped.startswith(_LORA_LINE_PREFIX):
+            if _LORA_LINE_PREFIX not in stripped:
                 if not any(stripped.startswith(p) for p in _IGNORE_PREFIXES):
-                    console.print(
-                        f"[dim]  (device) {stripped.decode('ascii', errors='replace')}[/dim]"
-                    )
+                    print_dim(f"(device) {stripped.decode('ascii', errors='replace')}")
                 continue
 
             try:
@@ -296,35 +353,41 @@ def run_sx_bridge(
                 pipe.write_packet(packet.pcap)
                 packet_count += 1
 
+                # Persist only the relevant fields to the log file(s).
+                # LoRa carries both RSSI and SNR.
+                log_writer.write(
+                    packet.payload,
+                    meta=f"RSSI: {int(packet.rssi)} | SNR: {int(packet.snr)}",
+                )
+
                 if show_output:
+                    ascii_str = "".join(
+                        chr(b) if 32 <= b < 127 else "." for b in packet.payload
+                    )
+                    hex_str = packet.payload.hex()
                     console.print(
                         f"[green]  [{packet_count:>5}][/green] "
                         f"len={packet.length:>4}B  "
                         f"RSSI={packet.rssi:>7.1f} dBm  "
-                        f"SNR={packet.snr:>5.1f} dB  "
-                        f"payload={packet.payload.hex()[:32]}"
-                        f"{'…' if len(packet.payload) > 16 else ''}"
+                        f"SNR={packet.snr:>5.1f} dB\n"
+                        f"         hex={hex_str}\n"
+                        f"         ascii=[italic]{ascii_str}[/italic]"
                     )
 
             except ValueError as exc:
                 error_count += 1
-                console.print(
-                    f"[yellow][!] Parse error #{error_count}: {exc} "
-                    f"— raw: {raw[:80]!r}[/yellow]"
-                )
+                print_warning(f"Parse error #{error_count}: {exc} — raw: {raw[:80]!r}")
             except Exception as exc:
                 error_count += 1
-                console.print(
-                    f"[yellow][!] Unexpected error #{error_count}: {exc}[/yellow]"
-                )
+                print_warning(f"Unexpected error #{error_count}: {exc}")
 
     except KeyboardInterrupt:
-        console.print(
-            f"\n[cyan][*] Capture stopped — "
-            f"{packet_count} packet(s), {error_count} error(s)[/cyan]"
+        print_info(
+            f"Capture stopped — {packet_count} packet(s), {error_count} error(s)"
         )
     finally:
         _keepalive_stop.set()
+        log_writer.close()
         _stop_lora_capture(shell, lora, pipe)
 
 
@@ -338,8 +401,19 @@ def run_bridge(
     channel: int = 11,
     wireshark: bool = False,
     profile: str = None,
+    raw_file: str = None,
+    ascii_file: str = None,
 ):
-    """Run TI sniffer bridge for Zigbee/Thread."""
+    """Run TI sniffer bridge for Zigbee/Thread.
+
+    Args:
+        device:     CatSnifferDevice with bridge_port.
+        channel:    IEEE 802.15.4 channel (11-26).
+        wireshark:  Launch Wireshark when True.
+        profile:    Wireshark profile name.
+        raw_file:   Path to append packets as raw hex, or None to disable.
+        ascii_file: Path to append packets as decoded ASCII, or None to disable.
+    """
     pipe = WindowsPipe() if platform.system() == "Windows" else UnixPipe()
     opening_worker = threading.Thread(target=pipe.open, daemon=True)
 
@@ -356,10 +430,20 @@ def run_bridge(
         time.sleep(0.1)
 
     if wireshark:
-        console.print("[*] Waiting for Wireshark to open the pipe...")
+        print_info("Waiting for Wireshark to open the pipe...")
         pipe.ready_event.wait()
 
+    # ── Open log files (append) if requested ──────────────────────────────────
+    log_writer = PacketLogWriter(raw_file, ascii_file)
+
+    # Show packets in the terminal when Wireshark is not driving the capture,
+    # mirroring the LoRa bridge behaviour.
+    show_output = not wireshark
+    if show_output:
+        print_success("Capture running — press Ctrl+C to stop")
+
     header_flag = False
+    packet_count = 0
 
     while True:
         try:
@@ -371,9 +455,28 @@ def run_bridge(
                         header_flag = True
                         pipe.write_packet(get_global_header())
                     pipe.write_packet(ti_packet.pcap)
+                    packet_count += 1
+
+                    # 802.15.4 (Zigbee/Thread) carries RSSI but no SNR; the TI
+                    # firmware reports RSSI as a signed 8-bit dBm value.
+                    rssi = ti_packet.rssi
+                    rssi = rssi - 256 if rssi > 127 else rssi
+
+                    # Persist only the relevant fields to the log file(s).
+                    log_writer.write(ti_packet.payload, meta=f"RSSI: {rssi}")
+
+                    # Terminal output: hex only (no ASCII), unlike LoRa.
+                    if show_output:
+                        console.print(
+                            f"[green]  [{packet_count:>5}][/green] "
+                            f"len={len(ti_packet.payload):>4}B  "
+                            f"RSSI={rssi:>4} dBm\n"
+                            f"         hex={ti_packet.payload.hex()}"
+                        )
             time.sleep(0.1)
         except KeyboardInterrupt:
-            console.print("\n[*] Stopping TI capture...")
+            print_info(f"Stopping TI capture — {packet_count} packet(s)")
+            log_writer.close()
             pipe.remove()
             opening_worker.join(timeout=1)
             serial_worker.write(snifferTICmd.stop())
@@ -397,7 +500,7 @@ def run_sx_bridge_legacy(
     wireshark: bool = False,
 ):
     """Legacy bridge — deprecated. Use run_sx_bridge(CatSnifferDevice, ...)."""
-    console.print("[yellow][!] Warning: legacy bridge mode (deprecated)[/yellow]")
+    print_warning("Warning: legacy bridge mode (deprecated)")
 
     pipe = WindowsPipe() if platform.system() == "Windows" else UnixPipe()
     threading.Thread(target=pipe.open, daemon=True).start()
@@ -414,7 +517,7 @@ def run_sx_bridge_legacy(
     serial_worker.write(bytes(f"set_rx\r\n", "utf-8"))
 
     if wireshark:
-        console.print("[*] Waiting for Wireshark to open the pipe...")
+        print_info("Waiting for Wireshark to open the pipe...")
         pipe.ready_event.wait()
 
     header_flag = False

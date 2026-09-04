@@ -42,7 +42,7 @@ from textual.reactive import reactive
 from textual.widgets import DataTable, Static, Input, Footer
 
 # Hardware / protobufs
-from modules.catnip import LoRaConnection
+from modules.core.catnip import LoRaConnection
 from protocol.sniffer_sx import SnifferSx
 from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
 from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
