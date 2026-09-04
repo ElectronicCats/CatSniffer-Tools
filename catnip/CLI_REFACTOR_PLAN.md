@@ -4,7 +4,7 @@
 funcionalidad, dejando el núcleo como un simple ensamblador de comandos — siguiendo
 el patrón ya establecido en `bombercat-tools`.
 
-**Estado:** propuesta, pendiente de aprobación.
+**Estado:** ejecutado — Fases 0 a 7 completadas.
 **Fecha:** 2026-09-03
 **Rama base:** `fix/CLI_Control`
 **Referencia:**: @/home/darcko/Documentos/ElectronicCats/BomberCat/bombercat-tools
@@ -533,14 +533,78 @@ El bloque más grande y único consumidor de `core/extcap.py`.
   `~/.zfunc`, `~/.zshrc` y `~/.local/share/bash-completion/`. Queda cubierto
   por el diff del snapshot y por su import estático.
 
-### Fase 7 — Verificación de empaquetado
+### Fase 7 — Verificación de empaquetado ✅
 
-- [ ] Reproducir en local los pasos de `build-deb.yml`, instalar con `dpkg -i` y
-      ejecutar `catnip --help` más un par de subcomandos desde el binario
-      instalado. Valida que el launcher `/usr/bin/catnip` sigue resolviendo la
-      estructura nueva.
-- [ ] Ejecutar `pyinstaller catnip.spec` en local. Es el único riesgo que el CI no
+- [x] Reproducir en local los pasos de `build-deb.yml` y ejecutar `catnip --help`
+      más varios subcomandos desde el layout instalado. Valida que el launcher
+      `/usr/bin/catnip` sigue resolviendo la estructura nueva.
+- [x] Ejecutar `pyinstaller catnip.spec` en local. Es el único riesgo que el CI no
       detectaría hasta el momento del release.
+
+**Notas de ejecución — `.deb`:**
+
+- Se ejecutaron los 6 pasos de *Prepare Packaging Environment* tal cual, incluido
+  el vendorizado completo de `requirements.txt` (250 MB), y
+  `dpkg-deb --build --root-owner-group` → `catnip-3.3.2.1.deb` (53 MB).
+- El `cp -r catnip/modules/` arrastra los paquetes nuevos sin tocar el workflow:
+  `dpkg-deb -c` lista `modules/sniff/`, `modules/device/`,
+  `modules/protocols/cli/{__init__,cativity,meshtastic,sx1262,vhci}.py`,
+  `core/device_utils.py`, `core/extcap.py`, `utils/completion.py` y
+  `utils/system_cli.py`. **Regla 1 confirmada: ningún workflow necesita cambios.**
+- **Desviación: no se ejecutó `sudo dpkg -i`.** `sudo` pide contraseña en este
+  entorno y la instalación pisaría el `catnip 3.3.2.1` ya instalado en la máquina.
+  En su lugar se extrajo el paquete con `dpkg-deb -x` a un *fakeroot* y se ejecutó
+  el launcher `usr/bin/catnip` **tal como se instala**, con `PYTHONPATH` apuntando
+  al `dist-packages` extraído. Eso ejercita exactamente lo que valida esta fase:
+  `import catnip` → `pkg_dir` → `vendor/` → `from catnip.modules.core.cli import
+  main_cli`. Paso privilegiado pendiente para quien quiera cerrarlo del todo:
+  `sudo dpkg -i catnip-3.3.2.1.deb && catnip --help`.
+- Árbol de comandos **desde el paquete**: `dump_cli_tree.py` ejecutado dentro del
+  layout instalado da un árbol **byte a byte idéntico** al snapshot de referencia
+  y al dump del árbol fuente.
+- La primera ejecución de ese dump falló con
+  `ImportError: cannot import name 'LORATAP_DLT' from 'protocol.sniffer_sx'`.
+  Era un fallo **del arnés de prueba**, no del paquete: sin el `dist-packages`
+  extraído en `PYTHONPATH`, `protocol` resolvía al catnip antiguo instalado en el
+  sistema. Vale como recordatorio de que `protocol/` se instala como paquete
+  *top-level* y una instalación previa puede ensombrecerlo.
+- El snapshot resultó **estable entre versiones de Click**: el dump con el click
+  vendorizado (8.5.0) es idéntico al de referencia (8.1.6), al contrario de lo que
+  temía la nota de la Fase 0.
+- Subcomandos reales desde el paquete: `devices` (detecta hardware real,
+  CatSniffer #1 en `/dev/ttyACM0-2`), `flash --list`, `setup-env` (sin root),
+  `sniff ble --help` y `meshtastic decode` (llega a la lógica de descifrado y
+  falla con el payload de prueba, que es lo esperado). Cubren los imports
+  diferidos de `firmware/fw_aliases` y `protocols/cli/meshtastic` sobre las
+  dependencias vendorizadas.
+
+**Notas de ejecución — PyInstaller:**
+
+- `pyinstaller catnip.spec` (PyInstaller 6.22.2, `--workpath`/`--distpath` fuera
+  del repo para no ensuciarlo, dependencias tomadas del mismo directorio
+  vendorizado): **build correcto**, exit 0 en 46 s, `dist/catnip/catnip` de 23 MB
+  (212 MB con los datos recolectados).
+- `Analysis-00.toc` incluye **todos** los módulos nuevos: `modules.sniff.cli`,
+  `modules.device.cli`, `modules.firmware.cli`, `modules.protocols.cli` con sus
+  cuatro archivos, `modules.utils.completion`, `modules.utils.system_cli`,
+  `modules.core.device_utils` y `modules.core.extcap`. **Regla 3 confirmada:** sin
+  añadir un solo `hiddenimports` al `.spec`, PyInstaller resolvió la estructura
+  nueva siguiendo los imports estáticos de `core/cli.py`.
+- El binario congelado responde `--help` en los 27 comandos del árbol y su salida
+  es **idéntica a la del launcher del `.deb` y a la de `python catnip.py`**
+  (comparación A/B comando a comando).
+- Las 6 secciones que difieren del snapshot (`flash`, `lora`, `meshtastic`,
+  `sniff lora`, `update`, `verify`) son solo re-ajuste de línea de un carácter, y
+  aparecen igual al ejecutar el **árbol fuente** como proceso real: es un artefacto
+  de `CliRunner` frente a un subproceso, preexistente y ajeno al refactor.
+- Ejecutados desde el binario congelado: `devices`, `flash --list`,
+  `meshtastic decode` y `vhci check` (todos los prerequisitos en verde con el
+  hardware conectado).
+- `pytest tests/ -q` → **328 pasados, 3 fallos**, los mismos preexistentes de las
+  Fases 3-6 (`TestRunBridge`/`TestRunSxBridge`).
+- Dato para la sección 7: `modules.core.vhci_bridge` **no aparece** en el TOC de
+  PyInstaller aunque el `.deb` sí lo copie — nada alcanzable desde el CLI lo
+  importa. Refuerza la sospecha de que es código muerto.
 
 ---
 
