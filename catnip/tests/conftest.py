@@ -44,6 +44,15 @@ _mock_serial_tools = MagicMock(name="serial.tools")
 _mock_serial_tools.list_ports = _mock_serial_tools_list_ports
 _mock_serial = MagicMock(name="serial")
 _mock_serial.tools = _mock_serial_tools
+
+
+# `except serial.SerialException` requires a real exception class, not a
+# MagicMock attribute — give the mocked module a genuine one to catch.
+class _SerialException(Exception):
+    pass
+
+
+_mock_serial.SerialException = _SerialException
 for _mod_name, _mod_obj in [
     ("serial", _mock_serial),
     ("serial.tools", _mock_serial_tools),
