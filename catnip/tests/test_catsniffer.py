@@ -5,7 +5,8 @@ Test suite for the CatSniffer CLI.
 
 Covers:
   - CLI (catnip.py): flash, sniff, devices, verify, cativity commands
-  - modules/cli.py: helpers, find_wireshark_path, find_putty_path
+  - modules/core/extcap.py: find_putty_path
+  - modules/core/device_utils.py: get_device_or_exit
   - modules/flasher.py: CCLoader, Flasher.find_flash_firmware
   - modules/bridge.py: _configure_lora, run_sx_bridge, run_bridge
   - modules/verify.py: VerificationDevice, find_verification_devices,
@@ -908,57 +909,15 @@ class TestRunBridge:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  4.  modules/cli.py  — helpers
+#  4.  modules/core/extcap.py, modules/core/device_utils.py  — helpers
 # ═════════════════════════════════════════════════════════════════════════════
-
-
-class TestFindWiresharkPath:
-    """Tests for find_wireshark_path."""
-
-    def _call(self):
-        from modules.core.cli import find_wireshark_path
-
-        return find_wireshark_path()
-
-    def test_linux_found(self):
-        with patch("platform.system", return_value="Linux"), patch(
-            "pathlib.Path.exists", return_value=True
-        ):
-            result = self._call()
-        assert result is not None
-
-    def test_windows_found(self):
-        with patch("platform.system", return_value="Windows"), patch(
-            "pathlib.Path.exists", return_value=True
-        ):
-            result = self._call()
-        assert result is not None
-
-    def test_darwin_found(self):
-        with patch("platform.system", return_value="Darwin"), patch(
-            "pathlib.Path.exists", return_value=True
-        ):
-            result = self._call()
-        assert result is not None
-
-    def test_not_found_returns_none(self):
-        with patch("platform.system", return_value="Linux"), patch(
-            "pathlib.Path.exists", return_value=False
-        ):
-            result = self._call()
-        assert result is None
-
-    def test_unknown_os_returns_none(self):
-        with patch("platform.system", return_value="AmigaOS"):
-            result = self._call()
-        assert result is None
 
 
 class TestFindPuttyPath:
     """Tests for find_putty_path."""
 
     def _call(self):
-        from modules.core.cli import find_putty_path
+        from modules.core.extcap import find_putty_path
 
         return find_putty_path()
 
@@ -993,25 +952,29 @@ class TestGetDeviceOrExit:
     """Tests for get_device_or_exit."""
 
     def test_device_found_returns_device(self, fake_device):
-        from modules.core.cli import get_device_or_exit
+        from modules.core.device_utils import get_device_or_exit
 
-        with patch("modules.core.cli.catnip_get_device", return_value=fake_device):
+        with patch(
+            "modules.core.device_utils.catnip_get_device", return_value=fake_device
+        ):
             dev = get_device_or_exit(device_id=1)
         assert dev is fake_device
 
     def test_no_device_exits(self):
-        from modules.core.cli import get_device_or_exit
+        from modules.core.device_utils import get_device_or_exit
 
         with patch(
-            "modules.core.cli.catnip_get_device", return_value=None
+            "modules.core.device_utils.catnip_get_device", return_value=None
         ), pytest.raises(SystemExit):
             get_device_or_exit(device_id=1)
 
     def test_incomplete_device_warns_but_returns(self, fake_device):
         fake_device.is_valid.return_value = False
-        from modules.core.cli import get_device_or_exit
+        from modules.core.device_utils import get_device_or_exit
 
-        with patch("modules.core.cli.catnip_get_device", return_value=fake_device):
+        with patch(
+            "modules.core.device_utils.catnip_get_device", return_value=fake_device
+        ):
             dev = get_device_or_exit(device_id=1)
         assert dev is fake_device
 
@@ -1179,26 +1142,13 @@ class TestRobustness:
         ):
             run_sx_bridge(fake_device, 915_000_000, 125, 7, 5)
 
-    # -- cli.py --------------------------------------------------------------
-
-    def test_find_wireshark_exception_handled(self):
-        from modules.core.cli import find_wireshark_path
-
-        with patch("platform.system", return_value="Linux"), patch(
-            "pathlib.Path.exists", side_effect=OSError("perm")
-        ):
-            # Should return None without raising exception
-            try:
-                result = find_wireshark_path()
-                assert result is None or isinstance(result, str)
-            except OSError:
-                pass  # Acceptable if the implementation doesn't catch this
+    # -- device_utils.py -----------------------------------------------------
 
     def test_get_device_or_exit_device_id_zero(self):
-        from modules.core.cli import get_device_or_exit
+        from modules.core.device_utils import get_device_or_exit
 
         with patch(
-            "modules.core.cli.catnip_get_device", return_value=None
+            "modules.core.device_utils.catnip_get_device", return_value=None
         ), pytest.raises(SystemExit):
             get_device_or_exit(device_id=0)
 
