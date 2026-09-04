@@ -117,7 +117,7 @@ modules/
 ├── sniff/                  # NUEVO paquete (Fase 3 ✅)
 │   ├── __init__.py
 │   └── cli.py              # grupo `sniff`: ble, zigbee, thread, lora, airtag_scanner
-├── device/                 # NUEVO paquete
+├── device/                 # NUEVO paquete (Fase 5 ✅)
 │   ├── __init__.py
 │   └── cli.py              # `devices`, `identify`, _print_raw_port_debug
 ├── firmware/
@@ -461,10 +461,30 @@ El bloque más grande y único consumidor de `core/extcap.py`.
   `import modules.core.cli` en 0,17-0,18 s sin regresión. `pytest tests/ -q` →
   **328 pasados, 3 fallos**, los mismos preexistentes de la Fase 3.
 
-### Fase 5 — `device`
+### Fase 5 — `device` ✅
 
-- [ ] Crear `modules/device/__init__.py` y `modules/device/cli.py` con `devices`,
-      `identify` y `_print_raw_port_debug` (~100 líneas).
+- [x] Crear `modules/device/__init__.py` y `modules/device/cli.py` con `devices`,
+      `identify` y `_print_raw_port_debug` (102 líneas movidas).
+
+**Notas de ejecución:**
+
+- `core/cli.py`: 570 → 465 líneas. `device/cli.py` son 129 (102 movidas
+  **verbatim** + 27 de cabecera e imports).
+- Sección 3.2 otra vez: `devices` e `identify` pasan de `@cli.command()` a
+  `@click.command()` con registro explícito en `build_cli()`.
+- `_print_raw_port_debug` es un helper privado que solo usa `devices`; viaja
+  con él en vez de bajar a `core/`, así que no hay import nuevo entre paquetes.
+- Con esta fase `core/cli.py` **deja de importar de `.catnip`,
+  `.device_utils` y `.usb_connection`** (`catnip_get_devices`,
+  `get_device_or_exit`, `ShellConnection`, `CATSNIFFER_VID` y
+  `CATSNIFFER_PID` eran sus últimos usos), y también `rich.table` / `rich.box`.
+  De `modules/core/` ya solo le queda lo suyo propio.
+- `modules/device/__init__.py` vacío a propósito, igual que `sniff/`.
+- Verificación: `diff` contra `tests/snapshots/cli_tree_linux.txt` **sin
+  diferencias**; `find_packages` lista `modules.device`; `catnip devices`
+  ejecutado con `CliRunner` (sin hardware conectado responde "No CatSniffer
+  devices found", exit 0); `import modules.core.cli` en 0,18-0,19 s.
+  `pytest tests/ -q` → **328 pasados, 3 fallos** preexistentes.
 
 ### Fase 6 — Sistema y completado de shell
 
