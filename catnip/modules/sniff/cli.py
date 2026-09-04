@@ -15,6 +15,7 @@ from ..firmware.flasher import Flasher
 # External
 import click
 
+from ..utils.cli_options import device_option
 from ..utils.output import (
     print_success,
     print_warning,
@@ -36,13 +37,7 @@ def sniff(verbose):
 
 
 @sniff.command(SniffingFirmware.BLE.name.lower())
-@click.option(
-    "--device",
-    "-d",
-    default=None,
-    type=int,
-    help="Device ID (for multiple CatSniffers)",
-)
+@device_option()
 @click.option(
     "--wireshark",
     "-ws",
@@ -163,13 +158,7 @@ def sniff_ble(device, wireshark, channel, mode):
 @click.option(
     "--channel", "-c", required=True, type=click.IntRange(11, 26), help="Zigbee channel"
 )
-@click.option(
-    "--device",
-    "-d",
-    default=None,
-    type=int,
-    help="Device ID (for multiple CatSniffers)",
-)
+@device_option()
 @click.option(
     "--raw",
     "-r",
@@ -228,13 +217,7 @@ def sniff_zigbee(ws, channel, device, raw_file, ascii_file):
 @click.option(
     "--channel", "-c", required=True, type=click.IntRange(11, 26), help="Thread channel"
 )
-@click.option(
-    "--device",
-    "-d",
-    default=None,
-    type=int,
-    help="Device ID (for multiple CatSniffers)",
-)
+@device_option()
 @click.option(
     "--raw",
     "-r",
@@ -326,13 +309,7 @@ def sniff_thread(ws, channel, device, raw_file, ascii_file):
     type=int,
     help="TX Power in dBm",
 )
-@click.option(
-    "--device",
-    "-d",
-    default=None,
-    type=int,
-    help="Device ID (for multiple CatSniffers)",
-)
+@device_option()
 @click.option(
     "--sync-word",
     "-sw",
@@ -403,13 +380,7 @@ def sniff_lora(
 
 
 @sniff.command(SniffingFirmware.AIRTAG_SCANNER.name.lower())
-@click.option(
-    "--device",
-    "-d",
-    default=None,
-    type=int,
-    help="Device ID (for multiple CatSniffers)",
-)
+@device_option()
 @click.option("--putty", is_flag=True, help="Open PuTTY with serial configuration")
 def sniff_airtag_scanner(device, putty):
     """Sniffing Airtag Scanner firmware"""

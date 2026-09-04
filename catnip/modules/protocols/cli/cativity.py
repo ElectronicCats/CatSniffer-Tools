@@ -9,6 +9,7 @@ from ...core.catnip import Catnip
 import click
 import time
 
+from ...utils.cli_options import device_option
 from ...utils.output import (
     console,
     print_success,
@@ -19,13 +20,7 @@ from ...utils.output import (
 
 
 @click.command()
-@click.option(
-    "--device",
-    "-d",
-    default=None,
-    type=int,
-    help="Device ID (for multiple CatSniffers)",
-)
+@device_option()
 @click.option(
     "--channel", "-c", type=click.IntRange(11, 26), help="Fixed channel (11-26)"
 )

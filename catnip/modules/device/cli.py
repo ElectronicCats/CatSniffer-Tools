@@ -14,6 +14,7 @@ import click
 from rich.table import Table
 from rich import box
 
+from ..utils.cli_options import device_option
 from ..utils.output import (
     console,
     STYLES,
@@ -98,13 +99,7 @@ def _print_raw_port_debug() -> None:
 
 
 @click.command()
-@click.option(
-    "--device",
-    "-d",
-    default=None,
-    type=int,
-    help="Device ID (for multiple CatSniffers)",
-)
+@device_option()
 def identify(device) -> None:
     """Send identification command to CatSniffer device"""
     dev = get_device_or_exit(device)

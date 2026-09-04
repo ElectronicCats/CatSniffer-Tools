@@ -8,6 +8,7 @@ import click
 import sys
 import queue
 
+from ...utils.cli_options import device_option
 from ...utils.output import (
     print_warning,
     print_error,
@@ -61,13 +62,7 @@ def meshtastic_decode(input, key):
 
 
 @meshtastic.command("live")
-@click.option(
-    "-d",
-    "--device",
-    default=None,
-    type=int,
-    help="Device ID (for multiple CatSniffers)",
-)
+@device_option()
 @click.option(
     "-baud",
     "--baudrate",
@@ -154,13 +149,7 @@ def meshtastic_live(device, baudrate, frequency, preset):
 
 
 @meshtastic.command("dashboard")
-@click.option(
-    "-d",
-    "--device",
-    default=None,
-    type=int,
-    help="Device ID (for multiple CatSniffers)",
-)
+@device_option()
 @click.option(
     "-baud",
     "--baudrate",

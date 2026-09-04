@@ -19,6 +19,7 @@ import click
 from rich.table import Table
 from rich import box
 
+from ..utils.cli_options import device_option
 from ..utils.output import (
     console,
     print_success,
@@ -36,12 +37,8 @@ from ..utils.output import (
 
 @click.command()
 @click.argument("firmware", required=False)
-@click.option(
-    "--device",
-    "-d",
-    default=None,
-    type=int,
-    help="Device ID (for multiple CatSniffers). If not specified, first device will be selected.",
+@device_option(
+    help="Device ID (for multiple CatSniffers). If not specified, first device will be selected."
 )
 @click.option(
     "--list",
@@ -304,7 +301,7 @@ def flash(firmware, device, list, full) -> None:
     is_flag=True,
     help="Run all tests including LoRa configuration and communication",
 )
-@click.option("--device", "-d", type=int, help="Test only a specific device (by ID)")
+@device_option(help="Test only a specific device (by ID)")
 @click.option("--quiet", "-q", is_flag=True, help="Show only summary results")
 def verify(test_all, device, quiet):
     """
@@ -359,13 +356,7 @@ def verify(test_all, device, quiet):
 
 
 @click.command()
-@click.option(
-    "--device",
-    "-d",
-    default=None,
-    type=int,
-    help="Device ID (for multiple CatSniffers)",
-)
+@device_option()
 @click.option(
     "--force",
     "-f",
@@ -422,13 +413,7 @@ def update(device, force):
 
 @click.command()
 @click.argument("firmware", required=False, default=None)
-@click.option(
-    "--device",
-    "-d",
-    default=None,
-    type=int,
-    help="Device ID (for shell access to trigger BOOTSEL)",
-)
+@device_option(help="Device ID (for shell access to trigger BOOTSEL)")
 @click.option(
     "--tapid",
     default="0x1BB7702F",

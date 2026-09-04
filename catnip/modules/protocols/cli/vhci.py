@@ -12,6 +12,7 @@ import sys
 import time
 from rich.logging import RichHandler
 
+from ...utils.cli_options import device_option
 from ...utils.output import (
     console,
     print_success,
@@ -37,13 +38,7 @@ def vhci():
 
 
 @vhci.command("start")
-@click.option(
-    "--device",
-    "-d",
-    default=None,
-    type=int,
-    help="Device ID (for multiple CatSniffers)",
-)
+@device_option()
 @click.option(
     "--baud",
     default=2000000,

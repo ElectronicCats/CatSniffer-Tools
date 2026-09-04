@@ -6,6 +6,7 @@ from ...core.device_utils import get_device_or_exit
 # External
 import click
 
+from ...utils.cli_options import device_option
 from ...utils.output import (
     print_error,
     print_info,
@@ -19,13 +20,7 @@ def lora():
 
 
 @lora.command("spectrum")
-@click.option(
-    "-d",
-    "--device",
-    default=None,
-    type=int,
-    help="Device ID (for multiple CatSniffers)",
-)
+@device_option()
 @click.option(
     "-b",
     "--baudrate",
