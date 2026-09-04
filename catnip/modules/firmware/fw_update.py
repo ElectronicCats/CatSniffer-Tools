@@ -26,6 +26,7 @@ import os
 import re
 import time
 import glob
+import platform
 import shutil
 import logging
 from typing import Optional, Dict, Tuple
@@ -242,6 +243,59 @@ def get_expected_fw_tag(flasher) -> Optional[str]:
     return tag
 
 
+def find_board_mount_point(board) -> Optional[str]:
+    """Mount point of the board's UF2 bootloader volume, or None."""
+    volume = board.uf2_volume if board else "RPI-RP2"
+    system = platform.system()
+    if system == "Linux":
+        for pattern in (f"/media/*/{volume}", f"/run/media/*/{volume}", f"/mnt/{volume}"):
+            matches = glob.glob(pattern)
+            if matches:
+                return matches[0]
+    elif system == "Darwin":
+        path = f"/Volumes/{volume}"
+        if os.path.exists(path):
+            return path
+    elif system == "Windows":
+        return find_rp2040_mount_point()
+    return None
+
+
+def find_any_board_mount_point():
+    """(board, mount_point) of whichever board bootloader volume is mounted."""
+    from .board import BOARDS
+
+    for board in BOARDS.values():
+        mount = find_board_mount_point(board)
+        if mount:
+            return board, mount
+    return None, None
+
+
+def find_board_uf2(flasher, board) -> Optional[str]:
+    """UF2 asset for this board generation in the local release folder."""
+    try:
+        release_path = flasher.get_releases_path()
+        if os.path.isdir(release_path):
+            for filename in sorted(os.listdir(release_path)):
+                if filename.lower().endswith(".uf2") and board.uf2_pattern in filename.lower():
+                    return os.path.join(release_path, filename)
+    except Exception as e:
+        logger.error(f"[X] Error finding UF2 firmware: {e}")
+    return None
+
+
+def confirm_reboot(board, tag) -> bool:
+    """Ask before rebooting a board into its bootloader."""
+    try:
+        answer = input(
+            f"Reboot the {board.label} into its {board.uf2_volume} bootloader and flash {tag}? [y/N] "
+        )
+    except EOFError:
+        return False
+    return answer.strip().lower() in ("y", "yes")
+
+
 def is_fw_compatible(device_fw: Dict[str, str], expected_tag: str) -> bool:
     """
     Check if the device firmware is compatible with the expected release tag.
@@ -352,7 +406,7 @@ def find_rp2040_mount_point() -> Optional[str]:
     return None
 
 
-def flash_rp2040_uf2(uf2_path: str) -> bool:
+def flash_rp2040_uf2(uf2_path: str, mount_point: Optional[str] = None) -> bool:
     """
     Flash the RP2040 by copying the UF2 file to its mass storage device.
 
@@ -369,7 +423,8 @@ def flash_rp2040_uf2(uf2_path: str) -> bool:
         print_error(f"UF2 file not found: {uf2_path}")
         return False
 
-    mount_point = find_rp2040_mount_point()
+    if not mount_point:
+        mount_point = find_rp2040_mount_point() or find_any_board_mount_point()[1]
     if not mount_point:
         print_error("RP2040 boot device not found!")
         print_warning("The device must be in UF2 Boot Mode.")
@@ -461,7 +516,9 @@ def _print_boot_mode_instructions():
     print_empty_line()
 
 
-def check_and_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bool:
+def check_and_update_rp2040(
+    device: CatSnifferDevice = None, flasher=None, force: bool = False
+) -> bool:
     """
     Main orchestration function for RP2040 firmware update.
 
@@ -538,13 +595,17 @@ def check_and_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bo
         # No device detected — check if RP2040 is already in boot mode
         print_warning("No CatSniffer device detected")
 
-        mount_point = find_rp2040_mount_point()
+        boot_board, mount_point = find_any_board_mount_point()
         if mount_point:
             print_success(f"RP2040 Boot Mode detected at: {mount_point}")
-            uf2_path = find_uf2_firmware(flasher)
+            uf2_path = None
+            if boot_board is not None and boot_board.generation != "v3":
+                uf2_path = find_board_uf2(flasher, boot_board) or flasher.fetch_board_uf2(boot_board)
+            if uf2_path is None:
+                uf2_path = find_uf2_firmware(flasher)
             if uf2_path:
                 print_info(f"Flashing UF2: {os.path.basename(uf2_path)}")
-                return flash_rp2040_uf2(uf2_path)
+                return flash_rp2040_uf2(uf2_path, mount_point)
             else:
                 print_error("No UF2 firmware found in release folder!")
                 return False
@@ -576,6 +637,25 @@ def check_and_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bo
     if device_fw.get("built"):
         print_dim(f"Built: {device_fw['built']}")
 
+    # Step 4b: the board generation decides the release tag scheme, the UF2
+    # asset and the bootloader volume. v2 boards get their own release line.
+    from .board import parse_board_line
+
+    board = parse_board_line("Board: " + device_fw.get("board", ""))
+    console.print(f"[cyan][*] Board: {board.label}[/cyan]")
+    if board.generation != "v3":
+        rel = flasher.get_release_for_board(board)
+        if not rel:
+            console.print(
+                f"[yellow][!] No {board.generation} firmware release found (tags {board.tag_prefix}X.Y.Z). "
+                "Nothing to update; the board was not rebooted.[/yellow]"
+            )
+            return False
+        expected_fw_tag = rel.get("tag_name")
+        console.print(
+            f"[cyan][*] Expected {board.generation} Firmware Version: {expected_fw_tag}[/cyan]"
+        )
+
     # Step 5: Compare device FW against expected firmware release
     if is_fw_compatible(device_fw, expected_fw_tag):
         print_success(f"Firmware is compatible with release {expected_fw_tag}")
@@ -586,7 +666,9 @@ def check_and_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bo
         f"Firmware mismatch! Device: {device_fw.get('fw', '?')} ≠ Expected: {expected_fw_tag}"
     )
 
-    return _perform_rp2040_update(device, flasher)
+    return _perform_rp2040_update(
+        device, flasher, board=board, tag=expected_fw_tag, force=force
+    )
 
 
 def force_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bool:
@@ -613,12 +695,16 @@ def force_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bool:
 
     if device is None:
         # Check for boot mode
-        mount_point = find_rp2040_mount_point()
+        boot_board, mount_point = find_any_board_mount_point()
         if mount_point:
             print_success(f"RP2040 Boot Mode detected at: {mount_point}")
-            uf2_path = find_uf2_firmware(flasher)
+            uf2_path = None
+            if boot_board is not None and boot_board.generation != "v3":
+                uf2_path = find_board_uf2(flasher, boot_board) or flasher.fetch_board_uf2(boot_board)
+            if uf2_path is None:
+                uf2_path = find_uf2_firmware(flasher)
             if uf2_path:
-                return flash_rp2040_uf2(uf2_path)
+                return flash_rp2040_uf2(uf2_path, mount_point)
             else:
                 print_error("No UF2 firmware found!")
                 return False
@@ -626,10 +712,22 @@ def force_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bool:
             _print_boot_mode_instructions()
             return False
 
-    return _perform_rp2040_update(device, flasher)
+    from .board import detect_board, BOARD_V3
+
+    board = detect_board(device.shell_port) if device else None
+    if board is None:
+        console.print(
+            "[yellow][!] Could not read the board generation; not rebooting. "
+            "Use the manual bootloader entry instead.[/yellow]"
+        )
+        _print_boot_mode_instructions()
+        return False
+    return _perform_rp2040_update(device, flasher, board=board, force=True)
 
 
-def _perform_rp2040_update(device: CatSnifferDevice, flasher) -> bool:
+def _perform_rp2040_update(
+    device: CatSnifferDevice, flasher, board=None, tag=None, force=False
+) -> bool:
     """
     Perform the actual RP2040 firmware update sequence.
 
@@ -645,14 +743,24 @@ def _perform_rp2040_update(device: CatSnifferDevice, flasher) -> bool:
     Returns:
         True on success, False on failure
     """
-    # Find UF2 firmware
-    uf2_path = find_uf2_firmware(flasher)
+    from .board import BOARD_V3
+
+    if board is None:
+        board = BOARD_V3
+    # Find the UF2 for this board generation; never reboot without one
+    if board.generation == "v3":
+        uf2_path = find_uf2_firmware(flasher)
+    else:
+        uf2_path = find_board_uf2(flasher, board) or flasher.fetch_board_uf2(board)
     if not uf2_path:
-        print_error("No UF2 firmware found in release folder!")
-        print_dim("Run the CLI to download the latest release first.")
+        print_error(f"No {board.generation} UF2 firmware found in release folder!")
+        print_dim("The board was not rebooted. Run the CLI to download the latest release first.")
         return False
 
     print_info(f"UF2 firmware: {os.path.basename(uf2_path)}")
+    if not force and not confirm_reboot(board, tag or os.path.basename(uf2_path)):
+        print_warning("Update cancelled; the board was not rebooted.")
+        return False
 
     # Enter boot mode
     if not device.shell_port:
@@ -666,11 +774,11 @@ def _perform_rp2040_update(device: CatSnifferDevice, flasher) -> bool:
         return False
 
     # Wait for RP2040 to appear as mass storage
-    print_info("Waiting for RP2040 boot device to appear...")
+    print_info(f"Waiting for the {board.uf2_volume} boot volume to appear...")
     mount_point = None
     for i in range(15):  # Wait up to ~15 seconds
         time.sleep(1)
-        mount_point = find_rp2040_mount_point()
+        mount_point = find_board_mount_point(board)
         if mount_point:
             break
         if i % 3 == 2:
@@ -684,7 +792,7 @@ def _perform_rp2040_update(device: CatSnifferDevice, flasher) -> bool:
     print_success(f"RP2040 Boot Mode detected at: {mount_point}")
 
     # Flash UF2
-    if flash_rp2040_uf2(uf2_path):
+    if flash_rp2040_uf2(uf2_path, mount_point):
         print_success_section("RP2040 Firmware Updated Successfully!")
         print_dim("The device will reboot automatically.")
         print_dim("Wait a few seconds before using other commands.")

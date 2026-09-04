@@ -1301,16 +1301,21 @@ def devices(debug: bool) -> None:
     # Add a table to display devices
     table = Table(title=f"Found {len(devs)} CatSniffer device(s)", box=box.ROUNDED)
     table.add_column("Device", style=STYLES["device"], justify="left")
+    table.add_column("Board", style="magenta", justify="left")
     table.add_column("Cat-Bridge (CC1352)", style="cyan", justify="left")
     table.add_column("Cat-LoRa (SX1262)", style="cyan", justify="left")
     table.add_column("Cat-Shell (Config)", style="cyan", justify="left")
+
+    from ..firmware.board import detect_board
 
     for dev in devs:
         bridge_status = dev.bridge_port or "[red]Not found[/red]"
         lora_status = dev.lora_port or "[red]Not found[/red]"
         shell_status = dev.shell_port or "[red]Not found[/red]"
+        board = detect_board(dev.shell_port)
+        board_status = board.label if board else "[yellow]unknown[/yellow]"
 
-        table.add_row(str(dev), bridge_status, lora_status, shell_status)
+        table.add_row(str(dev), board_status, bridge_status, lora_status, shell_status)
 
     print_empty_line()
     console.print(table)
@@ -2085,7 +2090,7 @@ def update(device, force):
         print_info("Force mode enabled — will update regardless of version")
         result = force_update_rp2040(device=dev, flasher=flasher_inst)
     else:
-        result = check_and_update_rp2040(device=dev, flasher=flasher_inst)
+        result = check_and_update_rp2040(device=dev, flasher=flasher_inst, force=force)
 
     if result:
         print_success("Firmware update check complete!")
