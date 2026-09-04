@@ -121,7 +121,7 @@ modules/
 │   ├── __init__.py
 │   └── cli.py              # `devices`, `identify`, _print_raw_port_debug
 ├── firmware/
-│   └── cli.py              # NUEVO: `flash`, `update`, `restore`, `verify`
+│   └── cli.py              # NUEVO: `flash`, `update`, `restore`, `verify` (Fase 4 ✅)
 ├── protocols/
 │   └── cli/                # NUEVO subpaquete (ver Fase 2: los `__init__.py`
 │       ├── __init__.py     #   de los paquetes de protocolo son eager)
@@ -421,10 +421,45 @@ El bloque más grande y único consumidor de `core/extcap.py`.
   intérprete sin el módulo `usb`; con el venv del proyecto los 3 de
   `TestCLISubprocess` pasan.
 
-### Fase 4 — `firmware`
+### Fase 4 — `firmware` ✅
 
-- [ ] `modules/firmware/cli.py` con `flash`, `update`, `restore` y `verify`
-      (~440 líneas).
+- [x] `modules/firmware/cli.py` con `flash`, `verify`, `update` y `restore`
+      (447 líneas movidas).
+
+**Notas de ejecución:**
+
+- `core/cli.py`: 1 019 → 570 líneas. `firmware/cli.py` son 483 (447 movidas
+  **verbatim** + 36 de cabecera e imports). Se conserva el **orden del
+  archivo original** (`flash`, `verify`, `update`, `restore`) para que el diff
+  sea legible; el orden de registro no afecta al `--help` porque Click ordena
+  los comandos alfabéticamente.
+- Primera fase que aplica la **sección 3.2**: `flash`, `verify` y `update`
+  estaban decorados con `@cli.command()` (registro implícito sobre el grupo
+  raíz) y pasan a `@click.command()` + `cli.add_command(...)` explícito en
+  `build_cli()`. `restore` ya era `@click.command()` y ya se registraba a mano.
+  Los nombres expuestos al usuario no cambian.
+- `modules/firmware/` **ya era un paquete** con `__init__.py` vacío, así que no
+  hizo falta crearlo ni hubo riesgo de import eager (a diferencia de la Fase 2).
+- Los tres imports diferidos dentro de las funciones pierden un nivel de
+  anidamiento: `..firmware.fw_aliases` → `.fw_aliases`, `..firmware.fw_update`
+  → `.fw_update` y `..firmware.restore` → `.restore`. Siguen siendo diferidos a
+  propósito. Verificado que tras `import modules.core.cli` ninguno de esos tres
+  módulos aparece en `sys.modules`.
+- Imports que quedaron sin uso en `core/cli.py` y se eliminaron: `Flasher`,
+  `run_verification` (con lo que `core/cli.py` **deja de importar de
+  `..firmware.*` salvo el grupo de comandos**), `send_identify_command`,
+  `catnip_get_device`, `time`, y de `output` los `print_title`,
+  `print_subtitle` y `print_alias_item`. `get_device_or_exit` y
+  `catnip_get_devices` siguen en uso (`identify`/`devices`).
+- El `import usb.core` / `import serial` dentro de `verify` es una comprobación
+  de dependencias en un `try/except ImportError`, no un import muerto; se mueve
+  tal cual.
+- Verificación: `diff` contra `tests/snapshots/cli_tree_linux.txt` **sin
+  diferencias**; `catnip flash` sin argumentos ejecutado con `CliRunner` para
+  comprobar que el import diferido de `.fw_aliases` resuelve (falla con el
+  mensaje esperado, exit 1); `find_packages` sigue listando `modules.firmware`;
+  `import modules.core.cli` en 0,17-0,18 s sin regresión. `pytest tests/ -q` →
+  **328 pasados, 3 fallos**, los mismos preexistentes de la Fase 3.
 
 ### Fase 5 — `device`
 
