@@ -114,7 +114,7 @@ modules/
 │   ├── device_utils.py     # NUEVO: get_device_or_exit, send_identify_command
 │   └── extcap.py           # NUEVO: run_extcap_directly, find_extcap_plugin,
 │                           #        find_putty_path, _find_python_executable
-├── sniff/                  # NUEVO paquete
+├── sniff/                  # NUEVO paquete (Fase 3 ✅)
 │   ├── __init__.py
 │   └── cli.py              # grupo `sniff`: ble, zigbee, thread, lora, airtag_scanner
 ├── device/                 # NUEVO paquete
@@ -378,11 +378,48 @@ modules/protocols/
   `TestRunBridge`/`TestRunSxBridge` y los 3 de `TestCLISubprocess` por falta del
   módulo `usb` en el entorno local.
 
-### Fase 3 — `sniff`
+### Fase 3 — `sniff` ✅
 
-- [ ] Crear `modules/sniff/__init__.py` y `modules/sniff/cli.py` (~450 líneas).
+- [x] Crear `modules/sniff/__init__.py` y `modules/sniff/cli.py` (449 líneas
+      movidas: grupo `sniff` con `ble`, `zigbee`, `thread`, `lora` y
+      `airtag_scanner`).
 
 El bloque más grande y único consumidor de `core/extcap.py`.
+
+**Notas de ejecución:**
+
+- `core/cli.py`: 1 472 → 1 019 líneas. `sniff/cli.py` son 477 (449 movidas
+  **verbatim** + 28 de cabecera e imports); no se retocó ni una línea de los
+  cuerpos.
+- Como estaba previsto en la Fase 1, `core/cli.py` **deja de depender de
+  `core/extcap.py` por completo**: `find_putty_path` y `run_extcap_directly`
+  se fueron con `sniff`. Con ellos se eliminaron también los imports que
+  quedaron sin uso: `from .bridge import run_bridge, run_sx_bridge` y, de
+  `.catnip`, `SniffingFirmware`, `SniffingBaseFirmware` y `Catnip`.
+  `CatSnifferDevice` (sin uso desde antes de la Fase 2) se fue en la misma
+  línea de import al reescribirla.
+- `sniff/cli.py` redeclara `logger = logging.getLogger("rich")`. Es el **mismo
+  objeto** que el de `core/cli.py` (`getLogger` cachea por nombre), así que
+  `catnip sniff -v` sigue subiendo el nivel del logger que `core/cli.py`
+  configura con `basicConfig`. No se duplicó `basicConfig`: la configuración
+  del handler sigue viviendo solo en `core/cli.py`.
+- `modules/sniff/__init__.py` se deja **vacío a propósito** (solo docstring):
+  `core/cli.py` lo importa de forma estática, así que cualquier import eager
+  ahí se pagaría en cada `catnip --help` — la lección de la Fase 2.
+- `tests/test_cli_structure.py` no necesitó cambios: el invariante §2.3 usa
+  `rglob("cli.py")`, que sí cubre `modules/sniff/cli.py` (a diferencia de los
+  archivos de `protocols/cli/`, que hubo que añadir aparte en la Fase 2).
+- Ningún test parcheaba nombres de `sniff` en `modules.core.cli`, así que no
+  se repitió el ajuste de mocks que hizo falta en la Fase 1.
+- Verificación: `diff` contra `tests/snapshots/cli_tree_linux.txt` **sin
+  diferencias**; `find_packages(include=["modules", "modules.*"])` lista
+  `modules.sniff` (Regla 2); `import modules.core.cli` en 0,17-0,18 s sin
+  regresión, y ningún paquete de protocolo aparece en `sys.modules`.
+  `pytest tests/ -q` → **328 pasados, 3 fallos**, idénticos a los de un
+  worktree en HEAD (`TestRunBridge`/`TestRunSxBridge`, preexistentes). El
+  recuento difiere del de la Fase 2 (325/6) solo porque aquel se corrió con un
+  intérprete sin el módulo `usb`; con el venv del proyecto los 3 de
+  `TestCLISubprocess` pasan.
 
 ### Fase 4 — `firmware`
 
