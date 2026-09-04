@@ -191,7 +191,9 @@ class CCLoader:
             except CmdException as e:
                 logger.debug(f"Synch attempt {attempt + 1}: {e}")
             if attempt < retries - 1:
-                logger.warning(f"[!] Synch attempt {attempt + 1}/{retries} failed, retrying...")
+                logger.warning(
+                    f"[!] Synch attempt {attempt + 1}/{retries} failed, retrying..."
+                )
                 time.sleep(0.5)
         logger.error(
             "[X] Error: Can't connect to target. Ensure boot loader is started. (no answer on synch sequence)",
@@ -719,12 +721,16 @@ class Flasher:
                 resp.raise_for_status()
                 for asset in resp.json().get("assets", []):
                     name = asset.get("name", "")
-                    if pattern.lower() in name.lower() and name.lower().endswith(".hex"):
+                    if pattern.lower() in name.lower() and name.lower().endswith(
+                        ".hex"
+                    ):
                         target_dir = self.get_releases_path()
                         os.makedirs(target_dir, exist_ok=True)
                         path = os.path.join(target_dir, name)
                         console.print(f"[*] Downloading {name}...")
-                        content = requests.get(asset.get("browser_download_url"), timeout=15)
+                        content = requests.get(
+                            asset.get("browser_download_url"), timeout=15
+                        )
                         content.raise_for_status()
                         with open(path, "wb") as f:
                             f.write(content.content)
@@ -767,7 +773,9 @@ class Flasher:
                 path = os.path.join(target_dir, name)
                 if not os.path.exists(path):
                     try:
-                        content = requests.get(asset.get("browser_download_url"), timeout=10)
+                        content = requests.get(
+                            asset.get("browser_download_url"), timeout=10
+                        )
                         content.raise_for_status()
                         with open(path, "wb") as f:
                             f.write(content.content)
@@ -857,7 +865,10 @@ class Flasher:
             from .board import image_allowed_for_board
 
             for firm in firmwares:
-                if official_id.lower() in firm.lower() and image_allowed_for_board(firm, board)[0]:
+                if (
+                    official_id.lower() in firm.lower()
+                    and image_allowed_for_board(firm, board)[0]
+                ):
                     path = os.path.join(self.get_releases_path(), firm)
                     print_dim(f"Resolved '{firmware_str}' to {official_id} -> {firm}")
                     return self.flash_firmware(path, device)
@@ -949,7 +960,9 @@ class Flasher:
             allowed, reason = image_allowed_for_board(os.path.basename(firmware), board)
             fits, fit_reason = image_fits_chip(len(ccloader.firmware.bytes), chip_size)
             if not allowed or not fits:
-                console.print(f"[red][X] Refusing to flash: {reason if not allowed else fit_reason}[/red]")
+                console.print(
+                    f"[red][X] Refusing to flash: {reason if not allowed else fit_reason}[/red]"
+                )
                 ccloader.exit_bootloader()
                 ccloader.close()
                 return False
@@ -964,7 +977,12 @@ class Flasher:
 
             # Update firmware metadata (NVS on the RP2040). The SAMD21 boards
             # have no storage for it, so skip instead of retrying.
-            if device and device.shell_port and board is not None and board.generation != "v3":
+            if (
+                device
+                and device.shell_port
+                and board is not None
+                and board.generation != "v3"
+            ):
                 console.print(
                     f"[dim][*] {board.label} keeps no CC1352 firmware ID; skipping metadata update[/dim]"
                 )

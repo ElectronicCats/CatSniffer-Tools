@@ -248,7 +248,11 @@ def find_board_mount_point(board) -> Optional[str]:
     volume = board.uf2_volume if board else "RPI-RP2"
     system = platform.system()
     if system == "Linux":
-        for pattern in (f"/media/*/{volume}", f"/run/media/*/{volume}", f"/mnt/{volume}"):
+        for pattern in (
+            f"/media/*/{volume}",
+            f"/run/media/*/{volume}",
+            f"/mnt/{volume}",
+        ):
             matches = glob.glob(pattern)
             if matches:
                 return matches[0]
@@ -278,7 +282,10 @@ def find_board_uf2(flasher, board) -> Optional[str]:
         release_path = flasher.get_releases_path()
         if os.path.isdir(release_path):
             for filename in sorted(os.listdir(release_path)):
-                if filename.lower().endswith(".uf2") and board.uf2_pattern in filename.lower():
+                if (
+                    filename.lower().endswith(".uf2")
+                    and board.uf2_pattern in filename.lower()
+                ):
                     return os.path.join(release_path, filename)
     except Exception as e:
         logger.error(f"[X] Error finding UF2 firmware: {e}")
@@ -600,7 +607,9 @@ def check_and_update_rp2040(
             print_success(f"RP2040 Boot Mode detected at: {mount_point}")
             uf2_path = None
             if boot_board is not None and boot_board.generation != "v3":
-                uf2_path = find_board_uf2(flasher, boot_board) or flasher.fetch_board_uf2(boot_board)
+                uf2_path = find_board_uf2(
+                    flasher, boot_board
+                ) or flasher.fetch_board_uf2(boot_board)
             if uf2_path is None:
                 uf2_path = find_uf2_firmware(flasher)
             if uf2_path:
@@ -700,7 +709,9 @@ def force_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bool:
             print_success(f"RP2040 Boot Mode detected at: {mount_point}")
             uf2_path = None
             if boot_board is not None and boot_board.generation != "v3":
-                uf2_path = find_board_uf2(flasher, boot_board) or flasher.fetch_board_uf2(boot_board)
+                uf2_path = find_board_uf2(
+                    flasher, boot_board
+                ) or flasher.fetch_board_uf2(boot_board)
             if uf2_path is None:
                 uf2_path = find_uf2_firmware(flasher)
             if uf2_path:
@@ -754,7 +765,9 @@ def _perform_rp2040_update(
         uf2_path = find_board_uf2(flasher, board) or flasher.fetch_board_uf2(board)
     if not uf2_path:
         print_error(f"No {board.generation} UF2 firmware found in release folder!")
-        print_dim("The board was not rebooted. Run the CLI to download the latest release first.")
+        print_dim(
+            "The board was not rebooted. Run the CLI to download the latest release first."
+        )
         return False
 
     print_info(f"UF2 firmware: {os.path.basename(uf2_path)}")
