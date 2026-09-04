@@ -15,7 +15,7 @@ from ..firmware.flasher import Flasher
 # External
 import click
 
-from ..utils.cli_options import device_option
+from ..utils.cli_options import ascii_file_option, device_option, raw_file_option
 from ..utils.output import (
     print_success,
     print_warning,
@@ -159,22 +159,8 @@ def sniff_ble(device, wireshark, channel, mode):
     "--channel", "-c", required=True, type=click.IntRange(11, 26), help="Zigbee channel"
 )
 @device_option()
-@click.option(
-    "--raw",
-    "-r",
-    "raw_file",
-    default=None,
-    type=click.Path(dir_okay=False, writable=True),
-    help="Save captured packets as raw hex to FILE (RX: <hex> | RSSI: <rssi>)",
-)
-@click.option(
-    "-ascii",
-    "--ascii",
-    "ascii_file",
-    default=None,
-    type=click.Path(dir_okay=False, writable=True),
-    help="Save captured packets as decoded ASCII to FILE (RX: <ascii> | RSSI: <rssi>)",
-)
+@raw_file_option()
+@ascii_file_option()
 def sniff_zigbee(ws, channel, device, raw_file, ascii_file):
     """Sniffing Zigbee with Sniffer TI firmware"""
     flasher = Flasher()
@@ -218,22 +204,8 @@ def sniff_zigbee(ws, channel, device, raw_file, ascii_file):
     "--channel", "-c", required=True, type=click.IntRange(11, 26), help="Thread channel"
 )
 @device_option()
-@click.option(
-    "--raw",
-    "-r",
-    "raw_file",
-    default=None,
-    type=click.Path(dir_okay=False, writable=True),
-    help="Save captured packets as raw hex to FILE (RX: <hex> | RSSI: <rssi>)",
-)
-@click.option(
-    "-ascii",
-    "--ascii",
-    "ascii_file",
-    default=None,
-    type=click.Path(dir_okay=False, writable=True),
-    help="Save captured packets as decoded ASCII to FILE (RX: <ascii> | RSSI: <rssi>)",
-)
+@raw_file_option()
+@ascii_file_option()
 def sniff_thread(ws, channel, device, raw_file, ascii_file):
     """Sniffing Thread with Sniffer TI firmware"""
     flasher = Flasher()
@@ -317,21 +289,11 @@ def sniff_thread(ws, channel, device, raw_file, ascii_file):
     type=click.Choice(["public", "private"]),
     help="LoRa sync word: 'public' (0x34, LoRaWAN) or 'private' (0x12). Default: private.",
 )
-@click.option(
-    "--raw",
-    "-r",
-    "raw_file",
-    default=None,
-    type=click.Path(dir_okay=False, writable=True),
-    help="Save captured packets as raw hex to FILE (RX: <hex> | RSSI: <rssi> | SNR: <snr>)",
+@raw_file_option(
+    help="Save captured packets as raw hex to FILE (RX: <hex> | RSSI: <rssi> | SNR: <snr>)"
 )
-@click.option(
-    "-ascii",
-    "--ascii",
-    "ascii_file",
-    default=None,
-    type=click.Path(dir_okay=False, writable=True),
-    help="Save captured packets as decoded ASCII to FILE (RX: <ascii> | RSSI: <rssi> | SNR: <snr>)",
+@ascii_file_option(
+    help="Save captured packets as decoded ASCII to FILE (RX: <ascii> | RSSI: <rssi> | SNR: <snr>)"
 )
 def sniff_lora(
     ws,

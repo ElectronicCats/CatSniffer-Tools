@@ -24,3 +24,33 @@ def device_option(help: str = DEVICE_HELP, **kwargs):
     other keyword is forwarded to :func:`click.option`.
     """
     return click.option("--device", "-d", default=None, type=int, help=help, **kwargs)
+
+
+RAW_HELP = "Save captured packets as raw hex to FILE (RX: <hex> | RSSI: <rssi>)"
+ASCII_HELP = "Save captured packets as decoded ASCII to FILE (RX: <ascii> | RSSI: <rssi>)"
+
+_CAPTURE_FILE = click.Path(dir_okay=False, writable=True)
+
+
+def raw_file_option(help: str = RAW_HELP, **kwargs):
+    """``-r/--raw``: dump the capture as raw hex to a file.
+
+    ``sniff lora`` overrides ``help`` because its records carry an extra SNR
+    field.
+    """
+    return click.option(
+        "--raw", "-r", "raw_file", default=None, type=_CAPTURE_FILE, help=help, **kwargs
+    )
+
+
+def ascii_file_option(help: str = ASCII_HELP, **kwargs):
+    """``-ascii/--ascii``: dump the capture as decoded ASCII to a file."""
+    return click.option(
+        "-ascii",
+        "--ascii",
+        "ascii_file",
+        default=None,
+        type=_CAPTURE_FILE,
+        help=help,
+        **kwargs,
+    )

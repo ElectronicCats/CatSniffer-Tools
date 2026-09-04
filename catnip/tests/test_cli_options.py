@@ -20,7 +20,12 @@ import click
 import pytest
 
 from modules.core.cli import build_cli
-from modules.utils.cli_options import DEVICE_HELP, device_option
+from modules.utils.cli_options import (
+    ASCII_HELP,
+    DEVICE_HELP,
+    RAW_HELP,
+    device_option,
+)
 
 
 _MODULES_DIR = Path(__file__).resolve().parent.parent / "modules"
@@ -112,3 +117,50 @@ def test_device_option_forwards_extra_keywords():
     param = command.params[0]
     assert param.help == "custom"
     assert param.show_default is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Capture-file options (``sniff zigbee|thread|lora``)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ``sniff lora`` records carry an extra SNR field, so its help text differs.
+CUSTOM_CAPTURE_HELP = {"catnip sniff lora"}
+
+_CAPTURE_PARAMS = {"raw_file": RAW_HELP, "ascii_file": ASCII_HELP}
+
+
+def _commands_with_capture_files():
+    for path, command in _walk(build_cli(), ["catnip"]):
+        for param in command.params:
+            if param.name in _CAPTURE_PARAMS:
+                yield path, param
+
+
+@pytest.mark.unit
+def test_every_sniffer_with_capture_files_has_both():
+    """``--raw`` and ``--ascii`` are a pair; one without the other is a bug."""
+    found = {}
+    for path, param in _commands_with_capture_files():
+        found.setdefault(path, set()).add(param.name)
+    assert found, "no command declares the capture-file options"
+    for path, names in sorted(found.items()):
+        assert names == set(_CAPTURE_PARAMS), path
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "path,param", sorted(_commands_with_capture_files(), key=lambda pair: pair[0])
+)
+def test_capture_file_options_are_uniform(path, param):
+    """Same flags, same type and same default in every sniffer."""
+    expected_opts = {
+        "raw_file": ["--raw", "-r"],
+        "ascii_file": ["-ascii", "--ascii"],
+    }[param.name]
+    assert param.opts == expected_opts, path
+    assert isinstance(param.type, click.Path), path
+    assert param.default is None, path
+    if path in CUSTOM_CAPTURE_HELP:
+        assert param.help != _CAPTURE_PARAMS[param.name], f"{path} override is stale"
+    else:
+        assert param.help == _CAPTURE_PARAMS[param.name], path
