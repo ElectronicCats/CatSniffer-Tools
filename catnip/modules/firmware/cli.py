@@ -323,7 +323,7 @@ def verify(test_all, device, quiet):
         print_error(f"Dependency missing: {e}")
         print_warning("Install missing dependencies:")
         print_dim("pip install pyusb pyserial")
-        return 1
+        sys.exit(1)
 
     # Run verification
     success, results = run_verification(

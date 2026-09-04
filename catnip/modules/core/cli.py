@@ -34,7 +34,7 @@ import click
 from rich.logging import RichHandler
 from rich.panel import Panel
 
-from ..utils.output import console, STYLES
+from ..utils.output import console, print_error, STYLES
 
 import platform
 
@@ -146,7 +146,36 @@ def build_cli() -> click.Group:
 
 
 def main_cli() -> None:
+    """Entry point: run the CLI and turn every failure into an exit code.
+
+    Click is driven with ``standalone_mode=False`` so that the exceptions it
+    would otherwise swallow reach us and can be mapped deliberately.  Commands
+    that call ``sys.exit()`` themselves are unaffected: ``SystemExit`` is not
+    an ``Exception`` and travels straight through.
+
+    See ``BOMBERCAT_PARITY.md`` section 2.
+    """
     if not os.environ.get("_CATNIP_COMPLETE"):
         module = next((a for a in sys.argv[1:] if not a.startswith("-")), None)
         print_header(module)
-    build_cli()(prog_name="catnip")
+    try:
+        rv = build_cli()(prog_name="catnip", standalone_mode=False)
+    except click.exceptions.Abort:
+        # Ctrl-C or EOF, including inside a prompt: Click has already turned
+        # the KeyboardInterrupt into an Abort by the time it gets here.
+        raise SystemExit(130)
+    except KeyboardInterrupt:
+        print_error("interrupted")
+        raise SystemExit(130)
+    except click.ClickException as e:
+        # Click prints these itself in standalone mode; now it is our job.
+        e.show()
+        raise SystemExit(e.exit_code)
+    except Exception as e:
+        if os.environ.get("CATNIP_DEBUG"):
+            raise
+        print_error(f"{type(e).__name__}: {e} (set CATNIP_DEBUG=1 for a traceback)")
+        raise SystemExit(1)
+    else:
+        # ``--help`` and friends *return* their exit code instead of exiting.
+        raise SystemExit(rv or 0)
