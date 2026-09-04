@@ -130,8 +130,8 @@ modules/
 │       ├── vhci.py         # NUEVO: grupo `vhci`
 │       └── cativity.py     # NUEVO: `cativity`
 └── utils/
-    ├── completion.py       # NUEVO: grupo `completion`
-    └── system_cli.py       # NUEVO: `setup-env`
+    ├── completion.py       # NUEVO: grupo `completion` (Fase 6 ✅)
+    └── system_cli.py       # NUEVO: `setup-env` (Fase 6 ✅)
 ```
 
 ### 3.1 Mapa de migración detallado
@@ -486,11 +486,52 @@ El bloque más grande y único consumidor de `core/extcap.py`.
   devices found", exit 0); `import modules.core.cli` en 0,18-0,19 s.
   `pytest tests/ -q` → **328 pasados, 3 fallos** preexistentes.
 
-### Fase 6 — Sistema y completado de shell
+### Fase 6 — Sistema y completado de shell ✅
 
-- [ ] `modules/utils/completion.py` — grupo `completion` (~241 líneas de
+- [x] `modules/utils/completion.py` — grupo `completion` (238 líneas movidas de
       post-procesado de scripts de shell).
-- [ ] `modules/utils/system_cli.py` — `setup-env` (~58 líneas).
+- [x] `modules/utils/system_cli.py` — `setup-env` (58 líneas movidas).
+
+**Notas de ejecución:**
+
+- `core/cli.py`: 465 → 152 líneas, ya solo branding + grupo raíz + ensamblaje,
+  que es el objetivo de la sección 3 (~130 líneas estimadas). `completion.py`
+  son 261 (238 movidas **verbatim** + 23 de cabecera e imports) y
+  `system_cli.py` 82 (58 movidas + 24).
+- **Desviación menor de la sección 3**: el plan situaba estos archivos
+  directamente en `modules/utils/`, y así se hizo — no hacía falta un
+  subpaquete `utils/cli/` como en `protocols/`, porque
+  `modules/utils/__init__.py` está **vacío** y `core/cli.py` ya importaba de
+  `..utils._version` y `..utils.output`. Coste de import cero.
+- Los dos archivos importan de `.output` (mismo paquete), no de `..utils.output`.
+  Ninguno importa nada de `modules.core`, así que el invariante §2.3 se cumple
+  sin cambios de diseño.
+- El `import subprocess as _sp` / `from pathlib import Path` diferidos dentro de
+  `completion_install` se conservan tal cual (movimiento verbatim). En
+  `system_cli.py` sí son de nivel superior, porque ya lo eran en el original.
+- Sección 3.2 por última vez: `completion` (grupo) y `setup_env` ya eran
+  `@click.group()` / `@click.command("setup-env")` sueltos y se registraban a
+  mano; solo cambia el nombre local en `build_cli()` a `_completion` /
+  `_setup_env` para seguir la convención del resto de imports.
+- Imports que quedaron sin uso en `core/cli.py` y se eliminaron: `subprocess`,
+  `Path` y **todos** los helpers de `output` salvo `console` y `STYLES` (los
+  únicos que usa `print_header`): `print_success`, `print_warning`,
+  `print_error`, `print_info`, `print_dim`, `print_empty_line` y
+  `print_example`.
+- `tests/test_cli_structure.py`: el invariante §2.3 se amplió otra vez. Ni
+  `rglob("cli.py")` ni el glob de `protocols/cli/` cubren estos dos archivos
+  (viven sueltos en `utils/` y no se llaman `cli.py`), así que se añaden por
+  nombre explícito.
+- Verificación: `diff` contra `tests/snapshots/cli_tree_linux.txt` **sin
+  diferencias**; `find_packages` sigue listando `modules.utils`;
+  `catnip setup-env` ejecutado con `CliRunner` sin root (responde "Root
+  privileges required", exit 1); `import modules.core.cli` en 0,10 s y ningún
+  paquete de protocolo en `sys.modules`. `pytest tests/ -q` → **328 pasados,
+  3 fallos**, los mismos preexistentes de las Fases 3-5
+  (`TestRunBridge`/`TestRunSxBridge`).
+- `completion install` **no** se ejecutó de verdad a propósito: escribe en
+  `~/.zfunc`, `~/.zshrc` y `~/.local/share/bash-completion/`. Queda cubierto
+  por el diff del snapshot y por su import estático.
 
 ### Fase 7 — Verificación de empaquetado
 

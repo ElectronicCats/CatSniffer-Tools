@@ -285,13 +285,18 @@ def test_feature_cli_modules_do_not_import_core_cli():
     back from ``modules.core.cli`` the result is an import cycle; shared
     helpers belong in a Click-free module instead.
 
-    Covers both layouts in use: ``modules/<feature>/cli.py`` and the
-    ``modules/protocols/cli/<protocol>.py`` subpackage, which exists because
+    Covers the three layouts in use: ``modules/<feature>/cli.py``, the
+    ``modules/protocols/cli/<protocol>.py`` subpackage -- which exists because
     the protocol packages' own ``__init__.py`` eagerly import matplotlib, the
-    ``meshtastic`` library and ``fcntl``.
+    ``meshtastic`` library and ``fcntl`` -- and the command modules that live
+    straight inside ``modules/utils/``.
     """
     candidates = set(_MODULES_DIR.rglob("cli.py"))
     candidates |= set((_MODULES_DIR / "protocols" / "cli").glob("*.py"))
+    candidates |= {
+        _MODULES_DIR / "utils" / "completion.py",
+        _MODULES_DIR / "utils" / "system_cli.py",
+    }
     offenders = []
     for path in sorted(candidates):
         if path == _MODULES_DIR / "core" / "cli.py":
