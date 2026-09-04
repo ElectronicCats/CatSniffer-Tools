@@ -86,7 +86,9 @@ def parse_board_line(fw_version_text: Optional[str]) -> BoardInfo:
     return BOARDS[match.group(1).lower()]
 
 
-def detect_board(shell_port: Optional[str], timeout: float = 2.0) -> Optional[BoardInfo]:
+def detect_board(
+    shell_port: Optional[str], timeout: float = 2.0
+) -> Optional[BoardInfo]:
     """
     Query the board generation through its Cat-Shell port.
 

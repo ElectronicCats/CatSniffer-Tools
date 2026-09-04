@@ -34,12 +34,13 @@ from modules.firmware.board import (  # noqa: E402
 )
 from modules.firmware import fw_aliases  # noqa: E402
 
-
 V2_FW_VERSION = (
     "FW: dev-87c5174-dirty\r\nGit: 87c5174 (dirty)\r\nBuilt: 2026-09-03T00:00:00Z\r\n"
     "Compiler: GNU 12.2.0\r\nBoard: v2 SAMD21 CC1352P1\r\n"
 )
-V3_FW_VERSION_OLD = "FW: v3.1.0.0\r\nGit: abc1234 (clean)\r\nBuilt: 2026-01-01T00:00:00Z\r\n"
+V3_FW_VERSION_OLD = (
+    "FW: v3.1.0.0\r\nGit: abc1234 (clean)\r\nBuilt: 2026-01-01T00:00:00Z\r\n"
+)
 V3_FW_VERSION_NEW = V3_FW_VERSION_OLD + "Board: v3 RP2040 CC1352P7\r\n"
 
 
@@ -80,18 +81,27 @@ class TestDetectBoard:
         return shell
 
     def test_detects_v2(self):
-        with patch("modules.core.usb_connection.ShellConnection", return_value=self._shell(V2_FW_VERSION)):
+        with patch(
+            "modules.core.usb_connection.ShellConnection",
+            return_value=self._shell(V2_FW_VERSION),
+        ):
             assert board_mod.detect_board("/dev/ttyACM2") is BOARD_V2
 
     def test_no_shell_port(self):
         assert board_mod.detect_board(None) is None
 
     def test_unreachable_shell_is_unknown(self):
-        with patch("modules.core.usb_connection.ShellConnection", return_value=self._shell("", connected=False)):
+        with patch(
+            "modules.core.usb_connection.ShellConnection",
+            return_value=self._shell("", connected=False),
+        ):
             assert board_mod.detect_board("/dev/ttyACM2") is None
 
     def test_garbage_reply_is_unknown(self):
-        with patch("modules.core.usb_connection.ShellConnection", return_value=self._shell("Unknown command")):
+        with patch(
+            "modules.core.usb_connection.ShellConnection",
+            return_value=self._shell("Unknown command"),
+        ):
             assert board_mod.detect_board("/dev/ttyACM2") is None
 
 
@@ -119,7 +129,9 @@ class TestImageMatching:
         assert "bootloader" in reason
 
     def test_p1_image_refused_on_v3(self):
-        allowed, _ = image_allowed_for_board("sniffle_cc1352p1_cc2652p1_1M.hex", BOARD_V3)
+        allowed, _ = image_allowed_for_board(
+            "sniffle_cc1352p1_cc2652p1_1M.hex", BOARD_V3
+        )
         assert not allowed
 
     def test_matching_images_allowed(self):
@@ -128,7 +140,9 @@ class TestImageMatching:
 
     def test_unnamed_variant_only_on_v3(self):
         assert image_allowed_for_board("sniffer_fw_Catsniffer_v3.x.hex", BOARD_V3)[0]
-        assert not image_allowed_for_board("sniffer_fw_Catsniffer_v3.x.hex", BOARD_V2)[0]
+        assert not image_allowed_for_board("sniffer_fw_Catsniffer_v3.x.hex", BOARD_V2)[
+            0
+        ]
 
     def test_unknown_board_never_allowed(self):
         assert not image_allowed_for_board("sniffle_cc1352p1_cc2652p1_1M.hex", None)[0]
@@ -163,10 +177,18 @@ class TestBoardCatalog:
         assert fw_aliases.get_filename_pattern("sniffle", "v3") == "sniffle_cc1352p7_1M"
 
     def test_v2_sniffle_is_p1_image(self):
-        assert fw_aliases.get_filename_pattern("sniffle", "v2") == "sniffle_cc1352p1_cc2652p1_1M"
+        assert (
+            fw_aliases.get_filename_pattern("sniffle", "v2")
+            == "sniffle_cc1352p1_cc2652p1_1M"
+        )
 
     def test_v2_has_no_p7_only_images(self):
-        for fw_id in ("ti_sniffer", "airtag_scanner_cc1352p7", "airtag_spoofer_cc1352p7", "justworks_scanner_cc1352p7"):
+        for fw_id in (
+            "ti_sniffer",
+            "airtag_scanner_cc1352p7",
+            "airtag_spoofer_cc1352p7",
+            "justworks_scanner_cc1352p7",
+        ):
             assert fw_aliases.get_filename_pattern(fw_id, "v2") is None
 
     def test_official_ids_for_board(self):
@@ -217,11 +239,21 @@ class TestFwUpdateBoardAware:
         flasher.get_release_for_board.return_value = None
         device = MagicMock()
         device.shell_port = "/dev/ttyACM2"
-        with patch.object(fw_update, "get_device_fw_version", return_value=fw_update.parse_fw_version_response(V2_FW_VERSION)), \
-             patch.object(fw_update, "get_latest_software_version", return_value=None), \
-             patch.object(fw_update, "enter_boot_mode") as reboot, \
-             patch.object(fw_update, "_perform_rp2040_update") as perform:
-            assert fw_update.check_and_update_rp2040(device=device, flasher=flasher) is False
+        with patch.object(
+            fw_update,
+            "get_device_fw_version",
+            return_value=fw_update.parse_fw_version_response(V2_FW_VERSION),
+        ), patch.object(
+            fw_update, "get_latest_software_version", return_value=None
+        ), patch.object(
+            fw_update, "enter_boot_mode"
+        ) as reboot, patch.object(
+            fw_update, "_perform_rp2040_update"
+        ) as perform:
+            assert (
+                fw_update.check_and_update_rp2040(device=device, flasher=flasher)
+                is False
+            )
             reboot.assert_not_called()
             perform.assert_not_called()
 
@@ -233,9 +265,15 @@ class TestFwUpdateBoardAware:
         flasher.get_releases_path.return_value = str(tmp_path)
         device = MagicMock()
         device.shell_port = "/dev/ttyACM2"
-        with patch.object(fw_update, "confirm_reboot", return_value=False), \
-             patch.object(fw_update, "enter_boot_mode") as reboot:
-            assert fw_update._perform_rp2040_update(device, flasher, board=BOARD_V2, tag="v2.0.1.0") is False
+        with patch.object(
+            fw_update, "confirm_reboot", return_value=False
+        ), patch.object(fw_update, "enter_boot_mode") as reboot:
+            assert (
+                fw_update._perform_rp2040_update(
+                    device, flasher, board=BOARD_V2, tag="v2.0.1.0"
+                )
+                is False
+            )
             reboot.assert_not_called()
 
     def test_perform_update_without_uf2_never_reboots(self, tmp_path):
@@ -247,13 +285,21 @@ class TestFwUpdateBoardAware:
         device = MagicMock()
         device.shell_port = "/dev/ttyACM2"
         with patch.object(fw_update, "enter_boot_mode") as reboot:
-            assert fw_update._perform_rp2040_update(device, flasher, board=BOARD_V2, force=True) is False
+            assert (
+                fw_update._perform_rp2040_update(
+                    device, flasher, board=BOARD_V2, force=True
+                )
+                is False
+            )
             reboot.assert_not_called()
 
     def test_board_mount_point_uses_volume_name(self, tmp_path):
         from modules.firmware import fw_update
 
-        with patch.object(fw_update.platform, "system", return_value="Darwin"), \
-             patch.object(fw_update.os.path, "exists", side_effect=lambda p: p == "/Volumes/SNIFFER"):
+        with patch.object(
+            fw_update.platform, "system", return_value="Darwin"
+        ), patch.object(
+            fw_update.os.path, "exists", side_effect=lambda p: p == "/Volumes/SNIFFER"
+        ):
             assert fw_update.find_board_mount_point(BOARD_V2) == "/Volumes/SNIFFER"
             assert fw_update.find_board_mount_point(BOARD_V3) is None

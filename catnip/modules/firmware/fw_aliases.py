@@ -107,7 +107,9 @@ def get_official_id(alias_or_name: str) -> Optional[str]:
     return None
 
 
-def get_filename_pattern(official_id: str, board_generation: str = "v3") -> Optional[str]:
+def get_filename_pattern(
+    official_id: str, board_generation: str = "v3"
+) -> Optional[str]:
     """
     Get the preferred filename pattern for an official ID on a board
     generation ("v2" or "v3"). Returns None when the board has no image for
@@ -119,4 +121,6 @@ def get_filename_pattern(official_id: str, board_generation: str = "v3") -> Opti
 
 def official_ids_for_board(board_generation: str) -> List[str]:
     """Official IDs that have an image for the given board generation."""
-    return list(OFFICIAL_ID_TO_FILENAME_BY_BOARD.get(board_generation or "v3", {}).keys())
+    return list(
+        OFFICIAL_ID_TO_FILENAME_BY_BOARD.get(board_generation or "v3", {}).keys()
+    )
