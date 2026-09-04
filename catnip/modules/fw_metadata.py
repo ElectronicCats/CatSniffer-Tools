@@ -118,6 +118,11 @@ class FirmwareMetadata:
 
             logger.debug(f"Set response: {response[:100]}")
 
+            if "not supported" in response.lower():
+                # SAMD21 (v1/v2) boards have no storage for the ID
+                logger.info("This board does not store a CC1352 firmware ID; skipping")
+                return False
+
             # Expected response: "OK cc1352_fw_id=sniffle (official)"
             # Or simply "OK" in some versions
             success = "OK" in response and fw_id in response

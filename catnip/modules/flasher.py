@@ -24,6 +24,7 @@ from .cc2538 import (
 )
 
 # External
+from typing import Optional
 import requests
 from rich.console import Console
 from rich.table import Table
@@ -35,7 +36,12 @@ GITHUB_RELEASE_URL = (
 GITHUB_RELEASE_URL_SNIFFLE = (
     "https://api.github.com/repos/nccgroup/Sniffle/releases/latest"
 )
+# Sniffle images to mirror from the nccgroup release: v3 (CC1352P7) and v2 (CC1352P1)
 GITHUB_SNIFFLE_HEX = "sniffle_cc1352p7_1M"
+GITHUB_SNIFFLE_HEXES = ("sniffle_cc1352p7_1M", "sniffle_cc1352p1_cc2652p1_1M")
+GITHUB_RELEASES_LIST_URL = (
+    "https://api.github.com/repos/ElectronicCats/CatSniffer-Firmware/releases"
+)
 RELEASE_FOLDER_NAME = "release"
 RELEASE_METADATA_NAME = "releases.json"
 DESCRIPTIONS_FILE_NAME = "descriptions.json"
@@ -146,13 +152,45 @@ class CCLoader:
                 "[yellow][!] No shell port available, skipping exit command[/yellow]"
             )
 
-    def sync_device(self) -> None:
+    def drain_bridge(self, quiet_ms: int = 150, max_ms: int = 1500) -> None:
+        """
+        Discard whatever the CC1352 application was still sending through the
+        bridge before the reset (the bridge buffers it on the board), until the
+        line has been quiet for quiet_ms. The bootloader itself sends nothing.
+        """
+        sp = getattr(self.cmd, "sp", None)
+        if sp is None:
+            return
+        deadline = time.time() + max_ms / 1000.0
+        last_data = time.time()
+        old_timeout = sp.timeout
+        try:
+            sp.timeout = 0.02
+            while time.time() < deadline:
+                data = sp.read(256)
+                if data:
+                    last_data = time.time()
+                elif time.time() - last_data >= quiet_ms / 1000.0:
+                    break
+        finally:
+            sp.timeout = old_timeout
+            sp.reset_input_buffer()
+
+    def sync_device(self, retries: int = 3) -> None:
         logger.info("[*] Connecting to target...")
-        if not self.cmd.sendSynch():
-            logger.error(
-                "[X] Error: Can't connect to target. Ensure boot loader is started. (no answer on synch sequence)",
-            )
-            self.close_exit()
+        for attempt in range(retries):
+            self.drain_bridge()
+            try:
+                if self.cmd.sendSynch():
+                    return
+            except CmdException as e:
+                logger.debug(f"Synch attempt {attempt + 1}: {e}")
+            time.sleep(0.3)
+        logger.error(
+            "[X] Error: Can't connect to target. Ensure boot loader is started. (no answer on synch sequence)",
+        )
+        self.exit_bootloader()
+        self.close_exit()
 
     def close(self) -> None:
         self.cmd.close()
@@ -646,7 +684,7 @@ class Flasher:
 
                 for asset in sniffle_assets:
                     asset_name = asset.get("name", "").lower()
-                    if GITHUB_SNIFFLE_HEX.lower() in asset_name:
+                    if any(h.lower() in asset_name for h in GITHUB_SNIFFLE_HEXES):
                         self.release_assets.append(asset)
             except Exception as e:
                 logger.warning(f"[!] Could not fetch Sniffle release: {e}")
@@ -660,6 +698,77 @@ class Flasher:
         except Exception as e:
             logger.error(f"[X] Error fetching remote firmware: {e}")
             exit(1)
+
+    def fetch_asset_by_pattern(self, pattern: str) -> Optional[str]:
+        """
+        Download a firmware asset whose name contains pattern from the known
+        release sources (CatSniffer-Firmware latest, then Sniffle latest) into
+        the local release folder. Returns the path or None.
+        """
+        sources = (GITHUB_RELEASE_URL, GITHUB_RELEASE_URL_SNIFFLE)
+        for url in sources:
+            try:
+                resp = requests.get(url, timeout=3)
+                resp.raise_for_status()
+                for asset in resp.json().get("assets", []):
+                    name = asset.get("name", "")
+                    if pattern.lower() in name.lower() and name.lower().endswith(".hex"):
+                        target_dir = self.get_releases_path()
+                        os.makedirs(target_dir, exist_ok=True)
+                        path = os.path.join(target_dir, name)
+                        console.print(f"[*] Downloading {name}...")
+                        content = requests.get(asset.get("browser_download_url"), timeout=15)
+                        content.raise_for_status()
+                        with open(path, "wb") as f:
+                            f.write(content.content)
+                        return path
+            except Exception as e:
+                logger.warning(f"[!] Could not fetch '{pattern}' from {url}: {e}")
+        return None
+
+    def get_release_for_board(self, board) -> Optional[dict]:
+        """
+        Find the latest CatSniffer-Firmware release for a board generation.
+
+        Releases are tagged per generation (v2.X.Y.Z for SAMD21 boards,
+        v3.X.Y.Z for RP2040 boards). Returns the GitHub release dict or None.
+        """
+        try:
+            resp = requests.get(GITHUB_RELEASES_LIST_URL, timeout=3)
+            resp.raise_for_status()
+            for rel in resp.json():
+                tag = rel.get("tag_name", "")
+                if tag.startswith(board.tag_prefix) and not rel.get("draft"):
+                    return rel
+        except Exception as e:
+            logger.warning(f"[!] Could not list releases: {e}")
+        return None
+
+    def fetch_board_uf2(self, board) -> Optional[str]:
+        """
+        Download the UF2 asset of the latest release for a board generation
+        into the release folder and return its path (None when absent).
+        """
+        rel = self.get_release_for_board(board)
+        if not rel:
+            return None
+        for asset in rel.get("assets", []):
+            name = asset.get("name", "")
+            if name.lower().endswith(".uf2") and board.uf2_pattern in name.lower():
+                target_dir = self.get_releases_path()
+                os.makedirs(target_dir, exist_ok=True)
+                path = os.path.join(target_dir, name)
+                if not os.path.exists(path):
+                    try:
+                        content = requests.get(asset.get("browser_download_url"), timeout=10)
+                        content.raise_for_status()
+                        with open(path, "wb") as f:
+                            f.write(content.content)
+                    except Exception as e:
+                        logger.error(f"[X] Error downloading {name}: {e}")
+                        return None
+                return path
+        return None
 
     def find_local_release(self) -> bool:
         try:
@@ -693,12 +802,41 @@ class Flasher:
             device = catnip_get_device()
 
         from .fw_aliases import get_official_id, get_filename_pattern
+        from .board import detect_board
+
+        # The board generation decides which image set is allowed
+        board = detect_board(device.shell_port) if device else None
+        generation = board.generation if board else "v3"
+        if board:
+            console.print(f"[dim]Board: {board.label}[/dim]")
+        else:
+            console.print(
+                "[yellow][!] Could not read the board generation; assuming v3 "
+                "images. The chip check before erase still applies.[/yellow]"
+            )
 
         # Resolve firmware string to official ID
         official_id = get_official_id(firmware_str)
         if official_id:
             # Try to find a file matching the preferred pattern for this ID
-            pattern = get_filename_pattern(official_id)
+            pattern = get_filename_pattern(official_id, generation)
+            if pattern is None and generation != "v3":
+                console.print(
+                    f"[red][X] '{firmware_str}' ({official_id}) has no image for a "
+                    f"{generation} board ({board.cc_chip}). Not flashing.[/red]"
+                )
+                return False
+            if pattern and not any(pattern.lower() in f.lower() for f in firmwares):
+                # The board's image is not in the local bundle: fetch it
+                fetched = self.fetch_asset_by_pattern(pattern)
+                if fetched:
+                    firmwares = self.get_local_firmware()
+                elif generation != "v3":
+                    console.print(
+                        f"[red][X] Image '{pattern}' for the {generation} board is not "
+                        "available locally and could not be downloaded. Not flashing.[/red]"
+                    )
+                    return False
             if pattern:
                 for firm in firmwares:
                     if pattern.lower() in firm.lower():
@@ -709,17 +847,27 @@ class Flasher:
                         return self.flash_firmware(path, device)
 
             # If no pattern or pattern not found, try searching by official ID directly
+            from .board import image_allowed_for_board
+
             for firm in firmwares:
-                if official_id.lower() in firm.lower():
+                if official_id.lower() in firm.lower() and image_allowed_for_board(firm, board)[0]:
                     path = os.path.join(self.get_releases_path(), firm)
                     console.print(
                         f"[dim]Resolved '{firmware_str}' to {official_id} -> {firm}[/dim]"
                     )
                     return self.flash_firmware(path, device)
 
+        from .board import image_allowed_for_board
+
+        def _allowed(firm):
+            ok, reason = image_allowed_for_board(firm, board)
+            if not ok:
+                console.print(f"[red][X] Skipping '{firm}': {reason}[/red]")
+            return ok
+
         # First, try exact match
         for firm in firmwares:
-            if firm == firmware_str:
+            if firm == firmware_str and _allowed(firm):
                 path = os.path.join(self.get_releases_path(), firm)
                 return self.flash_firmware(path, device)
 
@@ -727,7 +875,7 @@ class Flasher:
         firmware_no_ext = os.path.splitext(firmware_str)[0]
         for firm in firmwares:
             firm_no_ext = os.path.splitext(firm)[0]
-            if firm_no_ext == firmware_no_ext:
+            if firm_no_ext == firmware_no_ext and _allowed(firm):
                 path = os.path.join(self.get_releases_path(), firm)
                 return self.flash_firmware(path, device)
 
@@ -736,7 +884,7 @@ class Flasher:
         matches = []
         for firm in firmwares:
             firm_lower = firm.lower()
-            if firmware_lower in firm_lower:
+            if firmware_lower in firm_lower and image_allowed_for_board(firm, board)[0]:
                 matches.append(firm)
 
         if len(matches) == 1:
@@ -771,13 +919,39 @@ class Flasher:
             firmware: Path to firmware file
             device: CatSnifferDevice with bridge_port and shell_port
         """
+        ccloader = None
         try:
             ccloader = CCLoader(firmware=firmware, device=device)
             ccloader.init()
             ccloader.enter_bootloader()
+            time.sleep(0.5)  # the CC1352 reset sequence takes several hundred ms
             ccloader.sync_device()
             chip_device = ccloader.get_chip_info()
             ccloader.show_chip_details(chip_device)
+
+            # Safety gate: never write an image built for the other CC1352
+            # variant. The name check catches P7/P1 mismatches; the size
+            # check catches anything larger than the chip reports.
+            from .board import (
+                board_for_chip_size,
+                detect_board,
+                image_allowed_for_board,
+                image_fits_chip,
+            )
+
+            chip_size = getattr(chip_device, "size", 0) or 0
+            board = board_for_chip_size(chip_size)
+            if board is None and device is not None:
+                board = detect_board(device.shell_port)
+            allowed, reason = image_allowed_for_board(os.path.basename(firmware), board)
+            fits, fit_reason = image_fits_chip(len(ccloader.firmware.bytes), chip_size)
+            if not allowed or not fits:
+                console.print(f"[red][X] Refusing to flash: {reason if not allowed else fit_reason}[/red]")
+                ccloader.exit_bootloader()
+                ccloader.close()
+                return False
+            console.print(f"[dim]Board {board.label}: {reason}; {fit_reason}[/dim]")
+
             ccloader.erase_firmware(chip_device)
             with console.status("[bold magenta][*] Writing bytes..."):
                 ccloader.write_firmware(chip_device)
@@ -785,12 +959,15 @@ class Flasher:
             ccloader.exit_bootloader()
             ccloader.close()
 
-            # NEW: Update firmware metadata in RP2040 with ROBUST RETRIES
-            if device and device.shell_port:
+            # Update firmware metadata (NVS on the RP2040). The SAMD21 boards
+            # have no storage for it, so skip instead of retrying.
+            if device and device.shell_port and board is not None and board.generation != "v3":
+                console.print(
+                    f"[dim][*] {board.label} keeps no CC1352 firmware ID; skipping metadata update[/dim]"
+                )
+            elif device and device.shell_port:
                 try:
                     from .fw_metadata import update_firmware_metadata_after_flash
-                    import os
-                    import time
 
                     # Extract firmware name from path
                     firmware_name = os.path.basename(firmware)
@@ -883,11 +1060,24 @@ class Flasher:
 
             return True
         except CmdException as e:
-            logger.warning(
-                f"[X] Please reset your board manually, [bold white]disconnect and reconnect[/bold white] or press the [bold white]RESET_CC1 and RESET1[/bold white] buttons.",
-            )
             logger.error(f"Error: {e}")
+            self._leave_bootloader_after_failure(ccloader)
             return False
         except Exception as e:
             logger.error(e)
+            self._leave_bootloader_after_failure(ccloader)
             return False
+
+    @staticmethod
+    def _leave_bootloader_after_failure(ccloader) -> None:
+        """Never leave the CC1352 sitting in its bootloader after a failed flash."""
+        if ccloader is None:
+            return
+        try:
+            ccloader.exit_bootloader()
+            ccloader.close()
+            console.print("[*] CC1352 returned to passthrough mode")
+        except Exception:
+            logger.warning(
+                "[X] Please reset your board manually, [bold white]disconnect and reconnect[/bold white] or press the [bold white]RESET_CC1 and RESET1[/bold white] buttons.",
+            )

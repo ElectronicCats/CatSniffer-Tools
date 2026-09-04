@@ -44,6 +44,7 @@ ALIAS_TO_OFFICIAL_ID = {
 
 # Map official IDs to specific file patterns/basenames
 # This is used when searching for files to flash.
+# These are the CatSniffer v3 (CC1352P7) images.
 OFFICIAL_ID_TO_FILENAME = {
     "sniffle": "sniffle_cc1352p7_1M",
     "ti_sniffer": "sniffer_fw_Catsniffer_v3.x",
@@ -51,6 +52,17 @@ OFFICIAL_ID_TO_FILENAME = {
     "airtag_scanner_cc1352p7": "airtag_scanner_CC1352P_7",
     "catnip_v3": "catsniffer-v3",
     "justworks_scanner_cc1352p7": "justworks_scanner",
+}
+
+# Per board generation. A v2 (SAMD21 + CC1352P1) can only take CC1352P1
+# images; IDs missing here have no v2 image and must never fall back to the
+# v3 file (a P7 image disables the P1 bootloader).
+OFFICIAL_ID_TO_FILENAME_BY_BOARD = {
+    "v3": OFFICIAL_ID_TO_FILENAME,
+    "v2": {
+        "sniffle": "sniffle_cc1352p1_cc2652p1_1M",
+        "catnip_v2": "catsniffer-v2",
+    },
 }
 
 
@@ -82,6 +94,8 @@ def get_official_id(alias_or_name: str) -> Optional[str]:
         return "sniffle"
     if any(x in name_lower for x in ["catsniffer-v3.1."]):
         return "rp2040_boot"
+    if "catsniffer-v2" in name_lower:
+        return "catnip_v2"
     if any(x in name_lower for x in ["sniffer", "zigbee", "thread", "15.4"]):
         return "ti_sniffer"
     if "airtag" in name_lower:
@@ -93,6 +107,16 @@ def get_official_id(alias_or_name: str) -> Optional[str]:
     return None
 
 
-def get_filename_pattern(official_id: str) -> Optional[str]:
-    """Get the preferred filename pattern for an official ID."""
-    return OFFICIAL_ID_TO_FILENAME.get(official_id)
+def get_filename_pattern(official_id: str, board_generation: str = "v3") -> Optional[str]:
+    """
+    Get the preferred filename pattern for an official ID on a board
+    generation ("v2" or "v3"). Returns None when the board has no image for
+    that ID; callers must not fall back to another generation's file.
+    """
+    table = OFFICIAL_ID_TO_FILENAME_BY_BOARD.get(board_generation or "v3", {})
+    return table.get(official_id)
+
+
+def official_ids_for_board(board_generation: str) -> List[str]:
+    """Official IDs that have an image for the given board generation."""
+    return list(OFFICIAL_ID_TO_FILENAME_BY_BOARD.get(board_generation or "v3", {}).keys())

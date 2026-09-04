@@ -491,6 +491,29 @@ Each CatSniffer device exposes three serial ports with specific functions:
 
 ---
 
+## Board Generations (v1/v2 vs v3)
+
+catnip supports both CatSniffer generations. They share the USB identity
+and the shell commands but need different CC1352 images and firmware
+releases, so catnip reads the generation from the `Board:` line of
+`fw_version` (firmware without that line is a v3):
+
+| Generation | Host MCU | CC1352 | Firmware releases | UF2 volume |
+|---|---|---|---|---|
+| v1.x / v2.x | SAMD21E17 | CC1352P1 (352 KB) | `v2.X.Y.Z` | `SNIFFER` |
+| v3.x | RP2040 | CC1352P7 (704 KB) | `v3.X.Y.Z` | `RPI-RP2` |
+
+`catnip devices` shows the generation. Before erasing a CC1352, catnip
+compares the image with the chip the bootloader reports and refuses a
+mismatch, because a CC1352P7 image written to a CC1352P1 disables its serial
+bootloader. On a v2 board only images built for the CC1352P1 are offered
+(currently Sniffle, downloaded on demand); `zigbee`, `thread` and the airtag
+tools report that no v2 image exists instead of flashing. v2 boards keep no
+CC1352 firmware ID, so catnip detects firmware by talking to it.
+
+`catnip update` follows the board's release line, looks for its UF2 volume,
+and asks for confirmation before rebooting the board into the bootloader.
+
 ## Firmware Management
 
 The CatSniffer V3 Tools firmware management system completely automates the process of downloading, verifying, and installing firmware on the CC1352 chip.
