@@ -24,3 +24,7 @@ jobs:
         python-version: 3.x
     - name: Run pre-commit
       uses: pre-commit/action@v3.0.1
+      env:
+        # no-commit-to-branch is a local guard against committing on main;
+        # in CI the checkout of main itself would always fail it.
+        SKIP: no-commit-to-branch
