@@ -398,7 +398,7 @@ def update(device, force):
         print_info("Force mode enabled — will update regardless of version")
         result = force_update_rp2040(device=dev, flasher=flasher_inst)
     else:
-        result = check_and_update_rp2040(device=dev, flasher=flasher_inst)
+        result = check_and_update_rp2040(device=dev, flasher=flasher_inst, force=force)
 
     if result:
         print_success("Firmware update check complete!")
