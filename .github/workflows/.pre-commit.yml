@@ -18,6 +18,12 @@ jobs:
     steps:
     - name: Set up repository
       uses: actions/checkout@v4
+      with:
+        # Check out the commit itself (detached HEAD) so the run is identical
+        # for pushes and pull requests and no hook has to be skipped: the
+        # no-commit-to-branch guard evaluates the checked-out branch name,
+        # and on a push to main the default checkout would be main itself.
+        ref: ${{ github.sha }}
     - name: Set up python
       uses: actions/setup-python@v5
       with:
