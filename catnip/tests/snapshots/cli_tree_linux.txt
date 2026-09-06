@@ -27,6 +27,8 @@ Commands:
   verify      Verify CatSniffer device functionality
   vhci        VHCI Bridge - Expose CatSniffer as hciX.
 
+  Set CATNIP_DEBUG=1 to see a full traceback instead of a one-line error.
+
 ==============================================================================
 $ catnip cativity --help
 ==============================================================================

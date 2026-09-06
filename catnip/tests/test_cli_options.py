@@ -94,7 +94,10 @@ def test_no_module_redeclares_the_device_option():
     ``firmware/verify.py`` is exempt: its ``--device`` belongs to an
     ``argparse`` parser used when the module is run standalone, not to the CLI.
     """
-    exempt = {_MODULES_DIR / "utils" / "cli_options.py", _MODULES_DIR / "firmware" / "verify.py"}
+    exempt = {
+        _MODULES_DIR / "utils" / "cli_options.py",
+        _MODULES_DIR / "firmware" / "verify.py",
+    }
     offenders = []
     for path in sorted(_MODULES_DIR.rglob("*.py")):
         if path in exempt:

@@ -25,6 +25,7 @@ import click
 import pytest
 
 from modules.core import cli as core_cli
+from modules.core import exceptions
 
 
 _MODULES_DIR = Path(__file__).resolve().parent.parent / "modules"
@@ -39,7 +40,9 @@ def run_main(monkeypatch):
     """
 
     def run(command, argv):
-        group = click.Group("catnip", context_settings={"help_option_names": ["-h", "--help"]})
+        group = click.Group(
+            "catnip", context_settings={"help_option_names": ["-h", "--help"]}
+        )
         if command is not None:
             group.add_command(command)
         monkeypatch.setattr(core_cli, "build_cli", lambda: group)
@@ -170,13 +173,101 @@ def test_catnip_debug_re_raises(run_main, monkeypatch):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Typed CatnipError hierarchy (modules/core/exceptions.py)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "error_cls, expected_code",
+    [
+        (exceptions.ValidationError, exceptions.EXIT_USAGE),
+        (exceptions.DeviceError, exceptions.EXIT_CONNECTION),
+        (exceptions.ConnectionError, exceptions.EXIT_CONNECTION),
+        (exceptions.FirmwareError, exceptions.EXIT_FIRMWARE),
+        (exceptions.ProtocolError, exceptions.EXIT_ERROR),
+    ],
+)
+def test_catnip_error_subclass_uses_its_own_exit_code(
+    run_main, error_cls, expected_code
+):
+    @_command()
+    def boom():
+        raise error_cls("something specific went wrong")
+
+    assert run_main(boom, ["boom"]) == expected_code
+
+
+@pytest.mark.unit
+def test_catnip_error_without_hint_is_one_line(run_main, monkeypatch):
+    printed = []
+    monkeypatch.setattr(core_cli, "print_error", printed.append)
+
+    @_command()
+    def boom():
+        raise exceptions.DeviceError("no device found")
+
+    assert run_main(boom, ["boom"]) == exceptions.EXIT_CONNECTION
+    assert len(printed) == 1
+    assert "DeviceError: no device found" in printed[0]
+    assert "CATNIP_DEBUG=1" in printed[0]
+
+
+@pytest.mark.unit
+def test_catnip_error_with_hint_renders_panel(run_main, monkeypatch):
+    panels = []
+    monkeypatch.setattr(
+        core_cli, "print_error_panel", lambda *a, **kw: panels.append((a, kw))
+    )
+
+    @_command()
+    def boom():
+        raise exceptions.DeviceError("no device found", hint=["Run 'catnip devices'."])
+
+    assert run_main(boom, ["boom"]) == exceptions.EXIT_CONNECTION
+    assert len(panels) == 1
+    args, kwargs = panels[0]
+    assert args[0] == "DeviceError"
+    assert kwargs["fix"] == ["Run 'catnip devices'."]
+
+
+@pytest.mark.unit
+def test_catnip_error_redacts_secrets(run_main, monkeypatch):
+    printed = []
+    monkeypatch.setattr(core_cli, "print_error", printed.append)
+
+    @_command()
+    def boom():
+        raise exceptions.ValidationError('bad config: "psk": "supersecret"')
+
+    run_main(boom, ["boom"])
+    assert "supersecret" not in printed[0]
+    assert "(redacted)" in printed[0]
+
+
+@pytest.mark.unit
+def test_catnip_debug_re_raises_typed_error(run_main, monkeypatch):
+    monkeypatch.setenv("CATNIP_DEBUG", "1")
+
+    @_command()
+    def boom():
+        raise exceptions.FirmwareError("flash failed")
+
+    with pytest.raises(exceptions.FirmwareError, match="flash failed"):
+        run_main(boom, ["boom"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # The invariant ``standalone_mode=False`` creates
 # ─────────────────────────────────────────────────────────────────────────────
 
 _CLI_SOURCES = (
     sorted(_MODULES_DIR.rglob("cli.py"))
     + sorted((_MODULES_DIR / "protocols" / "cli").glob("*.py"))
-    + [_MODULES_DIR / "utils" / "completion.py", _MODULES_DIR / "utils" / "system_cli.py"]
+    + [
+        _MODULES_DIR / "utils" / "completion.py",
+        _MODULES_DIR / "utils" / "system_cli.py",
+    ]
 )
 
 
@@ -186,7 +277,10 @@ def _returns_a_value(path):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         decorators = [ast.unparse(d) for d in node.decorator_list]
-        if not any(re.search(r"\.(command|group)\b|^click\.(command|group)", d) for d in decorators):
+        if not any(
+            re.search(r"\.(command|group)\b|^click\.(command|group)", d)
+            for d in decorators
+        ):
             continue
         for child in ast.walk(node):
             if isinstance(child, ast.Return) and child.value is not None:
@@ -205,7 +299,9 @@ def test_no_cli_command_returns_a_value(path):
     reaches ``raise SystemExit(rv or 0)``, so ``return 1`` would quietly become
     an exit code and ``return "text"`` would print itself to stderr and exit 1.
     """
-    offenders = [f"{path.name}:{lineno} in {name}" for name, lineno in _returns_a_value(path)]
+    offenders = [
+        f"{path.name}:{lineno} in {name}" for name, lineno in _returns_a_value(path)
+    ]
     assert not offenders, f"Click callbacks returning a value: {offenders}"
 
 
