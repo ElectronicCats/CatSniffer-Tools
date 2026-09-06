@@ -16,7 +16,11 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
 # Internal
-from ...core.usb_connection import open_serial_port, find_device
+from ...core.usb_connection import (
+    open_serial_port,
+    find_device,
+    DEFAULT_READLINE_MAX_BYTES,
+)
 
 START_OF_FRAME = "SCAN"
 END_OF_FRAME = "END"
@@ -112,7 +116,9 @@ class SpectrumScan:
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:
             try:
-                line = self.device_uart.readline().decode("utf-8", errors="ignore")
+                line = self.device_uart.readline(DEFAULT_READLINE_MAX_BYTES).decode(
+                    "utf-8", errors="ignore"
+                )
             except (OSError, TypeError, AttributeError):
                 return True  # let the reader thread report the real failure
             if "Unknown command" in line:
@@ -146,7 +152,11 @@ class SpectrumScan:
     def recv_task(self):
         while self.recv_running:
             try:
-                bytestream = self.device_uart.readline().decode("utf-8").strip()
+                bytestream = (
+                    self.device_uart.readline(DEFAULT_READLINE_MAX_BYTES)
+                    .decode("utf-8")
+                    .strip()
+                )
                 if not self.recv_running:
                     break
                 if bytestream == "":

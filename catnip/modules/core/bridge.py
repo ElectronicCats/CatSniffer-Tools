@@ -10,6 +10,7 @@ from .catnip import (
     Catnip,
     ShellConnection,
     LoRaConnection,
+    DEFAULT_READLINE_MAX_BYTES,
 )
 from .pipes import UnixPipe, WindowsPipe, Wireshark
 from protocol.sniffer_sx import SnifferSx, LORATAP_DLT
@@ -336,8 +337,11 @@ def run_sx_bridge(
 
             # readline() returns when it sees \n or after the serial timeout.
             # LoRaConnection.STREAM_TIMEOUT = 0.5 s, so this never blocks long.
+            # Bounded to DEFAULT_READLINE_MAX_BYTES since this bypasses the
+            # LoRaConnection wrapper (raw .connection access) and would
+            # otherwise grow unbounded against a noisy stream with no '\n'.
             try:
-                raw = lora.connection.readline()
+                raw = lora.connection.readline(DEFAULT_READLINE_MAX_BYTES)
             except serial.SerialException as exc:
                 print_warning(f"Serial error (device disconnected?): {exc}")
                 break
