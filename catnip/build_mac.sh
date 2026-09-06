@@ -29,6 +29,7 @@ pyinstaller \
   --hidden-import usb \
   --hidden-import usb.backend.libusb1 \
   --hidden-import magic \
+  --add-data "VERSION:." \
   catnip.py
 
 echo "[*] Building lora_extcap..."

@@ -64,6 +64,7 @@ for src, dst in module_dirs:
 extra_files = [
     ('README.md', '.'),
     ('LICENSE', '.'),
+    ('VERSION', '.'),
 ]
 
 for src, dst in extra_files:
