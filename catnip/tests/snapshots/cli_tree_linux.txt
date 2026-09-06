@@ -24,6 +24,7 @@ Commands:
   restore     Restore CC1352 when bootloader is broken.
   setup-env   Setup environment: install udev rules and add user to groups.
   sniff       Sniffer protocol control
+  status      Show board, firmware and capabilities detected on a CatSniffer.
   update      Check and update RP2040 firmware to match the latest release.
   verify      Verify CatSniffer device functionality
   vhci        VHCI Bridge - Expose CatSniffer as hciX.
@@ -32,6 +33,7 @@ Commands:
 
   Examples:
     catnip devices                  # list connected CatSniffers
+    catnip status                   # firmware + capabilities on a device
     catnip flash --list             # see available firmware images
     catnip sniff ble                # sniff BLE traffic
     catnip -v sniff zigbee -c 15    # same, with INFO-level logging
@@ -392,6 +394,26 @@ Options:
   -ascii, --ascii FILE         Save captured packets as decoded ASCII to FILE
                                (RX: <ascii> | RSSI: <rssi>)
   -h, --help                   Show this message and exit.
+
+==============================================================================
+$ catnip status --help
+==============================================================================
+Usage: catnip status [OPTIONS]
+
+  Show board, firmware and capabilities detected on a CatSniffer.
+
+  Honest by design (Bombercat's `status` pattern, see analisis-bombercat-vs-
+  catnip.md, section 7): unlike `sniff`/`flash`, which check for *one specific*
+  firmware and flash it if missing, this only reports what it can actually
+  confirm on the device right now, and says "unknown" rather than guessing.
+
+  Examples:
+      catnip status              # first connected device
+      catnip status --device 1   # a specific device by ID
+
+Options:
+  -d, --device INTEGER  Device ID (for multiple CatSniffers)
+  -h, --help            Show this message and exit.
 
 ==============================================================================
 $ catnip update --help

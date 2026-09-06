@@ -145,6 +145,7 @@ EXPECTED_PARAMS = {
         "-r",
         "-ws",
     ],
+    "catnip status": ["--device", "-d"],
     "catnip update": ["--device", "--force", "-d", "-f"],
     "catnip verify": ["--device", "--quiet", "--test-all", "-d", "-q"],
     "catnip vhci": [],
