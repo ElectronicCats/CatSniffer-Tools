@@ -7,6 +7,7 @@ section 3.2 of ``CLI_REFACTOR_PLAN.md``.
 # Internal
 from ..core.catnip import catnip_get_devices
 from ..core.device_utils import get_device_or_exit
+from ..core.exceptions import ConnectionError as CatnipConnectionError, DeviceError
 from ..core.usb_connection import ShellConnection, CATSNIFFER_VID, CATSNIFFER_PID
 from ..firmware.board import detect_board
 
@@ -21,7 +22,6 @@ from ..utils.output import (
     STYLES,
     print_success,
     print_warning,
-    print_error,
     print_info,
     print_empty_line,
 )
@@ -109,8 +109,10 @@ def identify(device) -> None:
     dev = get_device_or_exit(device)
 
     if not dev.shell_port:
-        print_error("Shell port not available for this device!")
-        exit(1)
+        raise DeviceError(
+            "Shell port not available for this device!",
+            hint=["Run 'catnip devices' to confirm all three ports were detected."],
+        )
 
     print_info(f"Sending 'Identify' command to {dev} on port {dev.shell_port}...")
 
@@ -124,5 +126,11 @@ def identify(device) -> None:
         print_success("Identification command sent successfully!")
 
     except Exception as e:
-        print_error(f"Failed to send identification command: {str(e)}")
-        exit(1)
+        raise CatnipConnectionError(
+            f"Failed to send identification command: {e}",
+            hint=[
+                "Check that no other program (e.g. a serial monitor) has the port open.",
+                f"Verify the shell port is still {dev.shell_port} with 'catnip devices'.",
+                "Re-run with CATNIP_DEBUG=1 for the full traceback.",
+            ],
+        ) from e

@@ -2,6 +2,8 @@
 output.py - Shared Rich console and output helpers for all modules
 """
 
+import re
+
 from rich.console import Console
 from rich.style import Style
 from rich.panel import Panel
@@ -83,6 +85,80 @@ def print_alias_item(aliases: str, description: str, pad: int = 15) -> None:
     padding = " " * max(0, pad - visible_len)
 
     console.print(f"    {colored_aliases}{padding} → {description}")
+
+
+def print_error_panel(
+    title: str,
+    problem: str,
+    why: str = "",
+    fix: list[str] | None = None,
+    notes: list[str] | None = None,
+) -> None:
+    """Print a structured, actionable error: problem, cause, numbered fix steps, notes."""
+    lines = [f"[bold]Problem:[/bold] {problem}"]
+    if why:
+        lines.append(f"[bold]Why:[/bold] {why}")
+    if fix:
+        lines.append("")
+        lines.append("[bold]Fix:[/bold]")
+        lines.extend(f"  {i}. {step}" for i, step in enumerate(fix, 1))
+    if notes:
+        lines.append("")
+        lines.extend(f"[dim]Note: {note}[/dim]" for note in notes)
+
+    console.print(
+        Panel(
+            "\n".join(lines),
+            title=f"[red bold]✗ {title}[/red bold]",
+            border_style=STYLES["error"],
+            title_align="left",
+            padding=(1, 2),
+        )
+    )
+
+
+def print_success_panel(
+    title: str, message: str, notes: list[str] | None = None
+) -> None:
+    """Print a structured success panel, mirroring print_error_panel."""
+    lines = [message]
+    if notes:
+        lines.append("")
+        lines.extend(f"[dim]{note}[/dim]" for note in notes)
+
+    console.print(
+        Panel(
+            "\n".join(lines),
+            title=f"[green bold]✓ {title}[/green bold]",
+            border_style=STYLES["success"],
+            title_align="left",
+            padding=(1, 2),
+        )
+    )
+
+
+# Field names whose values look like credentials and should never reach a
+# terminal, log file, or crash report verbatim.
+_SECRET_FIELD = r"(?:psk|password|passwd|secret|token|api[_-]?key|admin[_-]?key)"
+_SECRET_PATTERN = re.compile(
+    rf'(?i)("{_SECRET_FIELD}"\s*:\s*")([^"]*)(")' rf"|({_SECRET_FIELD}\s*[:=]\s*)(\S+)"
+)
+
+
+def redact_secrets(text: str) -> str:
+    """Redact password/PSK/token/key-shaped values from a string.
+
+    Used before printing tracebacks, debug output, or error messages that
+    might echo back user-supplied config (e.g. Meshtastic PSKs, WiFi
+    passwords) so secrets never land in a terminal scrollback or log file.
+    """
+
+    def _redact(match: "re.Match[str]") -> str:
+        if match.group(1) is not None:
+            return f"{match.group(1)}(redacted){match.group(3)}"
+        return f"{match.group(4)}(redacted)"
+
+    return _SECRET_PATTERN.sub(_redact, text)
 
 
 def print_error_section(title: str) -> None:

@@ -27,7 +27,9 @@ def device_option(help: str = DEVICE_HELP, **kwargs):
 
 
 RAW_HELP = "Save captured packets as raw hex to FILE (RX: <hex> | RSSI: <rssi>)"
-ASCII_HELP = "Save captured packets as decoded ASCII to FILE (RX: <ascii> | RSSI: <rssi>)"
+ASCII_HELP = (
+    "Save captured packets as decoded ASCII to FILE (RX: <ascii> | RSSI: <rssi>)"
+)
 
 _CAPTURE_FILE = click.Path(dir_okay=False, writable=True)
 

@@ -34,7 +34,14 @@ import click
 from rich.logging import RichHandler
 from rich.panel import Panel
 
-from ..utils.output import console, print_error, STYLES
+from ..utils.output import (
+    console,
+    print_error,
+    print_error_panel,
+    redact_secrets,
+    STYLES,
+)
+from . import exceptions
 
 import platform
 
@@ -112,7 +119,11 @@ def print_header(module=None):
     console.print(header_panel)
 
 
-@click.group("catnip", context_settings={"help_option_names": ["-h", "--help"]})
+@click.group(
+    "catnip",
+    context_settings={"help_option_names": ["-h", "--help"]},
+    epilog="Set CATNIP_DEBUG=1 to see a full traceback instead of a one-line error.",
+)
 @click.option("-v", "--verbose", is_flag=True, help="Show Verbose mode")
 def cli(verbose):
     """CatSniffer: All in one catnip tools environment."""
@@ -171,10 +182,29 @@ def main_cli() -> None:
         # Click prints these itself in standalone mode; now it is our job.
         e.show()
         raise SystemExit(e.exit_code)
+    except exceptions.CatnipError as e:
+        # Typed catnip errors: same escape hatch as the generic branch below,
+        # but with the exit code and (optionally) the actionable panel that
+        # the specific error class carries. See modules/core/exceptions.py.
+        if os.environ.get("CATNIP_DEBUG"):
+            raise
+        if e.hint:
+            print_error_panel(type(e).__name__, redact_secrets(str(e)), fix=e.hint)
+        else:
+            print_error(
+                redact_secrets(
+                    f"{type(e).__name__}: {e} (set CATNIP_DEBUG=1 for a traceback)"
+                )
+            )
+        raise SystemExit(e.exit_code)
     except Exception as e:
         if os.environ.get("CATNIP_DEBUG"):
             raise
-        print_error(f"{type(e).__name__}: {e} (set CATNIP_DEBUG=1 for a traceback)")
+        print_error(
+            redact_secrets(
+                f"{type(e).__name__}: {e} (set CATNIP_DEBUG=1 for a traceback)"
+            )
+        )
         raise SystemExit(1)
     else:
         # ``--help`` and friends *return* their exit code instead of exiting.
