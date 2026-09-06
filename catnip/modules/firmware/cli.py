@@ -16,10 +16,12 @@ from ..core.device_utils import send_identify_command
 
 # External
 import click
+from click.shell_completion import CompletionItem
 from rich.table import Table
 from rich import box
 
 from ..core.firmware_registry import (
+    get_firmware,
     resolve as resolve_firmware,
     CAPABILITY_NEXT_STEP as _CAPABILITY_NEXT_STEP,
     next_steps_for,
@@ -41,8 +43,53 @@ from ..utils.output import (
 )
 
 
+def _one_line(description):
+    """A description squeezed onto one line, or None if empty.
+
+    Shells render each completion item's help on a single line, so a
+    multi-line description would corrupt what the shell parses.
+    """
+    text = " ".join((description or "").split())
+    return text or None
+
+
+def complete_firmware(ctx, param, incomplete):
+    """`shell_complete` for the FIRMWARE argument.
+
+    Offers every official firmware id *and* its user-facing aliases (ble,
+    zigbee, thread, v3, ...) from ``fw_aliases.ALIAS_TO_OFFICIAL_ID`` — the
+    same table ``find_flash_firmware``/``get_official_id`` use to resolve
+    what the user typed — matched by substring so ``zig<TAB>`` lands on
+    zigbee. Mirrors bombercat's ``complete_firmware`` (see
+    analisis-bombercat-vs-catnip.md). A path is handed back to the shell
+    untouched, and so is anything that matches no firmware or alias.
+    """
+    if incomplete.startswith("~") or "/" in incomplete:
+        return [CompletionItem(incomplete, type="file")]
+
+    from .fw_aliases import ALIAS_TO_OFFICIAL_ID, OFFICIAL_FW_IDS
+
+    choices = {}
+    for official_id in OFFICIAL_FW_IDS:
+        fw = get_firmware(official_id)
+        choices[official_id] = fw.description if fw else ""
+    for alias, official_id in ALIAS_TO_OFFICIAL_ID.items():
+        if alias in choices:
+            continue
+        fw = get_firmware(official_id)
+        choices[alias] = fw.description if fw else ""
+
+    wanted = incomplete.lower()
+    matches = [
+        CompletionItem(name, help=_one_line(description))
+        for name, description in choices.items()
+        if wanted in name.lower()
+    ]
+    return matches or [CompletionItem(incomplete, type="file")]
+
+
 @click.command()
-@click.argument("firmware", required=False)
+@click.argument("firmware", required=False, shell_complete=complete_firmware)
 @device_option(
     help="Device ID (for multiple CatSniffers). If not specified, first device will be selected."
 )
