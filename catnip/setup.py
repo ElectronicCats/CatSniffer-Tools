@@ -41,6 +41,7 @@ setup(
     extras_require={
         "dev": [
             "pytest>=7.0.0",
+            "pytest-cov>=5.0.0",
         ],
     },
     py_modules=["catnip"],
