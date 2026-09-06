@@ -11,9 +11,16 @@ import serial
 import threading
 import argparse
 import time
+import warnings
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
+
+with warnings.catch_warnings():
+    # The vendored matplotlib build lacks mpl_toolkits.mplot3d, so importing
+    # pyplot always warns about the missing Axes3D projection. This scan is
+    # 2D-only and never uses it, so the warning is just noise on every run.
+    warnings.filterwarnings("ignore", message="Unable to import Axes3D")
+    import matplotlib.pyplot as plt
+    import matplotlib.animation as animation
 
 # Internal
 from ...core.usb_connection import (
