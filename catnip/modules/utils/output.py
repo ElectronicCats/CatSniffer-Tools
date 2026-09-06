@@ -2,6 +2,7 @@
 output.py - Shared Rich console and output helpers for all modules
 """
 
+import os
 import re
 
 from rich.console import Console
@@ -276,3 +277,49 @@ def print_separator(char: str = "=", width: int = 60) -> None:
 def print_raw(text: str) -> None:
     """Print raw text without additional formatting."""
     console.print(text)
+
+
+def refuse_overwrite(path: str, force: bool = False, mode: str = "warn") -> bool:
+    """Guard against silently clobbering or mixing into an existing output file.
+
+    Mirrors Bombercat's ``refuse_overwrite()`` (analisis-bombercat-vs-catnip.md,
+    section 6), adapted to the two ways catnip actually writes user-facing
+    output files today:
+
+    - ``mode="warn"`` (raw/ascii capture logs, which are opened in append
+      mode): never blocks — an existing file is a legitimate "keep
+      capturing" use case — but tells the user their new capture will be
+      appended to, rather than silently mixing sessions with no visible
+      trace. Returns True always.
+    - ``mode="block"`` (for a future export that truncates, e.g. CSV/JSON):
+      returns False when ``path`` exists and ``force`` is not set, so the
+      caller can refuse to proceed unless the user passes ``--force``.
+
+    Returns True when it is safe to proceed (open/write), False when the
+    caller should abort.
+    """
+    if not path or not os.path.exists(path):
+        return True
+    if mode == "block" and not force:
+        print_warning(f"{path} already exists — pass --force to overwrite it")
+        return False
+    print_warning(f"{path} already exists — new data will be appended to it")
+    return True
+
+
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@")
+
+
+def csv_safe(value: str) -> str:
+    """Prefix a CSV cell with a single quote if it looks like a spreadsheet
+    formula (starts with =, +, -, or @), preventing formula-injection when
+    the export is opened in Excel/LibreOffice/Sheets.
+
+    Foundation for the CSV/JSON exports listed as pending in
+    analisis-bombercat-vs-catnip.md section 6 — no such export exists in
+    catnip yet, so nothing calls this today.
+    """
+    text = str(value)
+    if text.startswith(_CSV_FORMULA_PREFIXES):
+        return f"'{text}"
+    return text

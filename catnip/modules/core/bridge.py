@@ -25,6 +25,7 @@ from ..utils.output import (
     print_error,
     print_info,
     print_dim,
+    refuse_overwrite,
 )
 
 sniffer = SnifferTI()
@@ -68,6 +69,10 @@ class PacketLogWriter:
     """
 
     def __init__(self, raw_file: str = None, ascii_file: str = None):
+        if raw_file:
+            refuse_overwrite(raw_file)
+        if ascii_file:
+            refuse_overwrite(ascii_file)
         self.raw_fh = open(raw_file, "a", encoding="ascii") if raw_file else None
         self.ascii_fh = open(ascii_file, "a", encoding="ascii") if ascii_file else None
         if self.raw_fh:

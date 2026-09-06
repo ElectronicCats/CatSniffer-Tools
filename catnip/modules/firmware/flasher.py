@@ -618,16 +618,29 @@ class Flasher:
             logger.error(f"[X] Error saving firmware {name}: {e}")
             return ""
 
-    def compare_checksum(self, name, local_digest, remote_digest):
+    def compare_checksum(self, name, local_digest, remote_digest) -> Optional[bool]:
+        """Compare the SHA256 of a just-downloaded asset against the digest
+        GitHub reports for it.
+
+        Returns True if verified, False if it does not match (the download
+        is corrupted or was tampered with in transit), None if there is
+        nothing to compare against (some release assets carry no `digest`).
+        A False result is a real problem, not a note: the caller must not
+        let that file be flashed.
+        """
         if not local_digest or not remote_digest:
             logger.warning(f"[!] {name} Checksum verification skipped (missing digest)")
-            return
+            return None
 
         remote_checksum = remote_digest.replace("sha256:", "") if remote_digest else ""
         if local_digest == remote_checksum:
             logger.info(f"[*] {name} Checksum SHA256 verified")
-        else:
-            logger.warning(f"[X] {name} Checksum SHA256 Failed")
+            return True
+
+        logger.error(
+            f"[X] {name} Checksum SHA256 mismatch - discarding corrupted download"
+        )
+        return False
 
     def check_new_remote_version(self) -> bool:
         try:
@@ -661,7 +674,20 @@ class Flasher:
 
                     logger.info(f"[*] Firmware [bold white]{fname}[/bold white] done.")
 
-                    self.compare_checksum(fname, local_checksum, asset.get("digest"))
+                    if (
+                        self.compare_checksum(
+                            fname, local_checksum, asset.get("digest")
+                        )
+                        is False
+                    ):
+                        # Never leave a corrupted/tampered image where
+                        # find_flash_firmware() could pick it up later.
+                        bad_path = os.path.join(self.__create_release_path(), fname)
+                        try:
+                            os.remove(bad_path)
+                        except OSError:
+                            pass
+                        continue
                     time.sleep(0.5)
                 except requests.exceptions.ConnectionError as e:
                     logger.error("[X] Error: No internet connection.")

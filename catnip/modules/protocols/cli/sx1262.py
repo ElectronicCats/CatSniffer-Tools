@@ -30,19 +30,19 @@ def lora():
 )
 @click.option(
     "--start-freq",
-    type=float,
+    type=click.FloatRange(150, 960),
     default=150,
-    help="Starting frequency in MHz (default: 150)",
+    help="Starting frequency in MHz, 150-960 (default: 150)",
 )
 @click.option(
     "--end-freq",
-    type=float,
+    type=click.FloatRange(150, 960),
     default=960,
-    help="End frequency in MHz (default: 960)",
+    help="End frequency in MHz, 150-960 (default: 960)",
 )
 @click.option(
     "--offset",
-    type=int,
+    type=click.IntRange(-100, 100),
     default=-15,
     help="RSSI offset in dBm (default: -15)",
 )

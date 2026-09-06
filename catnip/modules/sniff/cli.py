@@ -178,8 +178,8 @@ def sniff_thread(ws, channel, device, raw_file, ascii_file):
     "--frequency",
     "-freq",
     default=915000000,
-    type=int,
-    help="Frequency in Hz (e.g., 915000000 for 915 MHz)",
+    type=click.IntRange(150000000, 960000000),
+    help="Frequency in Hz, 150-960 MHz (e.g., 915000000 for 915 MHz)",
 )
 @click.option(
     "--bandwidth",
@@ -206,8 +206,8 @@ def sniff_thread(ws, channel, device, raw_file, ascii_file):
     "--tx_power",
     "-pw",
     default=20,
-    type=int,
-    help="TX Power in dBm",
+    type=click.IntRange(-9, 22),
+    help="TX Power in dBm (-9 to 22, SX1262 hardware range)",
 )
 @device_option()
 @click.option(
