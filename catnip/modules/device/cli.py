@@ -8,6 +8,8 @@ section 3.2 of ``CLI_REFACTOR_PLAN.md``.
 from ..core.catnip import catnip_get_devices
 from ..core.device_utils import get_device_or_exit
 from ..core.exceptions import ConnectionError as CatnipConnectionError, DeviceError
+from ..core.firmware_registry import get_firmware, next_steps_for
+from ..core.firmware_verifier import FirmwareVerifier
 from ..core.usb_connection import ShellConnection, CATSNIFFER_VID, CATSNIFFER_PID
 from ..firmware.board import detect_board
 
@@ -24,6 +26,7 @@ from ..utils.output import (
     print_warning,
     print_info,
     print_empty_line,
+    print_next_steps,
 )
 
 
@@ -134,3 +137,46 @@ def identify(device) -> None:
                 "Re-run with CATNIP_DEBUG=1 for the full traceback.",
             ],
         ) from e
+
+
+@click.command()
+@device_option()
+def status(device) -> None:
+    """Show board, firmware and capabilities detected on a CatSniffer.
+
+    Honest by design (Bombercat's `status` pattern, see
+    analisis-bombercat-vs-catnip.md, section 7): unlike `sniff`/`flash`,
+    which check for *one specific* firmware and flash it if missing, this
+    only reports what it can actually confirm on the device right now, and
+    says "unknown" rather than guessing.
+
+    \b
+    Examples:
+        catnip status              # first connected device
+        catnip status --device 1   # a specific device by ID
+    """
+    dev = get_device_or_exit(device)
+    board = detect_board(dev.shell_port)
+    detection = FirmwareVerifier(dev.bridge_port, dev.shell_port).detect()
+    entry = get_firmware(detection.firmware_id) if detection.firmware_id else None
+
+    table = Table(title=f"Status for {dev}", box=box.ROUNDED)
+    table.add_column("Field", style=STYLES["device"], justify="left")
+    table.add_column("Value", justify="left")
+    table.add_row("Board", board.label if board else "[yellow]unknown[/yellow]")
+    table.add_row("Bridge port (CC1352)", dev.bridge_port or "[red]not found[/red]")
+    table.add_row("LoRa port (SX1262)", dev.lora_port or "[red]not found[/red]")
+    table.add_row("Shell port (Config)", dev.shell_port or "[red]not found[/red]")
+    if entry is not None:
+        table.add_row("Firmware", f"{entry.display} ({entry.id})")
+        table.add_row("Detected via", detection.confidence.value)
+        table.add_row("Capabilities", ", ".join(sorted(entry.capabilities)) or "-")
+    else:
+        table.add_row("Firmware", "[yellow]unknown[/yellow]")
+
+    print_empty_line()
+    console.print(table)
+
+    print_next_steps(
+        next_steps_for(entry) if entry is not None else ["catnip flash --list"]
+    )

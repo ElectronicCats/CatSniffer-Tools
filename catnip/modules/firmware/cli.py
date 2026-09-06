@@ -19,7 +19,11 @@ import click
 from rich.table import Table
 from rich import box
 
-from ..core.firmware_registry import resolve as resolve_firmware
+from ..core.firmware_registry import (
+    resolve as resolve_firmware,
+    CAPABILITY_NEXT_STEP as _CAPABILITY_NEXT_STEP,
+    next_steps_for,
+)
 from ..utils.cli_options import device_option
 from ..utils.output import (
     console,
@@ -35,15 +39,6 @@ from ..utils.output import (
     print_alias_item,
     print_next_steps,
 )
-
-# Capability -> suggested `catnip sniff <name>` command, for next-steps hints
-# after a successful flash (see analisis-bombercat-vs-catnip.md, section 3).
-_CAPABILITY_NEXT_STEP = {
-    "sniff_ble": "catnip sniff ble",
-    "sniff_zigbee": "catnip sniff zigbee -c 15",
-    "sniff_thread": "catnip sniff thread -c 15",
-    "airtag_scan": "catnip sniff airtag_scanner",
-}
 
 
 @click.command()
@@ -316,10 +311,7 @@ def flash(firmware, device, list, full) -> None:
     # of leaving the user to guess (Bombercat's "status" next-steps pattern).
     entry = resolve_firmware(firmware)
     if entry is not None:
-        next_steps = [
-            cmd for cap, cmd in _CAPABILITY_NEXT_STEP.items() if entry.can(cap)
-        ]
-        print_next_steps(next_steps)
+        print_next_steps(next_steps_for(entry))
 
 
 @click.command()

@@ -101,3 +101,19 @@ def resolve(alias_or_name: str) -> Optional[Firmware]:
 def firmwares_with_capability(capability: str) -> List[Firmware]:
     """All registered firmwares that declare a given capability."""
     return [fw for fw in FIRMWARE_REGISTRY.values() if fw.can(capability)]
+
+
+# Capability -> suggested `catnip sniff <name>` command. Shared by `flash`'s
+# post-flash hint and `status`'s honest next-steps (see
+# analisis-bombercat-vs-catnip.md, section 3 and section 7).
+CAPABILITY_NEXT_STEP: Dict[str, str] = {
+    CAP_SNIFF_BLE: "catnip sniff ble",
+    CAP_SNIFF_ZIGBEE: "catnip sniff zigbee -c 15",
+    CAP_SNIFF_THREAD: "catnip sniff thread -c 15",
+    CAP_AIRTAG_SCAN: "catnip sniff airtag_scanner",
+}
+
+
+def next_steps_for(firmware: Firmware) -> List[str]:
+    """Suggested `catnip sniff ...` commands for a firmware's capabilities."""
+    return [cmd for cap, cmd in CAPABILITY_NEXT_STEP.items() if firmware.can(cap)]

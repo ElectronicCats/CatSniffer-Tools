@@ -42,6 +42,18 @@ class VerificationResult:
         return self.verified
 
 
+@dataclass
+class DetectionResult:
+    """Result of an open-ended "what firmware is this?" query, as opposed to
+    :meth:`FirmwareVerifier.verify`'s "is it this specific one?" check."""
+
+    firmware_id: Optional[str]
+    confidence: Confidence = Confidence.NONE
+
+    def __bool__(self) -> bool:
+        return self.firmware_id is not None
+
+
 class FirmwareVerifier:
     """Verifies a device's CC1352 firmware against an official firmware id.
 
@@ -61,29 +73,35 @@ class FirmwareVerifier:
 
     # ── individual checks ────────────────────────────────────────────────
 
+    def _read_metadata_firmware_id(self) -> Optional[str]:
+        """Read whatever firmware id is stored in RP2040 flash (Cat-Shell
+        port), regardless of what it turns out to be."""
+        from ..firmware.fw_metadata import FirmwareMetadata
+
+        if not self.shell_port:
+            return None
+
+        try:
+            shell = ShellConnection(port=self.shell_port)
+            if not shell.connect():
+                return None
+
+            metadata = FirmwareMetadata(shell)
+            current_id = metadata.get_firmware_id()
+            shell.disconnect()
+
+            return current_id or None
+        except Exception:
+            return None
+
     def verify_metadata(self, official_id: str) -> bool:
         """Verify via the firmware id stored in RP2040 flash (Cat-Shell port).
 
         More reliable than direct CC1352 communication because it does not
         depend on the CC1352 being responsive.
         """
-        from ..firmware.fw_metadata import FirmwareMetadata
-
-        if not self.shell_port:
-            return False
-
-        try:
-            shell = ShellConnection(port=self.shell_port)
-            if not shell.connect():
-                return False
-
-            metadata = FirmwareMetadata(shell)
-            current_id = metadata.get_firmware_id()
-            shell.disconnect()
-
-            return bool(current_id) and current_id == official_id
-        except Exception:
-            return False
+        current_id = self._read_metadata_firmware_id()
+        return bool(current_id) and current_id == official_id
 
     def verify_direct(self, official_id: str) -> bool:
         """Verify by talking to the CC1352 over the bridge port directly."""
@@ -100,6 +118,23 @@ class FirmwareVerifier:
         if official_id in self._DIRECT_CHECK_IDS and self.verify_direct(official_id):
             return VerificationResult(True, Confidence.DIRECT)
         return VerificationResult(False, Confidence.NONE)
+
+    def detect(self) -> DetectionResult:
+        """Honestly identify the firmware currently running, without needing
+        to know which id to expect (unlike :meth:`verify`).
+
+        Mirrors Bombercat's confidence-graded `detect_firmware()`: metadata
+        first (most reliable), then direct communication for the firmwares
+        that support it, then an honest "none" instead of guessing (see
+        analisis-bombercat-vs-catnip.md, section 1 and section 7).
+        """
+        current_id = self._read_metadata_firmware_id()
+        if current_id:
+            return DetectionResult(current_id, Confidence.METADATA)
+        for candidate_id in self._DIRECT_CHECK_IDS:
+            if self.verify_direct(candidate_id):
+                return DetectionResult(candidate_id, Confidence.DIRECT)
+        return DetectionResult(None, Confidence.NONE)
 
     def verify_with_retries(
         self, official_id: str, retries: int = 0, delay: float = 0.5

@@ -18,6 +18,7 @@ from ..utils._version import __version__
 from ..sniff.cli import sniff as _sniff
 from ..device.cli import devices as _devices
 from ..device.cli import identify as _identify
+from ..device.cli import status as _status
 from ..firmware.cli import flash as _flash
 from ..firmware.cli import update as _update
 from ..firmware.cli import restore as _restore
@@ -142,6 +143,7 @@ def print_header(module=None):
     "\b\n"
     "Examples:\n"
     "  catnip devices                  # list connected CatSniffers\n"
+    "  catnip status                   # firmware + capabilities on a device\n"
     "  catnip flash --list             # see available firmware images\n"
     "  catnip sniff ble                # sniff BLE traffic\n"
     "  catnip -v sniff zigbee -c 15    # same, with INFO-level logging",
@@ -168,6 +170,7 @@ def build_cli() -> click.Group:
     cli.add_command(_meshtastic)
     cli.add_command(_devices)
     cli.add_command(_identify)
+    cli.add_command(_status)
     cli.add_command(_flash)
     cli.add_command(_update)
     cli.add_command(_restore)
