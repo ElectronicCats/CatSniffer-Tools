@@ -347,6 +347,57 @@ def fake_serial():
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+#  0.  modules/core/usb_connection.py — centralized timing defaults
+#      (analisis-bombercat-vs-catnip.md, section 4)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestUsbConnectionTimingDefaults:
+    def test_open_serial_port_passes_write_timeout(self):
+        from modules.core.usb_connection import (
+            open_serial_port,
+            DEFAULT_WRITE_TIMEOUT,
+        )
+
+        with patch("modules.core.usb_connection.serial.Serial") as mock_serial:
+            open_serial_port("/dev/ttyACM0")
+            _, kwargs = mock_serial.call_args
+            assert kwargs["write_timeout"] == DEFAULT_WRITE_TIMEOUT
+
+    def test_serial_base_open_passes_write_timeout(self):
+        from modules.core.usb_connection import _SerialBase, DEFAULT_WRITE_TIMEOUT
+
+        conn = _SerialBase(port="/dev/ttyACM0")
+        with patch("modules.core.usb_connection.serial.Serial") as mock_serial:
+            conn._open()
+            _, kwargs = mock_serial.call_args
+            assert kwargs["write_timeout"] == DEFAULT_WRITE_TIMEOUT
+
+    def test_custom_write_timeout_propagates(self):
+        from modules.core.usb_connection import _SerialBase
+
+        conn = _SerialBase(port="/dev/ttyACM0", write_timeout=5.0)
+        with patch("modules.core.usb_connection.serial.Serial") as mock_serial:
+            conn._open()
+            _, kwargs = mock_serial.call_args
+            assert kwargs["write_timeout"] == 5.0
+
+    def test_readline_is_bounded(self):
+        from modules.core.usb_connection import _SerialBase, DEFAULT_READLINE_MAX_BYTES
+
+        conn = _SerialBase(port="/dev/ttyACM0")
+        conn.connection = MagicMock()
+        conn.readline()
+        conn.connection.readline.assert_called_once_with(DEFAULT_READLINE_MAX_BYTES)
+
+    def test_readline_without_connection_returns_empty(self):
+        from modules.core.usb_connection import _SerialBase
+
+        conn = _SerialBase(port="/dev/ttyACM0")
+        assert conn.readline() == b""
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 #  1.  modules/verify.py
 # ═════════════════════════════════════════════════════════════════════════════
 
