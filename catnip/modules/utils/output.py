@@ -241,6 +241,20 @@ def print_test_summary(passed: int, total: int, test_type: str = "") -> None:
     console.print(f"\n[bold]Summary:[/bold] [green]{msg}[/green]")
 
 
+def print_next_steps(steps: list[str]) -> None:
+    """Print contextual "what to run next" suggestions after a command.
+
+    Mirrors Bombercat's `status`/`relay run` pattern of pointing at the next
+    likely command instead of leaving the user to guess (see
+    analisis-bombercat-vs-catnip.md, section 3).
+    """
+    if not steps:
+        return
+    console.print("\n[bold]Next steps:[/bold]")
+    for step in steps:
+        console.print(f"  [green]{step}[/green]")
+
+
 def print_instruction_block(title: str, items: list[str]) -> None:
     """Print an instruction block with title and numbered items."""
     console.print(f"[yellow]  {title}[/yellow]")

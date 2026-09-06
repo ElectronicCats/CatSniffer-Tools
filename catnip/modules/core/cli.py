@@ -82,9 +82,25 @@ FUNNY_PHRASE = _random.choice(_FUNNY_PHRASES)
 
 logger = logging.getLogger("rich")
 FORMAT = "%(message)s"
+_rich_handler = RichHandler(markup=True, show_time=False)
 logging.basicConfig(
-    level="WARNING", format=FORMAT, datefmt="[%X]", handlers=[RichHandler(markup=True)]
+    level="WARNING", format=FORMAT, datefmt="[%X]", handlers=[_rich_handler]
 )
+
+# -v/-vv/-vvv -> logging verbosity, see set_verbosity() below.
+_VERBOSITY_LEVELS = [logging.WARNING, logging.INFO, logging.DEBUG]
+
+
+def set_verbosity(count: int) -> None:
+    """Apply a `-v` count to the root logger.
+
+    0 (default) = WARNING, 1 (`-v`) = INFO, 2+ (`-vv`) = DEBUG with
+    timestamps — the same graduated scheme Bombercat uses (see
+    analisis-bombercat-vs-catnip.md, section 3).
+    """
+    level = _VERBOSITY_LEVELS[min(count, len(_VERBOSITY_LEVELS) - 1)]
+    logger.setLevel(level)
+    _rich_handler.show_time = count >= 2
 
 
 def print_header(module=None):
@@ -122,14 +138,23 @@ def print_header(module=None):
 @click.group(
     "catnip",
     context_settings={"help_option_names": ["-h", "--help"]},
-    epilog="Set CATNIP_DEBUG=1 to see a full traceback instead of a one-line error.",
+    epilog="Set CATNIP_DEBUG=1 to see a full traceback instead of a one-line error.\n\n"
+    "\b\n"
+    "Examples:\n"
+    "  catnip devices                  # list connected CatSniffers\n"
+    "  catnip flash --list             # see available firmware images\n"
+    "  catnip sniff ble                # sniff BLE traffic\n"
+    "  catnip -v sniff zigbee -c 15    # same, with INFO-level logging",
 )
-@click.option("-v", "--verbose", is_flag=True, help="Show Verbose mode")
+@click.option(
+    "-v",
+    "--verbose",
+    count=True,
+    help="Increase logging verbosity. Repeatable: -v (INFO), -vv (DEBUG + timestamps).",
+)
 def cli(verbose):
     """CatSniffer: All in one catnip tools environment."""
-    if verbose:
-        logger.level = logging.INFO
-    pass
+    set_verbosity(verbose)
 
 
 def build_cli() -> click.Group:

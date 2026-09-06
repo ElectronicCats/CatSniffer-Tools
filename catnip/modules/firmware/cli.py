@@ -19,6 +19,7 @@ import click
 from rich.table import Table
 from rich import box
 
+from ..core.firmware_registry import resolve as resolve_firmware
 from ..utils.cli_options import device_option
 from ..utils.output import (
     console,
@@ -32,7 +33,17 @@ from ..utils.output import (
     print_subtitle,
     print_example,
     print_alias_item,
+    print_next_steps,
 )
+
+# Capability -> suggested `catnip sniff <name>` command, for next-steps hints
+# after a successful flash (see analisis-bombercat-vs-catnip.md, section 3).
+_CAPABILITY_NEXT_STEP = {
+    "sniff_ble": "catnip sniff ble",
+    "sniff_zigbee": "catnip sniff zigbee -c 15",
+    "sniff_thread": "catnip sniff thread -c 15",
+    "airtag_scan": "catnip sniff airtag_scanner",
+}
 
 
 @click.command()
@@ -52,7 +63,14 @@ from ..utils.output import (
     help="Show full descriptions without truncation in the list",
 )
 def flash(firmware, device, list, full) -> None:
-    """Flash CC1352 Firmware or list available firmware images"""
+    """Flash CC1352 Firmware or list available firmware images.
+
+    \b
+    Examples:
+        catnip flash --list               # see available firmware images/aliases
+        catnip flash ble                  # flash Sniffle BLE firmware
+        catnip flash zigbee --device 1    # flash TI sniffer to device #1
+    """
 
     from .fw_aliases import get_official_id
 
@@ -294,6 +312,15 @@ def flash(firmware, device, list, full) -> None:
     # Send identification command to help identify which device was flashed
     send_identify_command(dev)
 
+    # Suggest the sniff command that matches what was just flashed, instead
+    # of leaving the user to guess (Bombercat's "status" next-steps pattern).
+    entry = resolve_firmware(firmware)
+    if entry is not None:
+        next_steps = [
+            cmd for cap, cmd in _CAPABILITY_NEXT_STEP.items() if entry.can(cap)
+        ]
+        print_next_steps(next_steps)
+
 
 @click.command()
 @click.option(
@@ -313,6 +340,12 @@ def verify(test_all, device, quiet):
     - LoRa communication (TEST, TXTEST, TX commands)
 
     Use --test-all for comprehensive testing.
+
+    \b
+    Examples:
+        catnip verify                # quick check of all connected devices
+        catnip verify --test-all     # full LoRa config + communication tests
+        catnip verify --device 1     # test only device #1
     """
     # Check dependencies
     try:
@@ -372,6 +405,11 @@ def update(device, force):
 
     If the device is not detected, provides instructions to manually
     enter Boot Mode for recovery.
+
+    \b
+    Examples:
+        catnip update              # check and update if outdated
+        catnip update --force      # reflash regardless of version
     """
     from .fw_update import (
         check_and_update_rp2040,

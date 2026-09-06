@@ -58,7 +58,14 @@ def sniff(verbose):
     help="Sniffle mode",
 )
 def sniff_ble(device, wireshark, channel, mode):
-    """Sniffing BLE with Sniffle firmware"""
+    """Sniffing BLE with Sniffle firmware.
+
+    \b
+    Examples:
+        catnip sniff ble                    # ready for manual Wireshark setup
+        catnip sniff ble --wireshark        # auto-open Wireshark
+        catnip sniff ble -c 39 -m passive_scan
+    """
     with device_session(
         device,
         required_firmware=SniffingBaseFirmware.BLE.value,
@@ -96,7 +103,14 @@ def sniff_ble(device, wireshark, channel, mode):
 @raw_file_option()
 @ascii_file_option()
 def sniff_zigbee(ws, channel, device, raw_file, ascii_file):
-    """Sniffing Zigbee with Sniffer TI firmware"""
+    """Sniffing Zigbee with Sniffer TI firmware.
+
+    \b
+    Examples:
+        catnip sniff zigbee -c 15
+        catnip sniff zigbee -c 15 -ws              # open Wireshark
+        catnip sniff zigbee -c 15 -r capture.raw   # save raw log to file
+    """
     with device_session(
         device,
         required_firmware="ti_sniffer",
@@ -128,7 +142,13 @@ def sniff_zigbee(ws, channel, device, raw_file, ascii_file):
 @raw_file_option()
 @ascii_file_option()
 def sniff_thread(ws, channel, device, raw_file, ascii_file):
-    """Sniffing Thread with Sniffer TI firmware"""
+    """Sniffing Thread with Sniffer TI firmware.
+
+    \b
+    Examples:
+        catnip sniff thread -c 15
+        catnip sniff thread -c 15 -ws              # open Wireshark
+    """
     with device_session(
         device,
         required_firmware="ti_sniffer",
@@ -216,7 +236,14 @@ def sniff_lora(
     raw_file,
     ascii_file,
 ):
-    """Sniffing LoRa with Sniffer SX1262 firmware"""
+    """Sniffing LoRa with Sniffer SX1262 firmware.
+
+    \b
+    Examples:
+        catnip sniff lora                          # defaults: 915MHz, SF7, BW125
+        catnip sniff lora -freq 868000000 -sf 9
+        catnip sniff lora -ws                      # open Wireshark
+    """
     dev = get_device_or_exit(device)
 
     # Convert bandwidth from string to int
@@ -253,7 +280,13 @@ def sniff_lora(
 @device_option()
 @click.option("--putty", is_flag=True, help="Open PuTTY with serial configuration")
 def sniff_airtag_scanner(device, putty):
-    """Sniffing Airtag Scanner firmware"""
+    """Sniffing Airtag Scanner firmware.
+
+    \b
+    Examples:
+        catnip sniff airtag_scanner
+        catnip sniff airtag_scanner --putty    # auto-open PuTTY at 9600 baud
+    """
     # Must match ALIAS_TO_OFFICIAL_ID in fw_aliases.py
     official_id = "airtag_scanner_cc1352p7"
 
