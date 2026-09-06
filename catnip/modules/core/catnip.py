@@ -1,8 +1,7 @@
 import enum
-import time
 
 # Internal
-from protocol.sniffer_ti import SnifferTI
+from .firmware_verifier import FirmwareVerifier
 from .usb_connection import (
     CatSnifferDevice,
     BridgeConnection,
@@ -38,9 +37,6 @@ __all__ = [
     "SniffingBaseFirmware",
     "Catnip",
 ]
-
-# External
-import serial
 
 # Shell commands for bootloader control
 SHELL_CMD_BOOT = "boot"
@@ -97,146 +93,32 @@ class Catnip(BridgeConnection):
     def __init__(self, port=None):
         super().__init__(port=port or get_bridge_port())
 
+    # ── Deprecated verification methods ─────────────────────────────────
+    #
+    # These used to hold the firmware-verification logic directly (mixing
+    # plain bridge I/O with business logic — see "Responsabilidades difusas"
+    # in analisis-bombercat-vs-catnip.md, section 2). The logic now lives in
+    # FirmwareVerifier; these wrappers stay only so existing callers
+    # (protocols/cli/cativity.py, protocols/cli/vhci.py) keep working.
+    # New code should use FirmwareVerifier directly instead.
+
     def check_flag(self, flag, timeout=2) -> bool:
-        if not self.connect():
-            return False
-        conn = self.connection
-        if conn is None:
-            return False
-        conn.timeout = timeout
-        self.write(SnifferTI().Commands().stop())
-        self.write(SnifferTI().Commands().ping())
-        got = self.read(16)
-        result = got[7:8].hex() == "40" or flag in got
-        self.disconnect()
-        return result
+        return FirmwareVerifier(self.port)._check_flag(flag, timeout=timeout)
 
     def check_ti_firmware(self, timeout=2) -> bool:
-        return self.check_flag(flag=b"TI Packet", timeout=timeout)
+        return FirmwareVerifier(self.port)._check_ti_firmware(timeout=timeout)
 
     def check_firmware_by_metadata(
         self, expected_fw_id: str, shell_port: str = None
     ) -> bool:
-        """
-        Verify firmware using the RP2040 metadata system.
-
-        Queries the firmware ID stored in RP2040 flash via the shell port.
-        More reliable than direct CC1352 communication because it does not
-        depend on the CC1352 being responsive.
-        """
-        from ..firmware.fw_metadata import FirmwareMetadata
-
-        if shell_port is None:
-            return False
-
-        try:
-            shell = ShellConnection(port=shell_port)
-            if not shell.connect():
-                return False
-
-            metadata = FirmwareMetadata(shell)
-            current_id = metadata.get_firmware_id()
-            shell.disconnect()
-
-            return bool(current_id) and current_id == expected_fw_id
-
-        except Exception:
-            return False
+        return FirmwareVerifier(self.port, shell_port).verify_metadata(expected_fw_id)
 
     def check_sniffle_firmware_smart(
         self, shell_port: str = None, timeout=3, max_retries=2
     ) -> bool:
-        """
-        Check for Sniffle firmware: metadata first, direct communication fallback.
-        """
-        if shell_port and self.check_firmware_by_metadata("sniffle", shell_port):
-            return True
-
-        # Ensure port is closed before direct communication attempt
-        try:
-            if self.connection and self.connection.is_open:
-                self.disconnect()
-            time.sleep(0.2)
-        except Exception:
-            pass
-
-        return self.check_sniffle_firmware(timeout, max_retries)
+        return FirmwareVerifier(self.port, shell_port).verify("sniffle").verified
 
     def check_sniffle_firmware(self, timeout=3, max_retries=2) -> bool:
-        """
-        Check for Sniffle firmware by sending CMD_MARKER and validating the response.
-        """
-        from base64 import b64encode, b64decode
-        from binascii import Error as BAError
-
-        flag = [0x24]
-        b0 = (len(flag) + 3) // 3
-        msg = b64encode(bytes([b0, *flag])) + b"\r\n"
-
-        for attempt in range(max_retries + 1):
-            try:
-                if attempt > 0:
-                    time.sleep(1)
-
-                if not self.connect():
-                    continue
-
-                conn = self.connection
-                if conn is None:
-                    continue
-
-                conn.timeout = timeout
-
-                try:
-                    conn.reset_input_buffer()
-                    conn.reset_output_buffer()
-                except Exception:
-                    self.disconnect()
-                    continue
-
-                self.write(msg)
-                time.sleep(0.2)
-
-                start = time.time()
-                pkt = b""
-                while time.time() - start < timeout:
-                    try:
-                        line = self.readline()
-                        if line:
-                            pkt = line
-                            break
-                    except Exception:
-                        pass
-                    time.sleep(0.05)
-
-                if not pkt:
-                    self.disconnect()
-                    continue
-
-                try:
-                    decoded = b64decode(pkt.rstrip())
-                    self.disconnect()
-                    if len(decoded) >= 3:
-                        return True
-                except (BAError, ValueError):
-                    self.disconnect()
-                    continue
-
-            except serial.SerialException:
-                try:
-                    self.disconnect()
-                except Exception:
-                    pass
-            except Exception:
-                try:
-                    self.disconnect()
-                except Exception:
-                    pass
-            finally:
-                try:
-                    if self.connection and self.connection.is_open:
-                        self.disconnect()
-                except Exception:
-                    pass
-
-        return False
+        return FirmwareVerifier(self.port)._check_sniffle_firmware(
+            timeout=timeout, max_retries=max_retries
+        )
