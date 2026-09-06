@@ -77,3 +77,43 @@ class TestNextSteps:
         output.print_next_steps([])
 
         assert printed == []
+
+
+@pytest.mark.unit
+class TestRefuseOverwrite:
+    def test_missing_file_is_always_fine(self, tmp_path):
+        target = tmp_path / "does_not_exist.raw"
+        assert output.refuse_overwrite(str(target)) is True
+
+    def test_warn_mode_never_blocks_but_warns(self, tmp_path, monkeypatch):
+        target = tmp_path / "capture.raw"
+        target.write_text("existing data")
+        printed = []
+        monkeypatch.setattr(
+            output.console, "print", lambda *a, **kw: printed.append(a[0] if a else "")
+        )
+
+        assert output.refuse_overwrite(str(target)) is True
+        assert any("already exists" in line for line in printed)
+
+    def test_block_mode_refuses_without_force(self, tmp_path):
+        target = tmp_path / "export.csv"
+        target.write_text("existing data")
+
+        assert output.refuse_overwrite(str(target), mode="block") is False
+
+    def test_block_mode_allows_with_force(self, tmp_path):
+        target = tmp_path / "export.csv"
+        target.write_text("existing data")
+
+        assert output.refuse_overwrite(str(target), force=True, mode="block") is True
+
+
+@pytest.mark.unit
+class TestCsvSafe:
+    @pytest.mark.parametrize("value", ["=cmd()", "+1+1", "-1+1", "@SUM(A1)"])
+    def test_prefixes_formula_looking_values(self, value):
+        assert output.csv_safe(value) == f"'{value}"
+
+    def test_leaves_plain_values_untouched(self):
+        assert output.csv_safe("sniffle") == "sniffle"

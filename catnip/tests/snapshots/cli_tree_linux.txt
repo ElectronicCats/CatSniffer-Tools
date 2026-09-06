@@ -144,12 +144,14 @@ Usage: catnip lora spectrum [OPTIONS]
   Live Spectrum Scanner for SX1262 - Real-time frequency spectrum analyzer
 
 Options:
-  -d, --device INTEGER    Device ID (for multiple CatSniffers)
-  -b, --baudrate INTEGER  Baudrate (default: 115200)
-  --start-freq FLOAT      Starting frequency in MHz (default: 150)
-  --end-freq FLOAT        End frequency in MHz (default: 960)
-  --offset INTEGER        RSSI offset in dBm (default: -15)
-  -h, --help              Show this message and exit.
+  -d, --device INTEGER      Device ID (for multiple CatSniffers)
+  -b, --baudrate INTEGER    Baudrate (default: 115200)
+  --start-freq FLOAT RANGE  Starting frequency in MHz, 150-960 (default: 150)
+                            [150<=x<=960]
+  --end-freq FLOAT RANGE    End frequency in MHz, 150-960 (default: 960)
+                            [150<=x<=960]
+  --offset INTEGER RANGE    RSSI offset in dBm (default: -15)  [-100<=x<=100]
+  -h, --help                Show this message and exit.
 
 ==============================================================================
 $ catnip meshtastic --help
@@ -328,13 +330,16 @@ Usage: catnip sniff lora [OPTIONS]
 Options:
   -ws                             Open Wireshark
   -v, --verbose                   Show verbose output in terminal
-  -freq, --frequency INTEGER      Frequency in Hz (e.g., 915000000 for 915 MHz)
+  -freq, --frequency INTEGER RANGE
+                                  Frequency in Hz, 150-960 MHz (e.g., 915000000
+                                  for 915 MHz)  [150000000<=x<=960000000]
   -bw, --bandwidth [125|250|500]  Bandwidth in kHz
   -sf, --spread_factor INTEGER RANGE
                                   Spreading Factor (7-12)  [7<=x<=12]
   -cr, --coding_rate INTEGER RANGE
                                   Coding Rate (5-8)  [5<=x<=8]
-  -pw, --tx_power INTEGER         TX Power in dBm
+  -pw, --tx_power INTEGER RANGE   TX Power in dBm (-9 to 22, SX1262 hardware
+                                  range)  [-9<=x<=22]
   -d, --device INTEGER            Device ID (for multiple CatSniffers)
   -sw, --sync-word [public|private]
                                   LoRa sync word: 'public' (0x34, LoRaWAN) or

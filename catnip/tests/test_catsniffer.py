@@ -816,6 +816,63 @@ class TestFlasherFindFlash:
         assert result is False
 
 
+class TestFlasherChecksumVerification:
+    """compare_checksum()/download_remote_firmware(): a SHA256 mismatch must
+    discard the corrupted download, not just warn and let it be flashed
+    later (see analisis-bombercat-vs-catnip.md, section 6)."""
+
+    def _flasher(self):
+        from modules.firmware.flasher import Flasher
+
+        with patch(
+            "modules.firmware.flasher.catnip_get_port", return_value="/dev/ttyACM0"
+        ), patch("os.path.exists", return_value=True):
+            return Flasher()
+
+    def test_matching_digest_returns_true(self):
+        flasher = self._flasher()
+        digest = flasher.calculate_checksum(b"firmware bytes")
+        assert flasher.compare_checksum("fw.uf2", digest, f"sha256:{digest}") is True
+
+    def test_mismatched_digest_returns_false(self):
+        flasher = self._flasher()
+        digest = flasher.calculate_checksum(b"firmware bytes")
+        assert (
+            flasher.compare_checksum("fw.uf2", digest, "sha256:deadbeef" * 4) is False
+        )
+
+    def test_missing_digest_returns_none(self):
+        flasher = self._flasher()
+        assert flasher.compare_checksum("fw.uf2", "somedigest", None) is None
+        assert flasher.compare_checksum("fw.uf2", None, "sha256:abc") is None
+
+    def test_corrupted_download_is_deleted_not_flashed(self, tmp_path):
+        flasher = self._flasher()
+        release_path = tmp_path / "release"
+        release_path.mkdir()
+        bad_file = release_path / "fw.uf2"
+        bad_file.write_bytes(b"corrupted content")
+
+        flasher.release_assets = [
+            {
+                "name": "fw.uf2",
+                "browser_download_url": "https://example.invalid/fw.uf2",
+                "digest": "sha256:" + "0" * 64,  # will never match real content
+            }
+        ]
+
+        fake_response = MagicMock()
+        fake_response.content = b"corrupted content"
+        fake_response.raise_for_status = MagicMock()
+
+        with patch.object(
+            flasher, "_Flasher__create_release_path", return_value=str(release_path)
+        ), patch("requests.get", return_value=fake_response), patch("time.sleep"):
+            flasher.download_remote_firmware()
+
+        assert not bad_file.exists()
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 #  3.  modules/bridge.py
 # ═════════════════════════════════════════════════════════════════════════════
