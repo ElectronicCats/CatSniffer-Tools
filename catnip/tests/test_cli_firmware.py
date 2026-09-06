@@ -16,6 +16,33 @@ CatSniffer plugged in.
 
 import pytest
 
+from modules.firmware.cli import _CAPABILITY_NEXT_STEP, resolve_firmware
+
+
+@pytest.mark.unit
+class TestFlashNextSteps:
+    """`flash` suggests the matching `catnip sniff <x>` via firmware_registry
+    capabilities (analisis-bombercat-vs-catnip.md, section 3)."""
+
+    def test_ble_alias_suggests_sniff_ble(self):
+        entry = resolve_firmware("ble")
+        assert entry is not None
+        suggested = [
+            cmd for cap, cmd in _CAPABILITY_NEXT_STEP.items() if entry.can(cap)
+        ]
+        assert suggested == ["catnip sniff ble"]
+
+    def test_zigbee_alias_suggests_sniff_zigbee_and_thread(self):
+        entry = resolve_firmware("zigbee")
+        assert entry is not None
+        suggested = {
+            cmd for cap, cmd in _CAPABILITY_NEXT_STEP.items() if entry.can(cap)
+        }
+        assert suggested == {"catnip sniff zigbee -c 15", "catnip sniff thread -c 15"}
+
+    def test_unresolvable_firmware_suggests_nothing(self):
+        assert resolve_firmware("not-a-real-firmware") is None
+
 
 @pytest.mark.slow
 class TestFlashCommand:

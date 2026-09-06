@@ -9,14 +9,15 @@ Usage: catnip [OPTIONS] COMMAND [ARGS]...
   CatSniffer: All in one catnip tools environment.
 
 Options:
-  -v, --verbose  Show Verbose mode
+  -v, --verbose  Increase logging verbosity. Repeatable: -v (INFO), -vv (DEBUG +
+                 timestamps).
   -h, --help     Show this message and exit.
 
 Commands:
   cativity    IQ Activity Monitor
   completion  Install shell tab completion for catnip.
   devices     List connected CatSniffer devices
-  flash       Flash CC1352 Firmware or list available firmware images
+  flash       Flash CC1352 Firmware or list available firmware images.
   identify    Send identification command to CatSniffer device
   lora        LoRa SX1262 tools
   meshtastic  Meshtastic protocol tools
@@ -28,6 +29,12 @@ Commands:
   vhci        VHCI Bridge - Expose CatSniffer as hciX.
 
   Set CATNIP_DEBUG=1 to see a full traceback instead of a one-line error.
+
+  Examples:
+    catnip devices                  # list connected CatSniffers
+    catnip flash --list             # see available firmware images
+    catnip sniff ble                # sniff BLE traffic
+    catnip -v sniff zigbee -c 15    # same, with INFO-level logging
 
 ==============================================================================
 $ catnip cativity --help
@@ -91,7 +98,12 @@ $ catnip flash --help
 ==============================================================================
 Usage: catnip flash [OPTIONS] [FIRMWARE]
 
-  Flash CC1352 Firmware or list available firmware images
+  Flash CC1352 Firmware or list available firmware images.
+
+  Examples:
+      catnip flash --list               # see available firmware images/aliases
+      catnip flash ble                  # flash Sniffle BLE firmware
+      catnip flash zigbee --device 1    # flash TI sniffer to device #1
 
 Options:
   -d, --device INTEGER  Device ID (for multiple CatSniffers). If not specified,
@@ -258,18 +270,22 @@ Options:
   -h, --help     Show this message and exit.
 
 Commands:
-  airtag_scanner  Sniffing Airtag Scanner firmware
-  ble             Sniffing BLE with Sniffle firmware
-  lora            Sniffing LoRa with Sniffer SX1262 firmware
-  thread          Sniffing Thread with Sniffer TI firmware
-  zigbee          Sniffing Zigbee with Sniffer TI firmware
+  airtag_scanner  Sniffing Airtag Scanner firmware.
+  ble             Sniffing BLE with Sniffle firmware.
+  lora            Sniffing LoRa with Sniffer SX1262 firmware.
+  thread          Sniffing Thread with Sniffer TI firmware.
+  zigbee          Sniffing Zigbee with Sniffer TI firmware.
 
 ==============================================================================
 $ catnip sniff airtag_scanner --help
 ==============================================================================
 Usage: catnip sniff airtag_scanner [OPTIONS]
 
-  Sniffing Airtag Scanner firmware
+  Sniffing Airtag Scanner firmware.
+
+  Examples:
+      catnip sniff airtag_scanner
+      catnip sniff airtag_scanner --putty    # auto-open PuTTY at 9600 baud
 
 Options:
   -d, --device INTEGER  Device ID (for multiple CatSniffers)
@@ -281,7 +297,12 @@ $ catnip sniff ble --help
 ==============================================================================
 Usage: catnip sniff ble [OPTIONS]
 
-  Sniffing BLE with Sniffle firmware
+  Sniffing BLE with Sniffle firmware.
+
+  Examples:
+      catnip sniff ble                    # ready for manual Wireshark setup
+      catnip sniff ble --wireshark        # auto-open Wireshark
+      catnip sniff ble -c 39 -m passive_scan
 
 Options:
   -d, --device INTEGER            Device ID (for multiple CatSniffers)
@@ -297,7 +318,12 @@ $ catnip sniff lora --help
 ==============================================================================
 Usage: catnip sniff lora [OPTIONS]
 
-  Sniffing LoRa with Sniffer SX1262 firmware
+  Sniffing LoRa with Sniffer SX1262 firmware.
+
+  Examples:
+      catnip sniff lora                          # defaults: 915MHz, SF7, BW125
+      catnip sniff lora -freq 868000000 -sf 9
+      catnip sniff lora -ws                      # open Wireshark
 
 Options:
   -ws                             Open Wireshark
@@ -324,7 +350,11 @@ $ catnip sniff thread --help
 ==============================================================================
 Usage: catnip sniff thread [OPTIONS]
 
-  Sniffing Thread with Sniffer TI firmware
+  Sniffing Thread with Sniffer TI firmware.
+
+  Examples:
+      catnip sniff thread -c 15
+      catnip sniff thread -c 15 -ws              # open Wireshark
 
 Options:
   -ws                          Open Wireshark
@@ -341,7 +371,12 @@ $ catnip sniff zigbee --help
 ==============================================================================
 Usage: catnip sniff zigbee [OPTIONS]
 
-  Sniffing Zigbee with Sniffer TI firmware
+  Sniffing Zigbee with Sniffer TI firmware.
+
+  Examples:
+      catnip sniff zigbee -c 15
+      catnip sniff zigbee -c 15 -ws              # open Wireshark
+      catnip sniff zigbee -c 15 -r capture.raw   # save raw log to file
 
 Options:
   -ws                          Open Wireshark
@@ -366,6 +401,10 @@ Usage: catnip update [OPTIONS]
   If the device is not detected, provides instructions to manually enter Boot
   Mode for recovery.
 
+  Examples:
+      catnip update              # check and update if outdated
+      catnip update --force      # reflash regardless of version
+
 Options:
   -d, --device INTEGER  Device ID (for multiple CatSniffers)
   -f, --force           Force update even if firmware versions match
@@ -383,6 +422,11 @@ Usage: catnip verify [OPTIONS]
   - LoRa communication (TEST, TXTEST, TX commands)
 
   Use --test-all for comprehensive testing.
+
+  Examples:
+      catnip verify                # quick check of all connected devices
+      catnip verify --test-all     # full LoRa config + communication tests
+      catnip verify --device 1     # test only device #1
 
 Options:
   --test-all            Run all tests including LoRa configuration and

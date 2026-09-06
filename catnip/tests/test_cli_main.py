@@ -18,6 +18,7 @@ the end of this file covers the same contract through a real process.
 """
 
 import ast
+import logging
 import re
 from pathlib import Path
 
@@ -29,6 +30,30 @@ from modules.core import exceptions
 
 
 _MODULES_DIR = Path(__file__).resolve().parent.parent / "modules"
+
+
+@pytest.mark.unit
+class TestSetVerbosity:
+    """`-v`/`-vv` graduated verbosity (analisis-bombercat-vs-catnip.md, section 3)."""
+
+    def test_default_is_warning(self):
+        core_cli.set_verbosity(0)
+        assert core_cli.logger.level == logging.WARNING
+        assert core_cli._rich_handler.show_time is False
+
+    def test_single_v_is_info(self):
+        core_cli.set_verbosity(1)
+        assert core_cli.logger.level == logging.INFO
+        assert core_cli._rich_handler.show_time is False
+
+    def test_double_v_is_debug_with_timestamps(self):
+        core_cli.set_verbosity(2)
+        assert core_cli.logger.level == logging.DEBUG
+        assert core_cli._rich_handler.show_time is True
+
+    def test_extra_v_still_caps_at_debug(self):
+        core_cli.set_verbosity(5)
+        assert core_cli.logger.level == logging.DEBUG
 
 
 @pytest.fixture

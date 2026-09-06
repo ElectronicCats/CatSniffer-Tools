@@ -56,3 +56,24 @@ class TestErrorPanels:
         output.print_success_panel("Done", "Firmware flashed successfully")
 
         assert len(printed) == 1
+
+
+@pytest.mark.unit
+class TestNextSteps:
+    def test_prints_each_suggested_step(self, monkeypatch):
+        printed = []
+        monkeypatch.setattr(output.console, "print", printed.append)
+
+        output.print_next_steps(["catnip sniff ble", "catnip verify"])
+
+        joined = "\n".join(printed)
+        assert "catnip sniff ble" in joined
+        assert "catnip verify" in joined
+
+    def test_no_steps_prints_nothing(self, monkeypatch):
+        printed = []
+        monkeypatch.setattr(output.console, "print", printed.append)
+
+        output.print_next_steps([])
+
+        assert printed == []
