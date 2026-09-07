@@ -437,10 +437,20 @@ def flash_rp2040_uf2(uf2_path: str, mount_point: Optional[str] = None) -> bool:
         print_warning("The device must be in UF2 Boot Mode.")
         return False
 
+    dest = os.path.join(mount_point, os.path.basename(uf2_path))
+    print_info(f"Copying UF2 firmware to {mount_point}...")
     try:
-        dest = os.path.join(mount_point, os.path.basename(uf2_path))
-        print_info(f"Copying UF2 firmware to {mount_point}...")
-        shutil.copy2(uf2_path, dest)
+        # Plain copyfileobj + explicit fsync, not shutil.copy2(): the RP2040
+        # reboots and unmounts RPI-RP2 as soon as it has received the image,
+        # which can race copy2's post-copy copystat() (mtime/permissions) and
+        # raise even though the firmware itself copied fine. fsync also
+        # guarantees the bytes actually left the page cache for the device
+        # before we report success, instead of relying on a cache flush that
+        # may not happen before the volume disappears.
+        with open(uf2_path, "rb") as src, open(dest, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+            dst.flush()
+            os.fsync(dst.fileno())
         print_success("UF2 firmware copied successfully!")
         return True
     except Exception as e:
@@ -725,14 +735,18 @@ def force_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bool:
 
     from .board import detect_board, BOARD_V3
 
-    board = detect_board(device.shell_port) if device else None
+    board = detect_board(device.shell_port)
     if board is None:
+        # An unresponsive shell is exactly the scenario --force exists for
+        # (a device stuck with broken/outdated firmware), so give up here
+        # would defeat its purpose. Firmware predating the "Board:" line is
+        # always v3 (see board.parse_board_line), so default to that rather
+        # than refusing to reboot the device.
         console.print(
-            "[yellow][!] Could not read the board generation; not rebooting. "
-            "Use the manual bootloader entry instead.[/yellow]"
+            "[yellow][!] Could not read the board generation from the shell; "
+            "assuming v3 (RP2040 + CC1352P7).[/yellow]"
         )
-        _print_boot_mode_instructions()
-        return False
+        board = BOARD_V3
     return _perform_rp2040_update(device, flasher, board=board, force=True)
 
 
