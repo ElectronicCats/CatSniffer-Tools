@@ -439,23 +439,45 @@ def flash_rp2040_uf2(uf2_path: str, mount_point: Optional[str] = None) -> bool:
 
     dest = os.path.join(mount_point, os.path.basename(uf2_path))
     print_info(f"Copying UF2 firmware to {mount_point}...")
-    try:
-        # Plain copyfileobj + explicit fsync, not shutil.copy2(): the RP2040
-        # reboots and unmounts RPI-RP2 as soon as it has received the image,
-        # which can race copy2's post-copy copystat() (mtime/permissions) and
-        # raise even though the firmware itself copied fine. fsync also
-        # guarantees the bytes actually left the page cache for the device
-        # before we report success, instead of relying on a cache flush that
-        # may not happen before the volume disappears.
-        with open(uf2_path, "rb") as src, open(dest, "wb") as dst:
-            shutil.copyfileobj(src, dst)
-            dst.flush()
-            os.fsync(dst.fileno())
-        print_success("UF2 firmware copied successfully!")
-        return True
-    except Exception as e:
-        print_error(f"Error copying UF2 firmware: {e}")
-        return False
+
+    # The desktop automounter (udisks2 on Linux, AutoPlay on Windows,
+    # diskarbitrationd on macOS) can take a moment to finish granting write
+    # access right after the boot volume first appears, so a "Permission
+    # denied" immediately after detecting the mount point is often
+    # transient rather than a real access problem — retry it briefly before
+    # giving up.
+    attempts = 5
+    for attempt in range(1, attempts + 1):
+        try:
+            # Plain copyfileobj + explicit fsync, not shutil.copy2(): the
+            # RP2040 reboots and unmounts RPI-RP2 as soon as it has received
+            # the image, which can race copy2's post-copy copystat()
+            # (mtime/permissions) and raise even though the firmware itself
+            # copied fine. fsync also guarantees the bytes actually left the
+            # page cache for the device before we report success, instead of
+            # relying on a cache flush that may not happen before the volume
+            # disappears.
+            with open(uf2_path, "rb") as src, open(dest, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+                dst.flush()
+                os.fsync(dst.fileno())
+            print_success("UF2 firmware copied successfully!")
+            return True
+        except PermissionError as e:
+            if attempt == attempts:
+                print_error(f"Error copying UF2 firmware: {e}")
+                print_dim(
+                    "The boot volume may still be settling permissions after mount; "
+                    "try running the command again."
+                )
+                return False
+            print_dim(f"Volume not writable yet, retrying ({attempt}/{attempts})...")
+            time.sleep(0.5)
+        except Exception as e:
+            print_error(f"Error copying UF2 firmware: {e}")
+            return False
+
+    return False
 
 
 def enter_boot_mode(shell_port: str) -> bool:
