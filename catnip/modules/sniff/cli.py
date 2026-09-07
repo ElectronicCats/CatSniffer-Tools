@@ -2,6 +2,7 @@
 
 import logging
 import platform
+import re
 import subprocess
 
 # Internal
@@ -10,17 +11,21 @@ from ..core.catnip import SniffingBaseFirmware, SniffingFirmware
 from ..core.device_session import device_session
 from ..core.device_utils import get_device_or_exit
 from ..core.extcap import find_putty_path, run_extcap_directly
+from ..core.usb_connection import open_serial_port
 from ..firmware.flasher import Flasher
 
 # External
 import click
+import serial
 
 from ..utils.cli_options import ascii_file_option, device_option, raw_file_option
 from ..utils.output import (
+    console,
     print_success,
     print_error,
     print_info,
     print_dim,
+    print_warning,
 )
 
 logger = logging.getLogger("rich")
@@ -276,16 +281,86 @@ def sniff_lora(
     )
 
 
+_AIRTAG_BAUDRATE = 9600
+
+# Log-distance path-loss model: distance = 10 ** ((txPowerAt1m - rssi) / (10 * n)).
+# There is no calibration data for the AirTag's actual TX power, so
+# txPowerAt1m/n are just typical BLE-beacon defaults — treat the result as an
+# order-of-magnitude estimate, not a measurement.
+_AIRTAG_TX_POWER_AT_1M = -59  # dBm, RSSI expected at 1 meter
+_AIRTAG_PATH_LOSS_EXPONENT = 2.0  # ~2 free space, ~3-4 indoors/obstructed
+
+_AIRTAG_LINE_RE = re.compile(
+    r"Airtag detected! -> (?P<addr>\S+) RSSI:(?P<rssi>-?\d+) Status: (?P<status>.+)"
+)
+
+
+def _estimate_distance_m(rssi: int) -> float:
+    """Rough distance estimate (meters) from RSSI via the log-distance path-loss model."""
+    return 10 ** ((_AIRTAG_TX_POWER_AT_1M - rssi) / (10 * _AIRTAG_PATH_LOSS_EXPONENT))
+
+
+def _stream_airtag_scanner(port: str) -> None:
+    ser = open_serial_port(port, baudrate=_AIRTAG_BAUDRATE, timeout=0.5)
+    if ser is None:
+        print_error(f"Could not open {port} at {_AIRTAG_BAUDRATE} baud")
+        return
+
+    print_success(
+        f"Listening on {port} at {_AIRTAG_BAUDRATE} baud — press Ctrl+C to stop"
+    )
+
+    detections = 0
+    try:
+        while True:
+            try:
+                raw = ser.readline()
+            except serial.SerialException as exc:
+                print_warning(f"Serial error (device disconnected?): {exc}")
+                break
+
+            if not raw:
+                continue
+
+            line = raw.decode("ascii", errors="replace").strip()
+            if not line:
+                continue
+
+            match = _AIRTAG_LINE_RE.search(line)
+            if not match:
+                print_dim(line)
+                continue
+
+            detections += 1
+            rssi = int(match.group("rssi"))
+            distance_m = _estimate_distance_m(rssi)
+            console.print(
+                f"[green][{detections:>4}][/green] AirTag [bold]{match.group('addr')}[/bold]  "
+                f"RSSI=[cyan]{rssi:>4} dBm[/cyan]  "
+                f"~distance=[yellow]{distance_m:.1f} m[/yellow]  "
+                f"({match.group('status')})"
+            )
+    except KeyboardInterrupt:
+        print_info(f"Stopped — {detections} AirTag detection(s) captured")
+    finally:
+        ser.close()
+
+
 @sniff.command(SniffingFirmware.AIRTAG_SCANNER.name.lower())
 @device_option()
-@click.option("--putty", is_flag=True, help="Open PuTTY with serial configuration")
+@click.option(
+    "--putty", is_flag=True, help="Open PuTTY with serial configuration instead"
+)
 def sniff_airtag_scanner(device, putty):
     """Sniffing Airtag Scanner firmware.
+
+    Prints each detected AirTag directly in this terminal, along with its
+    RSSI and an approximate distance estimate.
 
     \b
     Examples:
         catnip sniff airtag_scanner
-        catnip sniff airtag_scanner --putty    # auto-open PuTTY at 9600 baud
+        catnip sniff airtag_scanner --putty    # auto-open PuTTY at 9600 baud instead
     """
     # Must match ALIAS_TO_OFFICIAL_ID in fw_aliases.py
     official_id = "airtag_scanner_cc1352p7"
@@ -325,7 +400,4 @@ def sniff_airtag_scanner(device, putty):
             except Exception as e:
                 print_error(f"Failed to launch PuTTY: {str(e)}")
         else:
-            print_info("Airtag Scanner firmware is ready!")
-            print_info(
-                f"\nConnect to {dev.bridge_port} at 9600 baud to see the output."
-            )
+            _stream_airtag_scanner(dev.bridge_port)
