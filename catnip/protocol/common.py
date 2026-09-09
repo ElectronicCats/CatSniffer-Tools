@@ -15,6 +15,9 @@ PCAP_MAGIC_NUMBER = 0xA1B2C3D4
 PCAP_VERSION_MAJOR = 2
 PCAP_VERSION_MINOR = 4
 PCAP_MAX_PACKET_SIZE = 0x0000FFFF
+# Size of the per-packet header above; readers that re-parse a record
+# (the PCAPNG file sink) slice the payload at this offset.
+PCAP_PACKET_HEADER_LEN = struct.calcsize(PCAP_PACKET_HEADER_FORMAT)
 
 
 def get_global_header(interface=147):
