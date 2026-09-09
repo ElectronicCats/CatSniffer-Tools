@@ -108,6 +108,21 @@ class TestRefuseOverwrite:
 
         assert output.refuse_overwrite(str(target), force=True, mode="block") is True
 
+    def test_block_mode_with_force_says_overwrite_not_append(
+        self, tmp_path, monkeypatch
+    ):
+        """``sniff --write -f`` truncates; promising an append would mislead."""
+        target = tmp_path / "capture.pcap"
+        target.write_text("existing capture")
+        printed = []
+        monkeypatch.setattr(
+            output.console, "print", lambda *a, **kw: printed.append(a[0] if a else "")
+        )
+
+        assert output.refuse_overwrite(str(target), force=True, mode="block") is True
+        assert any("overwriting" in line for line in printed)
+        assert not any("appended" in line for line in printed)
+
 
 @pytest.mark.unit
 class TestCsvSafe:

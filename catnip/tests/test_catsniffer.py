@@ -988,6 +988,70 @@ class TestRunSxBridge:
             self._run(fake_device)
         mock_pipe.remove.assert_called()
 
+    def test_packets_reach_the_capture_file_and_the_pipe(self, fake_device):
+        """``-w`` is a second sink, not a replacement: both get the same record.
+
+        The record itself is covered by ``tests/test_pcap_writer.py``; what is
+        pinned here is the wiring, so a future edit cannot feed the file a
+        different (or no) record than the live Wireshark view.
+        """
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = "STREAM mode"
+        mock_lora = MagicMock()
+        mock_lora.connect.return_value = True
+        mock_lora.connection = MagicMock()
+        mock_lora.connection.readline.side_effect = [
+            b"RX: aabbcc | RSSI: -42 | SNR: 9\r\n",
+            KeyboardInterrupt(),
+        ]
+        mock_pipe = MagicMock()
+        mock_writer = MagicMock()
+        fake_packet = MagicMock(
+            pcap=b"LORA-RECORD", payload=b"\xaa\xbb\xcc", rssi=-42.0, snr=9.0, length=3
+        )
+
+        with patch(
+            "modules.core.bridge.ShellConnection", return_value=mock_shell
+        ), patch("modules.core.bridge.LoRaConnection", return_value=mock_lora), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch(
+            "platform.system", return_value="Linux"
+        ), patch(
+            "modules.core.bridge._configure_lora", return_value=True
+        ), patch(
+            "modules.core.bridge.PcapFileWriter", return_value=mock_writer
+        ) as mock_writer_cls, patch(
+            "modules.core.bridge.snifferSx"
+        ) as mock_sniffer:
+            mock_sniffer.Packet.return_value = fake_packet
+            self._run(fake_device, pcap_file="capture.pcap")
+
+        from modules.core.bridge import LORATAP_DLT
+
+        mock_writer_cls.assert_called_once_with("capture.pcap", LORATAP_DLT, False)
+        mock_writer.write_record.assert_called_once_with(b"LORA-RECORD")
+        assert call(b"LORA-RECORD") in mock_pipe.write_packet.call_args_list
+        mock_writer.close.assert_called()
+
+    def test_a_refused_capture_file_aborts_before_the_ports_are_opened(
+        self, fake_device
+    ):
+        """An existing file must not cost the user their radio configuration."""
+        mock_shell = MagicMock()
+        mock_pipe = MagicMock()
+        with patch(
+            "modules.core.bridge.ShellConnection", return_value=mock_shell
+        ), patch("modules.core.bridge.UnixPipe", return_value=mock_pipe), patch(
+            "platform.system", return_value="Linux"
+        ), patch(
+            "modules.core.bridge.PcapFileWriter", side_effect=FileExistsError("taken")
+        ):
+            self._run(fake_device, pcap_file="taken.pcap")
+
+        mock_shell.connect.assert_not_called()
+        mock_pipe.open.assert_not_called()
+
 
 class TestRunBridge:
     """Tests for run_bridge (TI sniffer)."""
@@ -1017,6 +1081,52 @@ class TestRunBridge:
             "modules.core.bridge.UnixPipe", return_value=mock_pipe
         ), patch("platform.system", return_value="Linux"):
             run_bridge(fake_device, channel=99, wireshark=False)
+
+    def test_packets_reach_the_capture_file_and_the_pipe(self, fake_device):
+        """Same wiring check as the LoRa bridge, on the TI side."""
+        from modules.core.bridge import run_bridge
+
+        streaming = object()  # stands in for the stubbed PacketCategory member
+        fake_packet = MagicMock(
+            category=streaming, pcap=b"TI-RECORD", payload=b"\x01\x02", rssi=210
+        )
+        mock_serial = MagicMock()
+        mock_serial.read_until.side_effect = [b"frame", KeyboardInterrupt()]
+        mock_pipe = MagicMock()
+        mock_writer = MagicMock()
+
+        with patch("modules.core.bridge.Catnip", return_value=mock_serial), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch("platform.system", return_value="Linux"), patch(
+            "modules.core.bridge.PcapFileWriter", return_value=mock_writer
+        ) as mock_writer_cls, patch(
+            "modules.core.bridge.sniffer"
+        ) as mock_sniffer, patch(
+            "modules.core.bridge.PacketCategory"
+        ) as mock_category:
+            mock_sniffer.Packet.return_value = fake_packet
+            mock_category.DATA_STREAMING_AND_ERROR.value = streaming
+            run_bridge(fake_device, channel=11, wireshark=False, pcap_file="ti.pcap")
+
+        mock_writer_cls.assert_called_once_with("ti.pcap", force=False)
+        mock_writer.write_record.assert_called_once_with(b"TI-RECORD")
+        assert call(b"TI-RECORD") in mock_pipe.write_packet.call_args_list
+        mock_writer.close.assert_called()
+
+    def test_a_refused_capture_file_aborts_before_the_port_is_opened(self, fake_device):
+        from modules.core.bridge import run_bridge
+
+        mock_serial = MagicMock()
+        mock_pipe = MagicMock()
+        with patch("modules.core.bridge.Catnip", return_value=mock_serial), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch("platform.system", return_value="Linux"), patch(
+            "modules.core.bridge.PcapFileWriter", side_effect=FileExistsError("taken")
+        ):
+            run_bridge(fake_device, channel=11, wireshark=False, pcap_file="taken.pcap")
+
+        mock_serial.connect.assert_not_called()
+        mock_pipe.open.assert_not_called()
 
 
 # ═════════════════════════════════════════════════════════════════════════════

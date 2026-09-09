@@ -23,6 +23,7 @@ from modules.core.cli import build_cli
 from modules.utils.cli_options import (
     ASCII_HELP,
     DEVICE_HELP,
+    PCAP_HELP,
     RAW_HELP,
     device_option,
 )
@@ -167,3 +168,100 @@ def test_capture_file_options_are_uniform(path, param):
         assert param.help != _CAPTURE_PARAMS[param.name], f"{path} override is stale"
     else:
         assert param.help == _CAPTURE_PARAMS[param.name], path
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PCAP capture-file options (``sniff zigbee|thread|lora``)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _commands_with_pcap_file():
+    for path, command in _walk(build_cli(), ["catnip"]):
+        for param in command.params:
+            if param.name == "pcap_file":
+                yield path, param
+
+
+@pytest.mark.unit
+def test_every_sniffer_that_logs_text_also_writes_pcap():
+    """``--raw``/``--ascii`` without ``-w`` means a protocol lost its capture file.
+
+    The text logs and the PCAP sink cover the same commands on purpose: one is
+    for eyeballing, the other is the reusable artefact.  A sniffer that grew
+    the first pair but not the second is the drift this catches.
+    """
+    with_text = {path for path, _ in _commands_with_capture_files()}
+    with_pcap = {path for path, _ in _commands_with_pcap_file()}
+    assert with_text, "no command declares the capture-file options"
+    assert with_text == with_pcap
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "path,param", sorted(_commands_with_pcap_file(), key=lambda pair: pair[0])
+)
+def test_pcap_file_option_is_uniform(path, param):
+    """Same flags, same type, same help in every sniffer."""
+    assert param.opts == ["--write", "-w"], path
+    assert isinstance(param.type, click.Path), path
+    assert param.default is None, path
+    assert param.help == PCAP_HELP, path
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "path,param", sorted(_commands_with_pcap_file(), key=lambda pair: pair[0])
+)
+def test_pcap_file_option_comes_with_force(path, param):
+    """``-w`` truncates, so the command has to offer a way to opt into that.
+
+    Without ``--force`` the refusal message (``pass --force to overwrite it``)
+    would name a flag that does not exist.
+    """
+    command = dict(_walk(build_cli(), ["catnip"]))[path]
+    force = next((p for p in command.params if p.name == "force"), None)
+    assert force is not None, f"{path} has --write but no --force"
+    assert force.opts == ["--force", "-f"], path
+    assert force.is_flag, path
+    assert force.default is False, path
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Choice defaults
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _choice_params():
+    for path, command in _walk(build_cli(), ["catnip"]):
+        for param in command.params:
+            if isinstance(param.type, click.Choice):
+                yield path, param
+
+
+@pytest.mark.unit
+def test_at_least_one_command_uses_a_choice_option():
+    """Guards the test below against silently iterating over nothing."""
+    assert len(list(_choice_params())) >= 5
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "path,param", sorted(_choice_params(), key=lambda pair: (pair[0], pair[1].name))
+)
+def test_choice_defaults_are_one_of_the_choices(path, param):
+    """A default outside its own ``Choice`` breaks the command on Click 8.0/8.1.
+
+    ``sniff lora`` shipped ``default=125`` against ``Choice(["125", ...])``.
+    Click <8.2 matches the default against the choices without stringifying it,
+    so the command failed with *"125 is not one of '125', '250', '500'"* unless
+    the user passed ``-bw`` explicitly — i.e. it was unusable at its own
+    defaults.  Click >=8.2 coerces first and hides it, which is exactly why
+    this needs a test rather than a passing manual run.  ``setup.py`` allows
+    ``click>=8.0.0``, so both behaviours are in scope.
+    """
+    if param.default is None:
+        return
+    assert param.default in param.type.choices, (
+        f"{path} {param.opts}: default {param.default!r} "
+        f"({type(param.default).__name__}) is not one of {param.type.choices}"
+    )

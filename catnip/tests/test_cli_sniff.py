@@ -109,3 +109,82 @@ class TestSniffLoRaOptions:
         result = run_catnip("sniff", "lora", "-sw", "zzz")
         assert result.returncode != 0
         assert "sync word" in (result.stdout + result.stderr).lower()
+
+
+@pytest.mark.slow
+class TestSniffLoRaDefaults:
+    """``sniff lora`` has to work with no flags at all.
+
+    Companion to ``test_choice_defaults_are_one_of_the_choices``: that one pins
+    the declaration, this one pins the value the bridge actually receives.
+    ``--bandwidth`` is declared as a ``Choice`` of strings but the radio wants
+    an int, so the conversion is easy to lose.
+    """
+
+    def _invoke(self, sniffer_sx, *args):
+        """Run ``sniff lora`` with the device and the bridge stubbed out.
+
+        ``normalize_syncword`` is re-patched from the ``sniffer_sx`` fixture:
+        ``modules.sniff.cli`` may have bound the ``protocol`` stub that
+        ``test_catsniffer.py`` installs (see the module docstring), and the
+        ``--sync-word`` callback unpacks that function's result.
+        """
+        from unittest.mock import patch
+
+        from click.testing import CliRunner
+
+        from modules.core.cli import build_cli
+
+        with patch(
+            "modules.sniff.cli.normalize_syncword", sniffer_sx.normalize_syncword
+        ), patch("modules.sniff.cli.run_sx_bridge") as bridge, patch(
+            "modules.sniff.cli.get_device_or_exit", return_value=MagicMock()
+        ):
+            result = CliRunner().invoke(build_cli(), ["sniff", "lora", *args])
+        return result, bridge
+
+    def test_runs_with_no_arguments(self, sniffer_sx):
+        result, bridge = self._invoke(sniffer_sx)
+        assert result.exit_code == 0, result.output
+        bridge.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "args,expected", [((), 125), (("-bw", "250"), 250), (("-bw", "500"), 500)]
+    )
+    def test_bandwidth_reaches_the_bridge_as_an_int(self, sniffer_sx, args, expected):
+        _, bridge = self._invoke(sniffer_sx, *args)
+        # run_sx_bridge(dev, frequency, bandwidth, ...) -- positional.
+        bandwidth = bridge.call_args.args[2]
+        assert bandwidth == expected
+        assert isinstance(bandwidth, int)
+
+
+@pytest.mark.slow
+class TestCaptureFileGuard:
+    """``-w`` refuses an existing file *before* the device is touched.
+
+    The bridge refuses too, but by then the sniffer has been flashed and the
+    port opened.  These run the real CLI with no hardware attached: reaching
+    the device-selection stage at all would show up as a different error.
+    """
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ("sniff", "lora"),
+            ("sniff", "zigbee", "-c", "15"),
+            ("sniff", "thread", "-c", "15"),
+        ],
+    )
+    def test_existing_capture_file_aborts(self, run_catnip, tmp_path, args):
+        target = tmp_path / "capture.pcap"
+        target.write_bytes(b"previous capture")
+
+        result = run_catnip(*args, "-w", str(target))
+        output = result.stdout + result.stderr
+
+        assert result.returncode != 0
+        assert "already exists" in output
+        assert "--force" in output
+        # Nothing was written over the top of the earlier capture.
+        assert target.read_bytes() == b"previous capture"
