@@ -56,3 +56,41 @@ def ascii_file_option(help: str = ASCII_HELP, **kwargs):
         help=help,
         **kwargs,
     )
+
+
+PCAP_HELP = (
+    "Write the capture to FILE for offline analysis (.pcap, or .pcapng if the "
+    "name ends in .pcapng). Works with or without --wireshark"
+)
+FORCE_HELP = "Overwrite the --write file if it already exists"
+
+
+def pcap_file_option(help: str = PCAP_HELP, **kwargs):
+    """``-w/--write``: save the capture as a PCAP/PCAPNG file.
+
+    The same records that go to the Wireshark pipe are written to disk, so the
+    capture survives the session and can be replayed with ``tshark``/Wireshark,
+    shared, or used as a regression fixture.  Unlike ``--raw``/``--ascii`` this
+    file is a real capture: it keeps per-packet timestamps and the link-layer
+    metadata (LoRaTap, TI radio header) that the text logs drop.
+    """
+    return click.option(
+        "--write",
+        "-w",
+        "pcap_file",
+        default=None,
+        type=_CAPTURE_FILE,
+        help=help,
+        **kwargs,
+    )
+
+
+def force_option(help: str = FORCE_HELP, **kwargs):
+    """``-f/--force``: allow ``--write`` to truncate an existing capture file.
+
+    ``--raw``/``--ascii`` append, so an existing file is harmless there.  A
+    PCAP file cannot be appended to safely (the second session would need the
+    same link type, and a PCAPNG section header would land mid-file), so it is
+    truncated instead — which means it has to be opt-in.
+    """
+    return click.option("--force", "-f", is_flag=True, help=help, **kwargs)

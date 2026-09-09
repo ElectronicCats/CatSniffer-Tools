@@ -1,3 +1,4 @@
+import os
 import time
 import threading
 import platform
@@ -15,7 +16,16 @@ from .catnip import (
 from .pipes import UnixPipe, WindowsPipe, Wireshark
 from protocol.sniffer_sx import SnifferSx, LORATAP_DLT
 from protocol.sniffer_ti import SnifferTI, PacketCategory
-from protocol.common import START_OF_FRAME, END_OF_FRAME, get_global_header
+from protocol.common import (
+    START_OF_FRAME,
+    END_OF_FRAME,
+    PCAP_MAX_PACKET_SIZE,
+    PCAP_PACKET_HEADER_FORMAT,
+    PCAP_PACKET_HEADER_LEN,
+    get_global_header,
+)
+
+from ..utils._version import __version__
 
 # External
 from ..utils.output import (
@@ -106,6 +116,182 @@ class PacketLogWriter:
                     fh.close()
                 except Exception:
                     pass
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PCAP / PCAPNG file capture (shared by all sniff bridges)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# PCAPNG block types and the byte-order magic, from the pcapng spec.
+_PCAPNG_SHB_TYPE = 0x0A0D0D0A
+_PCAPNG_IDB_TYPE = 0x00000001
+_PCAPNG_EPB_TYPE = 0x00000006
+_PCAPNG_BYTE_ORDER_MAGIC = 0x1A2B3C4D
+_PCAPNG_SECTION_LENGTH_UNKNOWN = -1
+
+# Option codes we emit: shb_userappl on the section header, if_tsresol on the
+# interface. if_tsresol=6 (microseconds) is the spec default, but stating it
+# explicitly keeps the file readable by tools that do not assume the default.
+_PCAPNG_OPT_ENDOFOPT = 0
+_PCAPNG_OPT_SHB_USERAPPL = 4
+_PCAPNG_OPT_IF_TSRESOL = 9
+
+
+def _pcapng_option(code: int, value: bytes) -> bytes:
+    """One pcapng option: code, length, value padded to a 4-byte boundary."""
+    padding = (-len(value)) % 4
+    return struct.pack("<HH", code, len(value)) + value + b"\x00" * padding
+
+
+def _pcapng_block(block_type: int, body: bytes) -> bytes:
+    """Wrap ``body`` in a pcapng block (total length is repeated at both ends).
+
+    ``body`` must already be padded to a 4-byte boundary; every caller here
+    builds it from fixed-size fields plus padded options or packet data.
+    """
+    total_length = len(body) + 12
+    return (
+        struct.pack("<II", block_type, total_length)
+        + body
+        + struct.pack("<I", total_length)
+    )
+
+
+class PcapFileWriter:
+    """Write the capture to a ``.pcap``/``.pcapng`` file, alongside the pipe.
+
+    The bridges already build a complete classic-PCAP record per packet (see
+    ``protocol.common.Pcap``) and hand it to the Wireshark named pipe, where it
+    is discarded when the session ends.  This sink takes the *same* records and
+    also puts them on disk, so a capture can be re-opened with Wireshark, run
+    through ``tshark``, shared, or kept as a regression fixture — and so the
+    tool is usable headless over SSH, with no Wireshark and no pipe reader.
+
+    The output format follows the file name: ``.pcapng`` produces a PCAPNG
+    section (SHB + IDB + one EPB per packet), anything else a classic PCAP
+    stream, byte-identical to what the pipe receives.  Records are flushed as
+    they arrive so the growing file can be tailed live.
+
+    ``path`` may be ``None``, in which case the writer is inert — the bridges
+    construct one unconditionally and let :attr:`enabled` decide.
+    """
+
+    def __init__(self, path: str = None, linktype: int = 147, force: bool = False):
+        self.path = path
+        self.linktype = linktype
+        self.packet_count = 0
+        self.fh = None
+        self.pcapng = bool(path) and path.lower().endswith(".pcapng")
+
+        if not path:
+            return
+
+        # Unlike the raw/ascii logs, a capture file is truncated rather than
+        # appended to: a second PCAP header (or PCAPNG section) landing in the
+        # middle of an existing file yields something no dissector will read
+        # past.  So an existing file blocks the capture unless --force is given.
+        #
+        # The message belongs to the caller (``sniff`` runs the same check up
+        # front, via refuse_overwrite, so it can abort before flashing the
+        # device); this raises quietly rather than warning a second time.
+        if os.path.exists(path) and not force:
+            raise FileExistsError(path)
+
+        self.fh = open(path, "wb")
+        self.fh.write(self._file_header())
+        self.fh.flush()
+        print_success(
+            f"Writing {'PCAPNG' if self.pcapng else 'PCAP'} capture to {path}"
+        )
+
+    @property
+    def enabled(self) -> bool:
+        return self.fh is not None
+
+    # ── Headers ──────────────────────────────────────────────────────────────
+
+    def _file_header(self) -> bytes:
+        if not self.pcapng:
+            return get_global_header(self.linktype)
+        return self._shb() + self._idb()
+
+    def _shb(self) -> bytes:
+        options = _pcapng_option(
+            _PCAPNG_OPT_SHB_USERAPPL, f"catnip {__version__}".encode("utf-8")
+        ) + _pcapng_option(_PCAPNG_OPT_ENDOFOPT, b"")
+        body = (
+            struct.pack("<IHH", _PCAPNG_BYTE_ORDER_MAGIC, 1, 0)
+            + struct.pack("<q", _PCAPNG_SECTION_LENGTH_UNKNOWN)
+            + options
+        )
+        return _pcapng_block(_PCAPNG_SHB_TYPE, body)
+
+    def _idb(self) -> bytes:
+        options = _pcapng_option(_PCAPNG_OPT_IF_TSRESOL, b"\x06") + _pcapng_option(
+            _PCAPNG_OPT_ENDOFOPT, b""
+        )
+        body = struct.pack("<HHI", self.linktype, 0, PCAP_MAX_PACKET_SIZE) + options
+        return _pcapng_block(_PCAPNG_IDB_TYPE, body)
+
+    @staticmethod
+    def _epb(timestamp_us: int, captured: bytes, original_length: int) -> bytes:
+        padding = (-len(captured)) % 4
+        body = (
+            struct.pack(
+                "<IIIII",
+                0,  # interface ID — the single interface from the IDB
+                (timestamp_us >> 32) & 0xFFFFFFFF,
+                timestamp_us & 0xFFFFFFFF,
+                len(captured),
+                original_length,
+            )
+            + captured
+            + b"\x00" * padding
+            + _pcapng_option(_PCAPNG_OPT_ENDOFOPT, b"")
+        )
+        return _pcapng_block(_PCAPNG_EPB_TYPE, body)
+
+    # ── Packets ──────────────────────────────────────────────────────────────
+
+    def write_record(self, record: bytes) -> None:
+        """Append one packet, given the classic-PCAP record the pipe receives.
+
+        For a ``.pcap`` file the bytes are written through untouched.  For a
+        ``.pcapng`` file the record header is unpacked and re-emitted as an
+        Enhanced Packet Block, so both formats carry the same timestamps.
+
+        Write errors are reported once and disable the sink rather than killing
+        the capture: a full disk should not cost the user the live session.
+        """
+        if not self.enabled:
+            return
+        try:
+            if self.pcapng:
+                (ts_sec, ts_usec, caplen, origlen) = struct.unpack_from(
+                    PCAP_PACKET_HEADER_FORMAT, record
+                )
+                payload = record[
+                    PCAP_PACKET_HEADER_LEN : PCAP_PACKET_HEADER_LEN + caplen
+                ]
+                self.fh.write(self._epb(ts_sec * 1_000_000 + ts_usec, payload, origlen))
+            else:
+                self.fh.write(record)
+            self.fh.flush()
+            self.packet_count += 1
+        except (OSError, struct.error) as exc:
+            print_warning(f"Capture file write failed ({exc}) — disabling {self.path}")
+            self.close(summary=False)
+
+    def close(self, summary: bool = True) -> None:
+        if self.fh is None:
+            return
+        try:
+            self.fh.close()
+        except Exception:
+            pass
+        self.fh = None
+        if summary:
+            print_success(f"Saved {self.packet_count} packet(s) to {self.path}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -205,6 +391,8 @@ def run_sx_bridge(
     iq: str = "normal",
     raw_file: str = None,
     ascii_file: str = None,
+    pcap_file: str = None,
+    force: bool = False,
 ):
     """
     Run the LoRa sniffer bridge for the unified RP2040 firmware.
@@ -237,6 +425,8 @@ def run_sx_bridge(
         iq:            "normal" or "inverted" (LoRaWAN downlinks use inverted).
         raw_file:      Path to append packets as raw hex, or None to disable.
         ascii_file:    Path to append packets as decoded ASCII, or None to disable.
+        pcap_file:     Path to write the capture as .pcap/.pcapng, or None to disable.
+        force:         Overwrite pcap_file when it already exists.
     """
 
     # ── 1. Validate ports ────────────────────────────────────────────────────
@@ -247,17 +437,26 @@ def run_sx_bridge(
         print_error("No lora_port on device — cannot receive LoRa stream")
         return
 
-    # ── 2. Set up PCAP pipe ───────────────────────────────────────────────────
+    # ── 2. Open the capture file first: a refused overwrite must abort before
+    #       the pipe, the ports and the RP2040 configuration are touched. ─────
+    try:
+        pcap_writer = PcapFileWriter(pcap_file, LORATAP_DLT, force)
+    except (FileExistsError, OSError) as exc:
+        print_error(f"Cannot write capture file: {exc}")
+        return
+
+    # ── 3. Set up PCAP pipe ───────────────────────────────────────────────────
     pipe = WindowsPipe() if platform.system() == "Windows" else UnixPipe()
     threading.Thread(target=pipe.open, daemon=True).start()
 
     if wireshark:
         Wireshark().start()
 
-    # ── 3. Open shell and configure ───────────────────────────────────────────
+    # ── 4. Open shell and configure ───────────────────────────────────────────
     shell = ShellConnection(port=device.shell_port)
     if not shell.connect():
         print_error(f"Cannot open shell port: {device.shell_port}")
+        pcap_writer.close(summary=False)
         pipe.remove()
         return
 
@@ -284,10 +483,11 @@ def run_sx_bridge(
     ):
         print_warning("Some config commands had no response — continuing")
 
-    # ── 4. Open Cat-LoRa data port ────────────────────────────────────────────
+    # ── 5. Open Cat-LoRa data port ────────────────────────────────────────────
     lora = LoRaConnection(port=device.lora_port)
     if not lora.connect():
         print_error(f"Cannot open LoRa port: {device.lora_port}")
+        pcap_writer.close(summary=False)
         shell.disconnect()
         pipe.remove()
         return
@@ -299,7 +499,7 @@ def run_sx_bridge(
     except Exception:
         pass
 
-    # ── 5. Switch to stream mode ──────────────────────────────────────────────
+    # ── 6. Switch to stream mode ──────────────────────────────────────────────
     print_info("Switching RP2040 to stream mode...")
     stream_resp = shell.send_command(snifferSxCmd.start_streaming(), timeout=2.0)
     if stream_resp and "STREAM" in stream_resp.upper():
@@ -307,7 +507,7 @@ def run_sx_bridge(
     else:
         print_warning(f"Unexpected stream response: {stream_resp!r} — continuing")
 
-    # ── 6. Keepalive thread ───────────────────────────────────────────────────
+    # ── 7. Keepalive thread ───────────────────────────────────────────────────
     # NOTE: Do NOT write bytes to CDC1 in stream mode — the RP2040 lora_thread
     # treats any data on rb_usb_to_sx1262 as payload to transmit, which calls
     # lora_stop_rx() and breaks reception for the duration of that TX.
@@ -321,16 +521,17 @@ def run_sx_bridge(
     ka_thread = threading.Thread(target=_keepalive, daemon=True)
     ka_thread.start()
 
-    # ── 7. Wait for Wireshark ─────────────────────────────────────────────────
+    # ── 8. Wait for Wireshark ─────────────────────────────────────────────────
     if wireshark:
         print_info(f"Waiting for Wireshark (timeout {_WIRESHARK_PIPE_TIMEOUT}s)...")
         if not pipe.ready_event.wait(timeout=_WIRESHARK_PIPE_TIMEOUT):
             print_error("Timed out waiting for Wireshark — aborting")
             _keepalive_stop.set()
+            pcap_writer.close(summary=False)
             _stop_lora_capture(shell, lora, pipe)
             return
 
-    # ── 8. Streaming loop ─────────────────────────────────────────────────────
+    # ── 9. Streaming loop ─────────────────────────────────────────────────────
     lora_context = {
         "frequency": frequency,
         "bandwidth": bandwidth,
@@ -393,6 +594,8 @@ def run_sx_bridge(
                     header_written = True
 
                 pipe.write_packet(packet.pcap)
+                # Same record, second destination: the file survives the session.
+                pcap_writer.write_record(packet.pcap)
                 packet_count += 1
 
                 # Persist only the relevant fields to the log file(s).
@@ -430,6 +633,7 @@ def run_sx_bridge(
     finally:
         _keepalive_stop.set()
         log_writer.close()
+        pcap_writer.close()
         _stop_lora_capture(shell, lora, pipe)
 
 
@@ -445,6 +649,8 @@ def run_bridge(
     profile: str = None,
     raw_file: str = None,
     ascii_file: str = None,
+    pcap_file: str = None,
+    force: bool = False,
 ):
     """Run TI sniffer bridge for Zigbee/Thread.
 
@@ -455,7 +661,17 @@ def run_bridge(
         profile:    Wireshark profile name.
         raw_file:   Path to append packets as raw hex, or None to disable.
         ascii_file: Path to append packets as decoded ASCII, or None to disable.
+        pcap_file:  Path to write the capture as .pcap/.pcapng, or None to disable.
+        force:      Overwrite pcap_file when it already exists.
     """
+    # Opened first so a refused overwrite aborts before the pipe, the serial
+    # port and the sniffer configuration are touched.
+    try:
+        pcap_writer = PcapFileWriter(pcap_file, force=force)
+    except (FileExistsError, OSError) as exc:
+        print_error(f"Cannot write capture file: {exc}")
+        return
+
     pipe = WindowsPipe() if platform.system() == "Windows" else UnixPipe()
     opening_worker = threading.Thread(target=pipe.open, daemon=True)
 
@@ -487,53 +703,63 @@ def run_bridge(
     header_flag = False
     packet_count = 0
 
-    while True:
-        try:
-            # Check if connection is still alive before reading
-            if not serial_worker.connection or not serial_worker.connection.is_open:
-                print_warning("Serial port closed — device disconnected")
-                break
-
+    # Both sinks are closed on every exit path — Ctrl+C, a closed port or a
+    # serial error — so the capture file is never left open behind a break.
+    try:
+        while True:
             try:
-                data = serial_worker.read_until((END_OF_FRAME + START_OF_FRAME))
-            except serial.SerialException as exc:
-                print_warning(f"Serial error (device disconnected?): {exc}")
+                # Check if connection is still alive before reading
+                if not serial_worker.connection or not serial_worker.connection.is_open:
+                    print_warning("Serial port closed — device disconnected")
+                    break
+
+                try:
+                    data = serial_worker.read_until((END_OF_FRAME + START_OF_FRAME))
+                except serial.SerialException as exc:
+                    print_warning(f"Serial error (device disconnected?): {exc}")
+                    break
+
+                if data:
+                    ti_packet = sniffer.Packet((START_OF_FRAME + data), channel)
+                    if (
+                        ti_packet.category
+                        == PacketCategory.DATA_STREAMING_AND_ERROR.value
+                    ):
+                        if not header_flag:
+                            header_flag = True
+                            pipe.write_packet(get_global_header())
+                        pipe.write_packet(ti_packet.pcap)
+                        # Same record, second destination: the file survives the session.
+                        pcap_writer.write_record(ti_packet.pcap)
+                        packet_count += 1
+
+                        # 802.15.4 (Zigbee/Thread) carries RSSI but no SNR; the TI
+                        # firmware reports RSSI as a signed 8-bit dBm value.
+                        rssi = ti_packet.rssi
+                        rssi = rssi - 256 if rssi > 127 else rssi
+
+                        # Persist only the relevant fields to the log file(s).
+                        log_writer.write(ti_packet.payload, meta=f"RSSI: {rssi}")
+
+                        # Terminal output: hex only (no ASCII), unlike LoRa.
+                        if show_output:
+                            console.print(
+                                f"[green]  [{packet_count:>5}][/green] "
+                                f"len={len(ti_packet.payload):>4}B  "
+                                f"RSSI={rssi:>4} dBm\n"
+                                f"         hex={ti_packet.payload.hex()}"
+                            )
+                time.sleep(0.1)
+            except KeyboardInterrupt:
+                print_info(f"Stopping TI capture — {packet_count} packet(s)")
+                pipe.remove()
+                opening_worker.join(timeout=1)
+                serial_worker.write(snifferTICmd.stop())
+                serial_worker.disconnect()
                 break
-
-            if data:
-                ti_packet = sniffer.Packet((START_OF_FRAME + data), channel)
-                if ti_packet.category == PacketCategory.DATA_STREAMING_AND_ERROR.value:
-                    if not header_flag:
-                        header_flag = True
-                        pipe.write_packet(get_global_header())
-                    pipe.write_packet(ti_packet.pcap)
-                    packet_count += 1
-
-                    # 802.15.4 (Zigbee/Thread) carries RSSI but no SNR; the TI
-                    # firmware reports RSSI as a signed 8-bit dBm value.
-                    rssi = ti_packet.rssi
-                    rssi = rssi - 256 if rssi > 127 else rssi
-
-                    # Persist only the relevant fields to the log file(s).
-                    log_writer.write(ti_packet.payload, meta=f"RSSI: {rssi}")
-
-                    # Terminal output: hex only (no ASCII), unlike LoRa.
-                    if show_output:
-                        console.print(
-                            f"[green]  [{packet_count:>5}][/green] "
-                            f"len={len(ti_packet.payload):>4}B  "
-                            f"RSSI={rssi:>4} dBm\n"
-                            f"         hex={ti_packet.payload.hex()}"
-                        )
-            time.sleep(0.1)
-        except KeyboardInterrupt:
-            print_info(f"Stopping TI capture — {packet_count} packet(s)")
-            log_writer.close()
-            pipe.remove()
-            opening_worker.join(timeout=1)
-            serial_worker.write(snifferTICmd.stop())
-            serial_worker.disconnect()
-            break
+    finally:
+        log_writer.close()
+        pcap_writer.close()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -550,9 +776,22 @@ def run_sx_bridge_legacy(
     sync_word,
     preamble_length,
     wireshark: bool = False,
+    pcap_file: str = None,
+    force: bool = False,
 ):
-    """Legacy bridge — deprecated. Use run_sx_bridge(CatSnifferDevice, ...)."""
+    """Legacy bridge — deprecated. Use run_sx_bridge(CatSnifferDevice, ...).
+
+    ``pcap_file``/``force`` mirror :func:`run_sx_bridge` so a capture taken
+    through the legacy path is still saved to disk rather than lost with the
+    pipe.
+    """
     print_warning("Warning: legacy bridge mode (deprecated)")
+
+    try:
+        pcap_writer = PcapFileWriter(pcap_file, LORATAP_DLT, force)
+    except (FileExistsError, OSError) as exc:
+        print_error(f"Cannot write capture file: {exc}")
+        return
 
     pipe = WindowsPipe() if platform.system() == "Windows" else UnixPipe()
     threading.Thread(target=pipe.open, daemon=True).start()
@@ -574,35 +813,40 @@ def run_sx_bridge_legacy(
 
     header_flag = False
 
-    while True:
-        try:
-            # Check if connection is still alive before reading
-            if not serial_worker.connection or not serial_worker.connection.is_open:
-                print_warning("Serial port closed — device disconnected")
-                break
-
+    try:
+        while True:
             try:
-                data = serial_worker.readline()
-            except serial.SerialException as exc:
-                print_warning(f"Serial error (device disconnected?): {exc}")
-                break
+                # Check if connection is still alive before reading
+                if not serial_worker.connection or not serial_worker.connection.is_open:
+                    print_warning("Serial port closed — device disconnected")
+                    break
 
-            if data and data.startswith(START_OF_FRAME):
-                packet = snifferSx.Packet(
-                    (START_OF_FRAME + data),
-                    context={
-                        "frequency": frequency,
-                        "bandwidth": bandwidth,
-                        "spread_factor": spread_factor,
-                        "coding_rate": coding_rate,
-                        "sync_word": sync_word,
-                    },
-                )
-                if not header_flag:
-                    header_flag = True
-                    pipe.write_packet(get_global_header(LORATAP_DLT))
-                pipe.write_packet(packet.pcap)
-            time.sleep(0.5)
-        except KeyboardInterrupt:
-            serial_worker.disconnect()
-            break
+                try:
+                    data = serial_worker.readline()
+                except serial.SerialException as exc:
+                    print_warning(f"Serial error (device disconnected?): {exc}")
+                    break
+
+                if data and data.startswith(START_OF_FRAME):
+                    packet = snifferSx.Packet(
+                        (START_OF_FRAME + data),
+                        context={
+                            "frequency": frequency,
+                            "bandwidth": bandwidth,
+                            "spread_factor": spread_factor,
+                            "coding_rate": coding_rate,
+                            "sync_word": sync_word,
+                        },
+                    )
+                    if not header_flag:
+                        header_flag = True
+                        pipe.write_packet(get_global_header(LORATAP_DLT))
+                    pipe.write_packet(packet.pcap)
+                    # Same record, second destination: the file survives the session.
+                    pcap_writer.write_record(packet.pcap)
+                time.sleep(0.5)
+            except KeyboardInterrupt:
+                serial_worker.disconnect()
+                break
+    finally:
+        pcap_writer.close()

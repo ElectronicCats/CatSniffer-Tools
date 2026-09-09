@@ -19,7 +19,13 @@ from protocol.sniffer_sx import normalize_syncword
 import click
 import serial
 
-from ..utils.cli_options import ascii_file_option, device_option, raw_file_option
+from ..utils.cli_options import (
+    ascii_file_option,
+    device_option,
+    force_option,
+    pcap_file_option,
+    raw_file_option,
+)
 from ..utils.output import (
     console,
     print_success,
@@ -27,9 +33,20 @@ from ..utils.output import (
     print_info,
     print_dim,
     print_warning,
+    refuse_overwrite,
 )
 
 logger = logging.getLogger("rich")
+
+
+def _capture_file_is_writable(pcap_file: str, force: bool) -> bool:
+    """Check ``-w`` before the capture starts, not once it is under way.
+
+    The bridge refuses to clobber an existing capture file anyway, but by then
+    the device has been flashed, the port opened and the radio configured — so
+    the same check runs here first and the command exits having done nothing.
+    """
+    return refuse_overwrite(pcap_file, force=force, mode="block")
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
@@ -108,7 +125,9 @@ def sniff_ble(device, wireshark, channel, mode):
 @device_option()
 @raw_file_option()
 @ascii_file_option()
-def sniff_zigbee(ws, channel, device, raw_file, ascii_file):
+@pcap_file_option()
+@force_option()
+def sniff_zigbee(ws, channel, device, raw_file, ascii_file, pcap_file, force):
     """Sniffing Zigbee with Sniffer TI firmware.
 
     \b
@@ -116,7 +135,11 @@ def sniff_zigbee(ws, channel, device, raw_file, ascii_file):
         catnip sniff zigbee -c 15
         catnip sniff zigbee -c 15 -ws              # open Wireshark
         catnip sniff zigbee -c 15 -r capture.raw   # save raw log to file
+        catnip sniff zigbee -c 15 -w capture.pcap  # save a capture for tshark
     """
+    if not _capture_file_is_writable(pcap_file, force):
+        raise SystemExit(1)
+
     with device_session(
         device,
         required_firmware="ti_sniffer",
@@ -129,6 +152,8 @@ def sniff_zigbee(ws, channel, device, raw_file, ascii_file):
             print_dim(f"Raw log:          {raw_file}")
         if ascii_file:
             print_dim(f"ASCII log:        {ascii_file}")
+        if pcap_file:
+            print_dim(f"Capture file:     {pcap_file}")
         run_bridge(
             dev,
             channel,
@@ -136,6 +161,8 @@ def sniff_zigbee(ws, channel, device, raw_file, ascii_file):
             profile="Zigbee",
             raw_file=raw_file,
             ascii_file=ascii_file,
+            pcap_file=pcap_file,
+            force=force,
         )
 
 
@@ -147,14 +174,20 @@ def sniff_zigbee(ws, channel, device, raw_file, ascii_file):
 @device_option()
 @raw_file_option()
 @ascii_file_option()
-def sniff_thread(ws, channel, device, raw_file, ascii_file):
+@pcap_file_option()
+@force_option()
+def sniff_thread(ws, channel, device, raw_file, ascii_file, pcap_file, force):
     """Sniffing Thread with Sniffer TI firmware.
 
     \b
     Examples:
         catnip sniff thread -c 15
         catnip sniff thread -c 15 -ws              # open Wireshark
+        catnip sniff thread -c 15 -w capture.pcap  # save a capture for tshark
     """
+    if not _capture_file_is_writable(pcap_file, force):
+        raise SystemExit(1)
+
     with device_session(
         device,
         required_firmware="ti_sniffer",
@@ -167,6 +200,8 @@ def sniff_thread(ws, channel, device, raw_file, ascii_file):
             print_dim(f"Raw log:          {raw_file}")
         if ascii_file:
             print_dim(f"ASCII log:        {ascii_file}")
+        if pcap_file:
+            print_dim(f"Capture file:     {pcap_file}")
         run_bridge(
             dev,
             channel,
@@ -174,6 +209,8 @@ def sniff_thread(ws, channel, device, raw_file, ascii_file):
             profile="Thread",
             raw_file=raw_file,
             ascii_file=ascii_file,
+            pcap_file=pcap_file,
+            force=force,
         )
 
 
@@ -199,7 +236,12 @@ def _validate_sync_word(ctx, param, value):
 @click.option(
     "--bandwidth",
     "-bw",
-    default=125,
+    # The default has to be one of the *strings* in the Choice: Click 8.0/8.1
+    # match the default against the choices without coercing it, so an int 125
+    # made `sniff lora` unusable without an explicit -bw ("125 is not one of
+    # '125', '250', '500'").  Click >=8.2 stringifies first and hid the bug.
+    # `bw_int` below converts it back for the bridge.
+    default="125",
     type=click.Choice(["125", "250", "500"]),
     help="Bandwidth in kHz",
 )
@@ -254,6 +296,8 @@ def _validate_sync_word(ctx, param, value):
 @ascii_file_option(
     help="Save captured packets as decoded ASCII to FILE (RX: <ascii> | RSSI: <rssi> | SNR: <snr>)"
 )
+@pcap_file_option()
+@force_option()
 def sniff_lora(
     ws,
     verbose,
@@ -268,6 +312,8 @@ def sniff_lora(
     iq,
     raw_file,
     ascii_file,
+    pcap_file,
+    force,
 ):
     """Sniffing LoRa with Sniffer SX1262 firmware.
 
@@ -278,7 +324,11 @@ def sniff_lora(
         catnip sniff lora -ws                      # open Wireshark
         catnip sniff lora -sw 0x2B -pre 16         # Meshtastic sync word
         catnip sniff lora -sw public --iq inverted # LoRaWAN downlinks
+        catnip sniff lora -w capture.pcapng        # save a capture for tshark
     """
+    if not _capture_file_is_writable(pcap_file, force):
+        raise SystemExit(1)
+
     dev = get_device_or_exit(device)
 
     # Convert bandwidth from string to int
@@ -297,6 +347,8 @@ def sniff_lora(
         print_dim(f"Raw log:          {raw_file}")
     if ascii_file:
         print_dim(f"ASCII log:        {ascii_file}")
+    if pcap_file:
+        print_dim(f"Capture file:     {pcap_file}")
 
     run_sx_bridge(
         dev,
@@ -312,6 +364,8 @@ def sniff_lora(
         iq,
         raw_file,
         ascii_file,
+        pcap_file,
+        force,
     )
 
 

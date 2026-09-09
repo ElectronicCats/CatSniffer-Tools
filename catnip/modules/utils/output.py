@@ -291,18 +291,23 @@ def refuse_overwrite(path: str, force: bool = False, mode: str = "warn") -> bool
       capturing" use case — but tells the user their new capture will be
       appended to, rather than silently mixing sessions with no visible
       trace. Returns True always.
-    - ``mode="block"`` (for a future export that truncates, e.g. CSV/JSON):
-      returns False when ``path`` exists and ``force`` is not set, so the
-      caller can refuse to proceed unless the user passes ``--force``.
+    - ``mode="block"`` (``sniff --write``, and any future export that
+      truncates): returns False when ``path`` exists and ``force`` is not set,
+      so the caller can refuse to proceed unless the user passes ``--force``.
+      With ``force`` it says the file is being overwritten, not appended to.
 
     Returns True when it is safe to proceed (open/write), False when the
     caller should abort.
     """
     if not path or not os.path.exists(path):
         return True
-    if mode == "block" and not force:
-        print_warning(f"{path} already exists — pass --force to overwrite it")
-        return False
+    if mode == "block":
+        if not force:
+            print_warning(f"{path} already exists — pass --force to overwrite it")
+            return False
+        # ``--force`` was given: say what actually happens to the old file.
+        print_warning(f"{path} already exists — overwriting it")
+        return True
     print_warning(f"{path} already exists — new data will be appended to it")
     return True
 
