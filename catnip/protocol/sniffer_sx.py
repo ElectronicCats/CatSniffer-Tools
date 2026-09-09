@@ -16,6 +16,43 @@ _LORATAP_BANDWIDTH = {125: 1, 250: 2, 500: 4}
 _LORATAP_SYNCWORD = {"private": 0x12, "public": 0x34}
 
 
+def normalize_syncword(syncword) -> tuple:
+    """
+    Validate a sync word and return ``(firmware_arg, loratap_byte)``.
+
+    Accepts the two aliases the firmware knows (``private`` → 0x12,
+    ``public`` → 0x34) or an arbitrary byte written as ``0xNN``/``NN``
+    (e.g. 0x2B for Meshtastic).  The firmware parser at
+    ``cmd_lora_syncword`` only recognises the ``0x`` prefix, so bare hex is
+    normalised before being sent.
+
+    Raises ValueError on anything else, including ``0x00``: the firmware
+    uses ``lora_sync_word == 0`` as the sentinel for "derive from
+    public_network", so it cannot express a literal zero sync word.
+    """
+    value = str(syncword).strip().lower()
+
+    if value in _LORATAP_SYNCWORD:
+        return value, _LORATAP_SYNCWORD[value]
+
+    try:
+        byte = int(value, 16)
+    except ValueError:
+        raise ValueError(
+            f"Invalid sync word {syncword!r}: use 'private', 'public' or a hex byte like 0x2B"
+        )
+
+    if not 0 <= byte <= 0xFF:
+        raise ValueError(f"Sync word 0x{byte:X} out of range: must fit in one byte")
+    if byte == 0:
+        raise ValueError(
+            "Sync word 0x00 is not selectable: the firmware reads 0 as "
+            "'use private/public' — pass 'private' or 'public' instead"
+        )
+
+    return f"0x{byte:02X}", byte
+
+
 class LoRaShellCommands:
     """Shell commands for LoRa configuration via Cat-Shell port."""
 
@@ -45,9 +82,24 @@ class LoRaShellCommands:
 
     @staticmethod
     def set_syncword(syncword: str) -> str:
-        if syncword in ["private", "public"]:
-            return f"lora_syncword {syncword}"
-        return f"lora_syncword {syncword}"
+        """``private``, ``public`` or an arbitrary byte (``0xNN``)."""
+        arg, _ = normalize_syncword(syncword)
+        return f"lora_syncword {arg}"
+
+    @staticmethod
+    def set_preamble(symbols: int) -> str:
+        symbols = int(symbols)
+        if not 6 <= symbols <= 65535:
+            raise ValueError(f"Preamble length {symbols} out of range (6-65535)")
+        return f"lora_preamble {symbols}"
+
+    @staticmethod
+    def set_iq(iq: str) -> str:
+        """``normal`` or ``inverted`` (LoRaWAN downlinks use inverted IQ)."""
+        value = str(iq).strip().lower()
+        if value not in ("normal", "inverted"):
+            raise ValueError(f"Invalid IQ {iq!r}: must be 'normal' or 'inverted'")
+        return f"lora_iq {value}"
 
     @staticmethod
     def set_mode(mode: str) -> str:
@@ -206,9 +258,12 @@ class SnifferSx:
             up in the packet details pane instead of raw undissected bytes.
             """
             bandwidth_enum = _LORATAP_BANDWIDTH.get(self.context["bandwidth"], 1)
-            sync_word = _LORATAP_SYNCWORD.get(
-                self.context.get("sync_word", "private"), 0x12
-            )
+            try:
+                _, sync_word = normalize_syncword(
+                    self.context.get("sync_word", "private")
+                )
+            except ValueError:
+                sync_word = _LORATAP_SYNCWORD["private"]
 
             # loratap.rssi.* are stored as (dBm + 139), clamped to a byte
             rssi_byte = max(0, min(255, round(self.rssi) + 139))
