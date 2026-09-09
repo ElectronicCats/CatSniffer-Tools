@@ -888,14 +888,14 @@ class TestConfigureLora:
         shell.send_command.return_value = "OK response"
         result = _configure_lora(shell, 915_000_000, 125, 7, 5, 20)
         assert result is True
-        assert shell.send_command.call_count == 7  # 6 params + apply
+        assert shell.send_command.call_count == 9  # 8 params + apply
 
     def test_one_command_no_response(self):
         from modules.core.bridge import _configure_lora
 
         shell = MagicMock()
         # First command returns None, the others "OK"
-        shell.send_command.side_effect = [None, "OK", "OK", "OK", "OK", "OK", "OK"]
+        shell.send_command.side_effect = [None] + ["OK"] * 8
         result = _configure_lora(shell, 915_000_000, 125, 7, 5, 20)
         assert result is False
 
