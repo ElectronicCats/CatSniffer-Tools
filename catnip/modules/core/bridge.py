@@ -121,6 +121,8 @@ def _configure_lora(
     coding_rate: int,
     tx_power: int,
     sync_word: str = "private",
+    preamble: int = 12,
+    iq: str = "normal",
 ) -> bool:
     """
     Send all LoRa configuration commands via Cat-Shell and apply them.
@@ -134,6 +136,8 @@ def _configure_lora(
         ("coding rate", snifferSxCmd.set_cr(coding_rate)),
         ("TX power", snifferSxCmd.set_power(tx_power)),
         ("sync word", snifferSxCmd.set_syncword(sync_word)),
+        ("preamble", snifferSxCmd.set_preamble(preamble)),
+        ("IQ", snifferSxCmd.set_iq(iq)),
         ("apply", snifferSxCmd.apply_config()),
     ]
 
@@ -197,6 +201,8 @@ def run_sx_bridge(
     wireshark: bool = False,
     verbose: bool = False,
     sync_word: str = "private",
+    preamble: int = 12,
+    iq: str = "normal",
     raw_file: str = None,
     ascii_file: str = None,
 ):
@@ -226,6 +232,9 @@ def run_sx_bridge(
         tx_power:      dBm.
         wireshark:     Launch Wireshark when True.
         verbose:       Show packet output in terminal when True.
+        sync_word:     "private", "public" or a raw byte such as "0x2B".
+        preamble:      Preamble length in symbols (6-65535).
+        iq:            "normal" or "inverted" (LoRaWAN downlinks use inverted).
         raw_file:      Path to append packets as raw hex, or None to disable.
         ascii_file:    Path to append packets as decoded ASCII, or None to disable.
     """
@@ -258,9 +267,20 @@ def run_sx_bridge(
     print_dim(f"Spreading Factor: SF{spread_factor}")
     print_dim(f"Coding Rate:      4/{coding_rate}")
     print_dim(f"TX Power:         {tx_power} dBm")
+    print_dim(f"Sync Word:        {sync_word}")
+    print_dim(f"Preamble:         {preamble} symbols")
+    print_dim(f"IQ:               {iq}")
 
     if not _configure_lora(
-        shell, frequency, bandwidth, spread_factor, coding_rate, tx_power, sync_word
+        shell,
+        frequency,
+        bandwidth,
+        spread_factor,
+        coding_rate,
+        tx_power,
+        sync_word,
+        preamble,
+        iq,
     ):
         print_warning("Some config commands had no response — continuing")
 
@@ -317,6 +337,8 @@ def run_sx_bridge(
         "spread_factor": spread_factor,
         "coding_rate": coding_rate,
         "sync_word": sync_word,
+        "preamble": preamble,
+        "iq": iq,
     }
 
     # Determine if we should show verbose output

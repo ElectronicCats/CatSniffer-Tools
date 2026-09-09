@@ -13,6 +13,7 @@ from ..core.device_utils import get_device_or_exit
 from ..core.extcap import find_putty_path, run_extcap_directly
 from ..core.usb_connection import open_serial_port
 from ..firmware.flasher import Flasher
+from protocol.sniffer_sx import normalize_syncword
 
 # External
 import click
@@ -176,6 +177,15 @@ def sniff_thread(ws, channel, device, raw_file, ascii_file):
         )
 
 
+def _validate_sync_word(ctx, param, value):
+    """Accept the firmware's own sync word spec: private|public|0xNN."""
+    try:
+        arg, _ = normalize_syncword(value)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc))
+    return arg
+
+
 @sniff.command(SniffingFirmware.LORA.name.lower())
 @click.option("-ws", is_flag=True, help="Open Wireshark")
 @click.option("-v", "--verbose", is_flag=True, help="Show verbose output in terminal")
@@ -219,8 +229,24 @@ def sniff_thread(ws, channel, device, raw_file, ascii_file):
     "--sync-word",
     "-sw",
     default="private",
-    type=click.Choice(["public", "private"]),
-    help="LoRa sync word: 'public' (0x34, LoRaWAN) or 'private' (0x12). Default: private.",
+    callback=_validate_sync_word,
+    help=(
+        "LoRa sync word: 'public' (0x34, LoRaWAN), 'private' (0x12) or any raw "
+        "byte as 0xNN (e.g. 0x2B for Meshtastic). Default: private."
+    ),
+)
+@click.option(
+    "--preamble",
+    "-pre",
+    default=12,
+    type=click.IntRange(6, 65535),
+    help="Preamble length in symbols (6-65535). Default: 12.",
+)
+@click.option(
+    "--iq",
+    default="normal",
+    type=click.Choice(["normal", "inverted"]),
+    help="IQ polarity. LoRaWAN downlinks need 'inverted'. Default: normal.",
 )
 @raw_file_option(
     help="Save captured packets as raw hex to FILE (RX: <hex> | RSSI: <rssi> | SNR: <snr>)"
@@ -238,6 +264,8 @@ def sniff_lora(
     tx_power,
     device,
     sync_word,
+    preamble,
+    iq,
     raw_file,
     ascii_file,
 ):
@@ -248,6 +276,8 @@ def sniff_lora(
         catnip sniff lora                          # defaults: 915MHz, SF7, BW125
         catnip sniff lora -freq 868000000 -sf 9
         catnip sniff lora -ws                      # open Wireshark
+        catnip sniff lora -sw 0x2B -pre 16         # Meshtastic sync word
+        catnip sniff lora -sw public --iq inverted # LoRaWAN downlinks
     """
     dev = get_device_or_exit(device)
 
@@ -261,6 +291,8 @@ def sniff_lora(
     print_dim(f"Coding Rate:      4/{coding_rate}")
     print_dim(f"TX Power:         {tx_power} dBm")
     print_dim(f"Sync Word:        {sync_word}")
+    print_dim(f"Preamble:         {preamble} symbols")
+    print_dim(f"IQ:               {iq}")
     if raw_file:
         print_dim(f"Raw log:          {raw_file}")
     if ascii_file:
@@ -276,6 +308,8 @@ def sniff_lora(
         ws,
         verbose,
         sync_word,
+        preamble,
+        iq,
         raw_file,
         ascii_file,
     )
