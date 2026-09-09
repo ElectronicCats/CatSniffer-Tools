@@ -427,6 +427,12 @@ def run_sx_bridge(
         ascii_file:    Path to append packets as decoded ASCII, or None to disable.
         pcap_file:     Path to write the capture as .pcap/.pcapng, or None to disable.
         force:         Overwrite pcap_file when it already exists.
+
+    Returns:
+        The number of packets captured, or None when the bridge could not be
+        started (bad ports, unwritable capture file, no Wireshark on the pipe).
+        ``sniff lora`` uses it to decide whether there is a capture worth
+        opening in Wireshark once the session ends.
     """
 
     # ── 1. Validate ports ────────────────────────────────────────────────────
@@ -635,6 +641,8 @@ def run_sx_bridge(
         log_writer.close()
         pcap_writer.close()
         _stop_lora_capture(shell, lora, pipe)
+
+    return packet_count
 
 
 # ──────────────────────────────────────────────────────────────────────────────

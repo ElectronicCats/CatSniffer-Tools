@@ -1,16 +1,26 @@
 """``catnip sniff`` - sniffing commands (BLE, Zigbee, Thread, LoRa, AirTag)."""
 
 import logging
+import os
 import platform
 import re
 import subprocess
+import sys
+import tempfile
+import time
 
 # Internal
 from ..core.bridge import run_bridge, run_sx_bridge
 from ..core.catnip import SniffingBaseFirmware, SniffingFirmware
 from ..core.device_session import device_session
 from ..core.device_utils import get_device_or_exit
-from ..core.extcap import find_putty_path, run_extcap_directly
+from ..core.extcap import (
+    find_putty_path,
+    find_wireshark_path,
+    open_capture_in_wireshark,
+    print_wireshark_install_hint,
+    run_extcap_directly,
+)
 from ..core.usb_connection import open_serial_port
 from ..firmware.flasher import Flasher
 from protocol.sniffer_sx import normalize_syncword
@@ -47,6 +57,61 @@ def _capture_file_is_writable(pcap_file: str, force: bool) -> bool:
     the same check runs here first and the command exits having done nothing.
     """
     return refuse_overwrite(pcap_file, force=force, mode="block")
+
+
+def _require_wireshark() -> bool:
+    """Report a missing Wireshark before the capture starts, not after.
+
+    Same reasoning as :func:`_capture_file_is_writable`: the live path only
+    finds out that Wireshark never opened the pipe once the radio is
+    configured, and then it just times out.  Checked up front, the command
+    exits immediately with something the user can act on.
+    """
+    if find_wireshark_path():
+        return True
+
+    print_error("Wireshark not found on this system")
+    print_wireshark_install_hint()
+    print_info("Or capture now and analyse the file later:")
+    print_dim("  catnip sniff lora -w capture.pcapng")
+    return False
+
+
+def _offer_wireshark_after_capture(
+    pcap_file: str,
+    packet_count: int,
+    always_open: bool,
+    live_wireshark: bool,
+) -> None:
+    """Open the saved capture in Wireshark once the sniffer has stopped.
+
+    ``--open-capture`` opens it without asking; otherwise the user is offered
+    the choice, so that a plain ``catnip sniff lora -w capture.pcapng`` ends one
+    keystroke away from Wireshark.  The prompt is skipped when Wireshark was
+    already following the capture live (``-ws``), when nothing was captured, and
+    when there is no terminal to answer on (scripts, pipes, CI).
+    """
+    if not pcap_file or not os.path.isfile(pcap_file):
+        return
+    if not packet_count:
+        # Nothing was captured, or the bridge bailed out before streaming.
+        return
+
+    if not always_open:
+        if live_wireshark or not sys.stdin.isatty():
+            return
+        if not find_wireshark_path():
+            print_dim(f"Analyse the capture later with: wireshark -r {pcap_file}")
+            return
+        try:
+            if not click.confirm(f"Open {pcap_file} in Wireshark now?", default=True):
+                print_dim(f"Analyse it later with: wireshark -r {pcap_file}")
+                return
+        except (click.Abort, EOFError, KeyboardInterrupt):
+            # A second Ctrl+C at the prompt means "just quit".
+            return
+
+    open_capture_in_wireshark(pcap_file)
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
@@ -224,7 +289,23 @@ def _validate_sync_word(ctx, param, value):
 
 
 @sniff.command(SniffingFirmware.LORA.name.lower())
-@click.option("-ws", is_flag=True, help="Open Wireshark")
+@click.option(
+    "--wireshark",
+    "-ws",
+    "ws",
+    is_flag=True,
+    help="Open Wireshark live while the capture runs (LoRaTap over a local pipe)",
+)
+@click.option(
+    "--open-capture",
+    "-oc",
+    "open_capture",
+    is_flag=True,
+    help=(
+        "Open the capture in Wireshark when the sniffer stops. Without --write "
+        "the packets are saved to a temporary .pcapng file first"
+    ),
+)
 @click.option("-v", "--verbose", is_flag=True, help="Show verbose output in terminal")
 @click.option(
     "--frequency",
@@ -300,6 +381,7 @@ def _validate_sync_word(ctx, param, value):
 @force_option()
 def sniff_lora(
     ws,
+    open_capture,
     verbose,
     frequency,
     bandwidth,
@@ -321,13 +403,30 @@ def sniff_lora(
     Examples:
         catnip sniff lora                          # defaults: 915MHz, SF7, BW125
         catnip sniff lora -freq 868000000 -sf 9
-        catnip sniff lora -ws                      # open Wireshark
+        catnip sniff lora -ws                      # live Wireshark while sniffing
+        catnip sniff lora -oc                      # sniff, then open Wireshark
+        catnip sniff lora -w capture.pcapng        # save it, offer to open it
         catnip sniff lora -sw 0x2B -pre 16         # Meshtastic sync word
         catnip sniff lora -sw public --iq inverted # LoRaWAN downlinks
-        catnip sniff lora -w capture.pcapng        # save a capture for tshark
     """
     if not _capture_file_is_writable(pcap_file, force):
         raise SystemExit(1)
+
+    # Both Wireshark paths need the binary; refuse now rather than after the
+    # radio has been configured and the user has spent a capture session.
+    if (ws or open_capture) and not _require_wireshark():
+        raise SystemExit(1)
+
+    # --open-capture has to have something to open: without --write the capture
+    # would only ever exist in the pipe.
+    if open_capture and not pcap_file:
+        pcap_file = os.path.join(
+            tempfile.gettempdir(),
+            # The PID keeps two sniffers started in the same second apart —
+            # a name collision would abort the capture on the overwrite guard.
+            f"catnip_lora_{time.strftime('%Y%m%d_%H%M%S')}_{os.getpid()}.pcapng",
+        )
+        print_info(f"No --write given — saving the capture to {pcap_file}")
 
     dev = get_device_or_exit(device)
 
@@ -350,7 +449,7 @@ def sniff_lora(
     if pcap_file:
         print_dim(f"Capture file:     {pcap_file}")
 
-    run_sx_bridge(
+    packet_count = run_sx_bridge(
         dev,
         frequency,
         bw_int,
@@ -366,6 +465,10 @@ def sniff_lora(
         ascii_file,
         pcap_file,
         force,
+    )
+
+    _offer_wireshark_after_capture(
+        pcap_file, packet_count, open_capture, live_wireshark=ws
     )
 
 

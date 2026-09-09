@@ -340,3 +340,86 @@ def _find_python_executable():
             return found
 
     return None
+
+
+def find_wireshark_path():
+    """Find the Wireshark executable, or ``None`` when it is not installed.
+
+    ``pipes.Wireshark`` builds the same list of well-known locations, but it
+    only ever *guesses* a path and lets ``Popen`` fail later — which, on the
+    pipe-based capture paths, surfaces as an unexplained 30 s timeout waiting
+    for a Wireshark that was never there.  This one answers the question the
+    CLI needs to ask *before* touching the radio: is Wireshark installed at all?
+    """
+    system = platform.system()
+
+    if system == "Windows":
+        paths = [
+            Path("C:\\Program Files\\Wireshark\\Wireshark.exe"),
+            Path("C:\\Program Files (x86)\\Wireshark\\Wireshark.exe"),
+        ]
+    elif system == "Darwin":
+        paths = [Path("/Applications/Wireshark.app/Contents/MacOS/Wireshark")]
+    else:
+        paths = [
+            Path("/usr/bin/wireshark"),
+            Path("/usr/local/bin/wireshark"),
+            # Flatpak installs expose a wrapper here rather than in /usr/bin.
+            Path("/var/lib/flatpak/exports/bin/org.wireshark.Wireshark"),
+        ]
+
+    for path in paths:
+        if path.is_file():
+            return str(path)
+
+    # Anything installed somewhere else (snap, Homebrew, a custom prefix) is
+    # still reachable as long as it is on PATH.
+    return shutil.which("wireshark")
+
+
+def print_wireshark_install_hint():
+    """Tell the user how to get Wireshark on the platform they are running."""
+    system = platform.system()
+    print_info("Install Wireshark, then run the command again:")
+    if system == "Linux":
+        print_dim("  sudo apt install wireshark      # Debian / Ubuntu")
+        print_dim("  sudo pacman -S wireshark-qt     # Arch")
+    elif system == "Darwin":
+        print_dim("  brew install --cask wireshark")
+    elif system == "Windows":
+        print_dim("  winget install WiresharkFoundation.Wireshark")
+    print_dim("  https://www.wireshark.org/download.html")
+
+
+def open_capture_in_wireshark(capture_file) -> bool:
+    """Open an existing capture file in Wireshark (``wireshark -r FILE``).
+
+    Unlike the live paths this needs no pipe and no extcap plugin: the file is
+    already on disk, so Wireshark is launched detached and the CLI returns
+    immediately.  Returns True when the process was started.
+    """
+    path = Path(capture_file)
+    if not path.is_file():
+        print_error(f"Capture file not found: {path}")
+        return False
+
+    wireshark_path = find_wireshark_path()
+    if not wireshark_path:
+        print_error("Wireshark not found — cannot open the capture automatically")
+        print_wireshark_install_hint()
+        print_info(f"The capture is saved and can be opened later: {path}")
+        return False
+
+    try:
+        subprocess.Popen(
+            [wireshark_path, "-r", str(path.resolve())],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        print_error(f"Failed to launch Wireshark: {exc}")
+        print_info(f"Open it manually with: wireshark -r {path}")
+        return False
+
+    print_success(f"Wireshark opened with {path}")
+    return True
