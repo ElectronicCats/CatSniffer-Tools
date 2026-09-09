@@ -188,3 +188,125 @@ class TestCaptureFileGuard:
         assert "--force" in output
         # Nothing was written over the top of the earlier capture.
         assert target.read_bytes() == b"previous capture"
+
+
+@pytest.mark.slow
+class TestSniffLoRaWireshark:
+    """``sniff lora`` Wireshark integration: ``-ws``, ``-oc`` and the prompt.
+
+    ``-ws`` streams into Wireshark live over a pipe (handled by the bridge);
+    ``-oc`` and the post-capture prompt open the *saved file* once the sniffer
+    stops, which is the path that works over SSH and on a machine where the
+    LoRaTap pipe never had a reader.
+
+    Everything below the CLI is stubbed: no device, no bridge, no Wireshark
+    process.  ``sys`` is patched as a whole because ``CliRunner`` swaps
+    ``sys.stdin`` for the duration of ``invoke()``, so patching the attribute
+    would not survive into the command.  Messages are collected from the
+    ``print_*`` helpers rather than from ``result.output``: they go out through
+    the shared Rich console, which does not always land in Click's capture when
+    the whole suite runs.
+    """
+
+    def _invoke(
+        self,
+        sniffer_sx,
+        *args,
+        packets=5,
+        wireshark="/usr/bin/wireshark",
+        isatty=True,
+        confirm=True,
+    ):
+        from unittest.mock import patch
+
+        from click.testing import CliRunner
+
+        from modules.core.cli import build_cli
+
+        messages = []
+
+        def fake_bridge(*call_args, **kwargs):
+            # The real bridge creates the capture file before streaming.
+            pcap_file = call_args[13]
+            if pcap_file:
+                with open(pcap_file, "wb") as fh:
+                    fh.write(b"header")
+            return packets
+
+        with patch(
+            "modules.sniff.cli.normalize_syncword", sniffer_sx.normalize_syncword
+        ), patch(
+            "modules.sniff.cli.run_sx_bridge", side_effect=fake_bridge
+        ) as bridge, patch(
+            "modules.sniff.cli.get_device_or_exit", return_value=MagicMock()
+        ), patch(
+            "modules.sniff.cli.find_wireshark_path", return_value=wireshark
+        ), patch(
+            "modules.sniff.cli.open_capture_in_wireshark"
+        ) as opener, patch(
+            "modules.sniff.cli.click.confirm", return_value=confirm
+        ), patch(
+            "modules.sniff.cli.sys"
+        ) as fake_sys, patch(
+            "modules.sniff.cli.print_error", side_effect=messages.append
+        ), patch(
+            "modules.sniff.cli.print_dim", side_effect=messages.append
+        ):
+            fake_sys.stdin.isatty.return_value = isatty
+            result = CliRunner().invoke(build_cli(), ["sniff", "lora", *args])
+        return result, bridge, opener, "\n".join(messages)
+
+    @pytest.mark.parametrize("flag", ["-ws", "-oc"])
+    def test_missing_wireshark_aborts_before_touching_the_radio(self, sniffer_sx, flag):
+        """The device is worth more than the flag: fail before configuring it."""
+        result, bridge, opener, messages = self._invoke(
+            sniffer_sx, flag, wireshark=None
+        )
+
+        assert result.exit_code == 1
+        assert "Wireshark not found" in messages
+        assert not bridge.called
+        assert not opener.called
+
+    def test_open_capture_without_write_saves_to_a_temp_file(self, sniffer_sx):
+        """``-oc`` alone still has something to open when the capture ends."""
+        result, bridge, opener, _ = self._invoke(sniffer_sx, "-oc")
+
+        pcap_file = bridge.call_args.args[13]
+        assert result.exit_code == 0
+        assert pcap_file and pcap_file.endswith(".pcapng")
+        opener.assert_called_once_with(pcap_file)
+
+    def test_write_only_offers_the_capture_and_opens_it_on_yes(
+        self, sniffer_sx, tmp_path
+    ):
+        target = tmp_path / "capture.pcapng"
+        _, _, opener, _ = self._invoke(sniffer_sx, "-w", str(target), confirm=True)
+        opener.assert_called_once_with(str(target))
+
+    def test_declined_prompt_leaves_wireshark_closed(self, sniffer_sx, tmp_path):
+        target = tmp_path / "capture.pcapng"
+        _, _, opener, messages = self._invoke(
+            sniffer_sx, "-w", str(target), confirm=False
+        )
+        assert not opener.called
+        assert "wireshark -r" in messages
+
+    def test_no_prompt_without_a_terminal(self, sniffer_sx, tmp_path):
+        """Scripts and CI must not block on a confirmation nobody can answer."""
+        target = tmp_path / "capture.pcapng"
+        result, _, opener, _ = self._invoke(sniffer_sx, "-w", str(target), isatty=False)
+        assert result.exit_code == 0
+        assert not opener.called
+
+    def test_empty_capture_is_not_offered(self, sniffer_sx, tmp_path):
+        target = tmp_path / "capture.pcapng"
+        _, _, opener, _ = self._invoke(sniffer_sx, "-w", str(target), packets=0)
+        assert not opener.called
+
+    def test_live_wireshark_does_not_prompt_afterwards(self, sniffer_sx, tmp_path):
+        """``-ws`` already showed the packets; do not ask to show them again."""
+        target = tmp_path / "capture.pcapng"
+        _, bridge, opener, _ = self._invoke(sniffer_sx, "-ws", "-w", str(target))
+        assert bridge.call_args.args[6] is True  # wireshark flag reaches the bridge
+        assert not opener.called
