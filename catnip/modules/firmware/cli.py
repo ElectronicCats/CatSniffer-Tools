@@ -26,7 +26,7 @@ from ..core.firmware_registry import (
     CAPABILITY_NEXT_STEP as _CAPABILITY_NEXT_STEP,
     next_steps_for,
 )
-from ..utils.cli_options import device_option
+from ..utils.cli_options import board_option, device_option
 from ..utils.output import (
     console,
     print_success,
@@ -104,7 +104,8 @@ def complete_firmware(ctx, param, incomplete):
     is_flag=True,
     help="Show full descriptions without truncation in the list",
 )
-def flash(firmware, device, list, full) -> None:
+@board_option()
+def flash(firmware, device, list, full, board_override) -> None:
     """Flash CC1352 Firmware or list available firmware images.
 
     \b
@@ -112,6 +113,7 @@ def flash(firmware, device, list, full) -> None:
         catnip flash --list               # see available firmware images/aliases
         catnip flash ble                  # flash Sniffle BLE firmware
         catnip flash zigbee --device 1    # flash TI sniffer to device #1
+        catnip flash ble --board v2       # name the board when its shell is dead
     """
 
     from .fw_aliases import get_official_id
@@ -334,7 +336,11 @@ def flash(firmware, device, list, full) -> None:
 
     print_info(f"Flashing firmware: {firmware} to device: {dev}")
 
-    flash_result = flasher.find_flash_firmware(firmware, dev)
+    from .board import board_from_generation
+
+    flash_result = flasher.find_flash_firmware(
+        firmware, dev, board=board_from_generation(board_override)
+    )
 
     if not flash_result:
         print_error(f"Error flashing: {firmware}")
@@ -435,7 +441,8 @@ def verify(test_all, device, quiet):
     is_flag=True,
     help="Force update even if firmware versions match",
 )
-def update(device, force):
+@board_option()
+def update(device, force, board_override):
     """Check and update RP2040 firmware to match the latest release.
 
     Verifies that the RP2040 firmware version is compatible with the tool
@@ -449,6 +456,7 @@ def update(device, force):
     Examples:
         catnip update              # check and update if outdated
         catnip update --force      # reflash regardless of version
+        catnip update --board v2   # name the board when its shell is dead
     """
     from .fw_update import (
         check_and_update_rp2040,
@@ -471,11 +479,17 @@ def update(device, force):
     else:
         dev = catnip_get_device()
 
+    from .board import board_from_generation
+
+    board = board_from_generation(board_override)
+
     if force:
         print_info("Force mode enabled — will update regardless of version")
-        result = force_update_rp2040(device=dev, flasher=flasher_inst)
+        result = force_update_rp2040(device=dev, flasher=flasher_inst, board=board)
     else:
-        result = check_and_update_rp2040(device=dev, flasher=flasher_inst, force=force)
+        result = check_and_update_rp2040(
+            device=dev, flasher=flasher_inst, force=force, board=board
+        )
 
     if result:
         print_success("Firmware update check complete!")

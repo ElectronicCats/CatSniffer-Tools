@@ -16,13 +16,21 @@ the serial bootloader and needs a cJTAG programmer to recover, so every
 flash path must know which generation it is talking to.
 
 Detection uses the "Board:" line of the fw_version shell command, e.g.
-"Board: v2 SAMD21 CC1352P1". Firmware older than that line is always a v3
-(the SAMD21 firmware has had the line from its first release).
+"Board: v2 SAMD21 CC1352P1". The SAMD21 firmware has emitted that line since
+its first release (tests/test_board_support.py checks the invariant against
+the firmware tree), so the only builds that can answer without it are RP2040
+ones that predate it -- and those name an explicit "FW: v3.X" tag. Any other
+reply is *unknown*: this module never guesses a generation, because guessing
+v3 on a v2 is exactly what lets a CC1352P7 image brick a CC1352P1.
+
+Every rule that differs between generations lives in BoardInfo as data. No
+module outside this one may compare ``board.generation`` against a literal;
+tests/test_board_support.py enforces that with an AST check.
 """
 
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
 CC1352P1_FLASH_SIZE = 0x58000  # 352 KB
 CC1352P7_FLASH_SIZE = 0xB0000  # 704 KB
@@ -38,6 +46,14 @@ class BoardInfo:
     tag_prefix: str  # firmware release tags start with this
     uf2_pattern: str  # substring identifying this board's UF2 release asset
 
+    # Capabilities. These replace the scattered ``generation == "v3"`` checks:
+    # each one states *why* a code path differs, not *which board* it is.
+    has_fw_id_storage: bool  # NVS to persist the CC1352 firmware ID
+    can_self_program_cc1352: bool  # host MCU can act as a CMSIS-DAP probe
+    ships_cc1352_hex_assets: bool  # its releases carry CC1352 .hex assets
+    accepts_unnamed_images: bool  # images whose name omits the variant are its
+    bridge_ring_bytes: int  # CC1352 bridge ring buffer size in the firmware
+
     @property
     def label(self) -> str:
         return f"{self.generation} ({self.mcu} + {self.cc_chip})"
@@ -51,6 +67,11 @@ BOARD_V2 = BoardInfo(
     uf2_volume="SNIFFER",
     tag_prefix="v2.",
     uf2_pattern="catsniffer-v2",
+    has_fw_id_storage=False,  # prj.conf has no CONFIG_NVS: 16 KB of SRAM
+    can_self_program_cc1352=False,  # no RP2040 to load free_dap onto
+    ships_cc1352_hex_assets=False,  # tools/get_hex_files.py only emits board_v3
+    accepts_unnamed_images=False,  # unnamed images are historically P7 builds
+    bridge_ring_bytes=256,
 )
 
 BOARD_V3 = BoardInfo(
@@ -61,6 +82,11 @@ BOARD_V3 = BoardInfo(
     uf2_volume="RPI-RP2",
     tag_prefix="v3.",
     uf2_pattern="catsniffer-v3",
+    has_fw_id_storage=True,
+    can_self_program_cc1352=True,
+    ships_cc1352_hex_assets=True,
+    accepts_unnamed_images=True,  # every image in the bundle is a P7 build
+    bridge_ring_bytes=16384,
 )
 
 BOARDS = {"v2": BOARD_V2, "v3": BOARD_V3}
@@ -70,20 +96,39 @@ _P7_MARKERS = ("cc1352p7", "cc1352p_7", "p7_1", "_p7", "cc1352p7_1m")
 _P1_MARKERS = ("cc1352p1", "cc1352p_1", "cc2652p1", "_p1")
 
 
-def parse_board_line(fw_version_text: Optional[str]) -> BoardInfo:
+def parse_board_line(fw_version_text: Optional[str]) -> Optional[BoardInfo]:
     """
-    Return the BoardInfo described by a fw_version reply.
+    Return the BoardInfo described by a fw_version reply, or None.
 
-    The reply is the raw text of the "fw_version" shell command. A "Board:"
-    line names the generation; without it the firmware is a v3 build that
-    predates the line.
+    The reply is the raw text of the "fw_version" shell command:
+
+    * a "Board:" line names the generation outright;
+    * without it, only an explicit "FW: v3.X" tag identifies the board, and
+      it identifies it as the RP2040 build that predates the line;
+    * anything else is unknown.
+
+    None means "do not guess": no caller may run a destructive operation on
+    an unknown board. Returning BOARD_V3 here instead is what would let a
+    CC1352P7 image reach a CC1352P1 and disable its serial bootloader.
     """
     if not fw_version_text:
-        return BOARD_V3
+        return None
     match = re.search(r"Board:\s*(v[23])\b", fw_version_text, re.IGNORECASE)
-    if not match:
+    if match:
+        return BOARDS[match.group(1).lower()]
+    if re.search(r"FW:\s*v3\.", fw_version_text, re.IGNORECASE):
         return BOARD_V3
-    return BOARDS[match.group(1).lower()]
+    return None
+
+
+def board_from_generation(generation: Optional[str]) -> Optional[BoardInfo]:
+    """Resolve a "v2"/"v3" string (a --board override) to a BoardInfo."""
+    if not generation:
+        return None
+    key = generation.strip().lower()
+    if not key.startswith("v"):
+        key = "v" + key
+    return BOARDS.get(key)
 
 
 def detect_board(
@@ -137,7 +182,9 @@ def image_variant(filename: str) -> Optional[str]:
     return None
 
 
-def image_allowed_for_board(filename: str, board: Optional[BoardInfo]) -> (bool, str):
+def image_allowed_for_board(
+    filename: str, board: Optional[BoardInfo]
+) -> Tuple[bool, str]:
     """
     Decide from the file name whether an image may be flashed on a board.
 
@@ -149,8 +196,11 @@ def image_allowed_for_board(filename: str, board: Optional[BoardInfo]) -> (bool,
         return False, "board generation unknown (fw_version gave no answer)"
     variant = image_variant(filename)
     if variant is None:
-        if board.generation == "v3":
-            return True, "image variant not named, assuming v3 bundle image"
+        if board.accepts_unnamed_images:
+            return (
+                True,
+                f"image variant not named, assuming {board.generation} bundle image",
+            )
         return False, (
             f"'{filename}' does not name a CC1352 variant; only images built for "
             f"{board.cc_chip} may be flashed on a {board.generation} board"
@@ -163,7 +213,7 @@ def image_allowed_for_board(filename: str, board: Optional[BoardInfo]) -> (bool,
     return True, f"{variant} image matches the board"
 
 
-def image_fits_chip(image_size: int, chip_flash_size: int) -> (bool, str):
+def image_fits_chip(image_size: int, chip_flash_size: int) -> Tuple[bool, str]:
     """Check that the image does not extend past the chip's flash."""
     if chip_flash_size <= 0:
         return False, "chip flash size unknown"

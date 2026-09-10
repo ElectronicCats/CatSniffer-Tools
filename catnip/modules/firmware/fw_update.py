@@ -292,6 +292,72 @@ def find_board_uf2(flasher, board) -> Optional[str]:
     return None
 
 
+def resolve_board_uf2(flasher, board) -> Optional[str]:
+    """
+    Path to the UF2 that belongs to this board, downloading it if needed.
+
+    The lookup is driven by ``board.uf2_pattern``. Only a board that accepts
+    unnamed images falls back to "any .uf2 in the release folder": copying a
+    UF2 built for the other generation onto a bootloader volume is exactly
+    the mistake this function exists to prevent.
+    """
+    path = find_board_uf2(flasher, board)
+    if path:
+        return path
+    try:
+        path = flasher.fetch_board_uf2(board)
+    except Exception as e:
+        logger.warning(f"[!] Could not fetch the {board.generation} UF2: {e}")
+        path = None
+    if path:
+        return path
+    if board.accepts_unnamed_images:
+        return find_uf2_firmware(flasher)
+    return None
+
+
+def expected_tag_for_board(flasher, board) -> Optional[str]:
+    """
+    Release tag the given board should be running.
+
+    Releases are tagged per generation (``board.tag_prefix``). The tag the
+    Flasher already loaded is used when it belongs to this board's line;
+    otherwise the board's own release line is queried.
+    """
+    tag = get_expected_fw_tag(flasher)
+    if tag and tag.startswith(board.tag_prefix):
+        return tag
+    try:
+        rel = flasher.get_release_for_board(board)
+    except Exception as e:
+        logger.warning(f"[!] Could not list releases for {board.generation}: {e}")
+        return None
+    return rel.get("tag_name") if rel else None
+
+
+def board_from_fw_info(device_fw: Optional[Dict[str, str]]):
+    """BoardInfo for a parsed fw_version reply, or None when it does not say."""
+    from .board import parse_board_line
+
+    if not device_fw:
+        return None
+    return parse_board_line(
+        f"FW: {device_fw.get('fw', '')}\r\nBoard: {device_fw.get('board', '')}"
+    )
+
+
+def _print_unknown_board(board_text: Optional[str] = None) -> None:
+    """Explain a refusal to act on a board whose generation is unknown."""
+    print_error("Could not determine the CatSniffer board generation")
+    if board_text:
+        print_dim(f"The device answered: Board: {board_text}")
+    print_dim(
+        "Nothing was flashed and the board was not rebooted: a v3 image on a "
+        "v2 board disables the CC1352 bootloader."
+    )
+    print_dim("Re-run with --board v2 or --board v3 if you know which board this is.")
+
+
 def confirm_reboot(board, tag) -> bool:
     """Ask before rebooting a board into its bootloader."""
     try:
@@ -556,7 +622,7 @@ def _print_boot_mode_instructions():
 
 
 def check_and_update_rp2040(
-    device: CatSnifferDevice = None, flasher=None, force: bool = False
+    device: CatSnifferDevice = None, flasher=None, force: bool = False, board=None
 ) -> bool:
     """
     Main orchestration function for RP2040 firmware update.
@@ -572,6 +638,8 @@ def check_and_update_rp2040(
     Args:
         device: CatSnifferDevice instance (auto-detected if None)
         flasher: Flasher instance (created if None)
+        force: reflash even when the version already matches
+        board: BoardInfo override for when detection cannot name the board
 
     Returns:
         True if firmware is up-to-date or successfully updated, False otherwise
@@ -636,14 +704,13 @@ def check_and_update_rp2040(
 
         boot_board, mount_point = find_any_board_mount_point()
         if mount_point:
-            print_success(f"RP2040 Boot Mode detected at: {mount_point}")
-            uf2_path = None
-            if boot_board is not None and boot_board.generation != "v3":
-                uf2_path = find_board_uf2(
-                    flasher, boot_board
-                ) or flasher.fetch_board_uf2(boot_board)
-            if uf2_path is None:
-                uf2_path = find_uf2_firmware(flasher)
+            label = boot_board.label if boot_board else "Boot"
+            print_success(f"{label} boot volume detected at: {mount_point}")
+            uf2_path = (
+                resolve_board_uf2(flasher, boot_board)
+                if boot_board is not None
+                else find_uf2_firmware(flasher)
+            )
             if uf2_path:
                 print_info(f"Flashing UF2: {os.path.basename(uf2_path)}")
                 return flash_rp2040_uf2(uf2_path, mount_point)
@@ -679,23 +746,26 @@ def check_and_update_rp2040(
         print_dim(f"Built: {device_fw['built']}")
 
     # Step 4b: the board generation decides the release tag scheme, the UF2
-    # asset and the bootloader volume. v2 boards get their own release line.
-    from .board import parse_board_line
-
-    board = parse_board_line("Board: " + device_fw.get("board", ""))
+    # asset and the bootloader volume. Each generation has its own release
+    # line, so an unknown board means there is nothing safe to flash.
+    if board is None:
+        board = board_from_fw_info(device_fw)
+    if board is None:
+        _print_unknown_board(device_fw.get("board"))
+        return False
     console.print(f"[cyan][*] Board: {board.label}[/cyan]")
-    if board.generation != "v3":
-        rel = flasher.get_release_for_board(board)
-        if not rel:
-            console.print(
-                f"[yellow][!] No {board.generation} firmware release found (tags {board.tag_prefix}X.Y.Z). "
-                "Nothing to update; the board was not rebooted.[/yellow]"
-            )
-            return False
-        expected_fw_tag = rel.get("tag_name")
+
+    expected_fw_tag = expected_tag_for_board(flasher, board)
+    if not expected_fw_tag:
         console.print(
-            f"[cyan][*] Expected {board.generation} Firmware Version: {expected_fw_tag}[/cyan]"
+            f"[yellow][!] No {board.generation} firmware release found (tags "
+            f"{board.tag_prefix}X.Y.Z). Nothing to update; the board was not "
+            "rebooted.[/yellow]"
         )
+        return False
+    console.print(
+        f"[cyan][*] Expected {board.generation} Firmware Version: {expected_fw_tag}[/cyan]"
+    )
 
     # Step 5: Compare device FW against expected firmware release
     if is_fw_compatible(device_fw, expected_fw_tag):
@@ -712,13 +782,16 @@ def check_and_update_rp2040(
     )
 
 
-def force_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bool:
+def force_update_rp2040(
+    device: CatSnifferDevice = None, flasher=None, board=None
+) -> bool:
     """
     Force update the RP2040 firmware regardless of version compatibility.
 
     Args:
         device: CatSnifferDevice instance (auto-detected if None)
         flasher: Flasher instance (created if None)
+        board: BoardInfo override for when detection cannot name the board
 
     Returns:
         True if successfully updated, False otherwise
@@ -738,14 +811,13 @@ def force_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bool:
         # Check for boot mode
         boot_board, mount_point = find_any_board_mount_point()
         if mount_point:
-            print_success(f"RP2040 Boot Mode detected at: {mount_point}")
-            uf2_path = None
-            if boot_board is not None and boot_board.generation != "v3":
-                uf2_path = find_board_uf2(
-                    flasher, boot_board
-                ) or flasher.fetch_board_uf2(boot_board)
-            if uf2_path is None:
-                uf2_path = find_uf2_firmware(flasher)
+            label = boot_board.label if boot_board else "Boot"
+            print_success(f"{label} boot volume detected at: {mount_point}")
+            uf2_path = (
+                resolve_board_uf2(flasher, boot_board)
+                if boot_board is not None
+                else find_uf2_firmware(flasher)
+            )
             if uf2_path:
                 return flash_rp2040_uf2(uf2_path, mount_point)
             else:
@@ -755,20 +827,17 @@ def force_update_rp2040(device: CatSnifferDevice = None, flasher=None) -> bool:
             _print_boot_mode_instructions()
             return False
 
-    from .board import detect_board, BOARD_V3
-
-    board = detect_board(device.shell_port)
     if board is None:
-        # An unresponsive shell is exactly the scenario --force exists for
-        # (a device stuck with broken/outdated firmware), so give up here
-        # would defeat its purpose. Firmware predating the "Board:" line is
-        # always v3 (see board.parse_board_line), so default to that rather
-        # than refusing to reboot the device.
-        console.print(
-            "[yellow][!] Could not read the board generation from the shell; "
-            "assuming v3 (RP2040 + CC1352P7).[/yellow]"
-        )
-        board = BOARD_V3
+        from .board import detect_board
+
+        board = detect_board(device.shell_port)
+    if board is None:
+        # --force exists for devices stuck with broken firmware, so this is
+        # the one place where refusing hurts. It still refuses: the shell is
+        # the only thing that can name the generation, and flashing the wrong
+        # UF2 is worse than not flashing. --board says which board it is.
+        _print_unknown_board(None)
+        return False
     return _perform_rp2040_update(device, flasher, board=board, force=True)
 
 
@@ -790,15 +859,11 @@ def _perform_rp2040_update(
     Returns:
         True on success, False on failure
     """
-    from .board import BOARD_V3
-
     if board is None:
-        board = BOARD_V3
+        _print_unknown_board(None)
+        return False
     # Find the UF2 for this board generation; never reboot without one
-    if board.generation == "v3":
-        uf2_path = find_uf2_firmware(flasher)
-    else:
-        uf2_path = find_board_uf2(flasher, board) or flasher.fetch_board_uf2(board)
+    uf2_path = resolve_board_uf2(flasher, board)
     if not uf2_path:
         print_error(f"No {board.generation} UF2 firmware found in release folder!")
         print_dim(

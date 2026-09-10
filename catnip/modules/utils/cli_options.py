@@ -94,3 +94,28 @@ def force_option(help: str = FORCE_HELP, **kwargs):
     truncated instead — which means it has to be opt-in.
     """
     return click.option("--force", "-f", is_flag=True, help=help, **kwargs)
+
+
+BOARD_HELP = (
+    "Board generation override (v2 = SAMD21 + CC1352P1, v3 = RP2040 + "
+    "CC1352P7). Only needed when the Cat-Shell port cannot answer; the wrong "
+    "value disables the CC1352 bootloader"
+)
+
+
+def board_option(help: str = BOARD_HELP, **kwargs):
+    """``--board``: name the board when detection cannot.
+
+    Every flashing path asks the board which generation it is, because a
+    CC1352P7 image on a CC1352P1 needs a cJTAG programmer to undo.  A board
+    whose shell is dead cannot answer, and that is exactly the board a user
+    is trying to recover, so the answer has to be supplyable by hand.
+    """
+    return click.option(
+        "--board",
+        "board_override",
+        default=None,
+        type=click.Choice(["v2", "v3"], case_sensitive=False),
+        help=help,
+        **kwargs,
+    )
