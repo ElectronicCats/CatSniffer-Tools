@@ -1,6 +1,8 @@
 import re
 import struct
 import time
+from pathlib import Path
+
 from .common import *
 
 
@@ -39,16 +41,34 @@ LORATAP_COLUMN_FORMAT = (
     '"Info","%Cus:loratap.payload:0:R"'
 )
 
+# Wireshark renders a bytes field as hex, so the payload only reads as text
+# through the postdissector shipped next to this module, which registers the
+# same bytes as a string field.  Both halves have to agree on the field name.
+LORATAP_ASCII_COLUMN = '"ASCII","%Cus:catnip_lora.ascii:0:R"'
+LORATAP_ASCII_POSTDISSECTOR = Path(__file__).with_name("lora_ascii.lua")
 
-def lora_wireshark_column_args() -> list:
-    """Wireshark ``-o`` arguments that make the packet list readable.
+
+def lora_wireshark_display_args() -> list:
+    """Wireshark arguments that make the packet list readable at a glance.
 
     Replaces the default column set with one that fits LoRa: no Source and
-    Destination columns, and an Info column carrying the payload bytes.  The
-    override lives on the command line, so the user's saved column layout is
+    Destination columns, which a LoRa radio has nothing to put in, and the
+    payload in an Info column as hex and an ASCII column as text.  The override
+    lives on the command line, so the user's own saved column layout is
     untouched.  Accepted by both ``wireshark`` and ``tshark``.
+
+    The ASCII column comes from a Lua postdissector, which a build that did not
+    ship the script - or a Wireshark compiled without Lua - cannot load, so the
+    column is only asked for when the script is actually there.
     """
-    return ["-o", f"gui.column.format:{LORATAP_COLUMN_FORMAT}"]
+    columns = LORATAP_COLUMN_FORMAT
+    script_args = []
+
+    if LORATAP_ASCII_POSTDISSECTOR.is_file():
+        columns += f",{LORATAP_ASCII_COLUMN}"
+        script_args = ["-X", f"lua_script:{LORATAP_ASCII_POSTDISSECTOR}"]
+
+    return ["-o", f"gui.column.format:{columns}"] + script_args
 
 
 def lora_decode_as_args(dissect_as: str = "auto", sync_word="private") -> list:
