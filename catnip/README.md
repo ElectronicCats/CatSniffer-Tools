@@ -2409,5 +2409,5 @@ This project is licensed under the terms specified in the official repository. C
 ## Credits
 
 - **Developed by**: Electronic Cats - PWNLAB
-- **Version**: 3.3.2.1
+- **Version**: 3.3.3.0
 - **Last Updated**: 2026

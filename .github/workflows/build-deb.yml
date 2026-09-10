@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Launch tag to upload assets to (ex: v3.3.2.1)'
+        description: 'Launch tag to upload assets to (ex: v3.3.3.0)'
         required: true
-        default: 'v3.3.2.1'
+        default: 'v3.3.3.0'
 
 jobs:
   build-deb:
@@ -35,6 +35,9 @@ jobs:
           # 1. Create base directory and copy Debian metadata
           mkdir -p "$BUILD_DIR"
           cp -a catnip/packaging/debian/* "$BUILD_DIR/"
+
+          # 1b. Sync control file Version with catnip/VERSION (single source of truth)
+          sed -i "s/^Version:.*/Version: ${VERSION}/" "$BUILD_DIR/DEBIAN/control"
 
           # 2. Create the subfolders where the source code should live
           PKG_DIR="${BUILD_DIR}/usr/lib/python3/dist-packages/catnip"

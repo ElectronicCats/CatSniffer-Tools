@@ -14,11 +14,11 @@ on:
       version:
         description: 'Version to build'
         required: true
-        default: '3.3.2.1'
+        default: '3.3.3.0'
       release_tag:
-        description: 'Tag del release al que subir los assets (ej: v3.3.2.1)'
+        description: 'Tag del release al que subir los assets (ej: v3.3.3.0)'
         required: false
-        default: 'v3.3.2.1'
+        default: 'v3.3.3.0'
 
 jobs:
   build-windows:

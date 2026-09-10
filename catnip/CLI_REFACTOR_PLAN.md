@@ -545,20 +545,20 @@ El bloque más grande y único consumidor de `core/extcap.py`.
 
 - Se ejecutaron los 6 pasos de *Prepare Packaging Environment* tal cual, incluido
   el vendorizado completo de `requirements.txt` (250 MB), y
-  `dpkg-deb --build --root-owner-group` → `catnip-3.3.2.1.deb` (53 MB).
+  `dpkg-deb --build --root-owner-group` → `catnip-3.3.3.0.deb` (53 MB).
 - El `cp -r catnip/modules/` arrastra los paquetes nuevos sin tocar el workflow:
   `dpkg-deb -c` lista `modules/sniff/`, `modules/device/`,
   `modules/protocols/cli/{__init__,cativity,meshtastic,sx1262,vhci}.py`,
   `core/device_utils.py`, `core/extcap.py`, `utils/completion.py` y
   `utils/system_cli.py`. **Regla 1 confirmada: ningún workflow necesita cambios.**
 - **Desviación: no se ejecutó `sudo dpkg -i`.** `sudo` pide contraseña en este
-  entorno y la instalación pisaría el `catnip 3.3.2.1` ya instalado en la máquina.
+  entorno y la instalación pisaría el `catnip 3.3.3.0` ya instalado en la máquina.
   En su lugar se extrajo el paquete con `dpkg-deb -x` a un *fakeroot* y se ejecutó
   el launcher `usr/bin/catnip` **tal como se instala**, con `PYTHONPATH` apuntando
   al `dist-packages` extraído. Eso ejercita exactamente lo que valida esta fase:
   `import catnip` → `pkg_dir` → `vendor/` → `from catnip.modules.core.cli import
   main_cli`. Paso privilegiado pendiente para quien quiera cerrarlo del todo:
-  `sudo dpkg -i catnip-3.3.2.1.deb && catnip --help`.
+  `sudo dpkg -i catnip-3.3.3.0.deb && catnip --help`.
 - Árbol de comandos **desde el paquete**: `dump_cli_tree.py` ejecutado dentro del
   layout instalado da un árbol **byte a byte idéntico** al snapshot de referencia
   y al dump del árbol fuente.

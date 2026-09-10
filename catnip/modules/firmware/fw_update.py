@@ -14,7 +14,7 @@ Workflow:
     6. If device not detected: instruct user to enter Boot Mode manually
 
 Compatibility example:
-    Software: 3.3.2.1 (from CatSniffer-Tools repo)
+    Software: 3.3.3.0 (from CatSniffer-Tools repo)
     Firmware: v3.1.0.0 (from CatSniffer-Firmware repo)
 
 Shell commands used:
@@ -80,14 +80,14 @@ def get_latest_software_version() -> Optional[str]:
     ElectronicCats/CatSniffer-Tools repository.
 
     Returns:
-        Version string (e.g., '3.3.2.1') stripped of 'v' prefix, or None on error
+        Version string (e.g., '3.3.3.0') stripped of 'v' prefix, or None on error
     """
     try:
         response = requests.get(GITHUB_TOOLS_RELEASE_URL, timeout=5)
         response.raise_for_status()
         data = response.json()
         tag = data.get("tag_name", "")
-        # Strip 'v' prefix if present (e.g., "v3.3.2.1" → "3.3.2.1")
+        # Strip 'v' prefix if present (e.g., "v3.3.3.0" → "3.3.3.0")
         return tag.lstrip("v") if tag else None
     except requests.exceptions.ConnectionError:
         logger.warning("[!] No internet connection — cannot check software version")
@@ -101,7 +101,7 @@ def get_latest_software_version() -> Optional[str]:
 
 
 def _parse_version(version: str) -> tuple:
-    """Convert a version string like '3.3.2.1' into a comparable tuple of ints."""
+    """Convert a version string like '3.3.3.0' into a comparable tuple of ints."""
     try:
         return tuple(int(x) for x in version.lstrip("v").split("."))
     except (ValueError, AttributeError):
@@ -114,7 +114,7 @@ def is_software_up_to_date(local_version: str, remote_version: str) -> bool:
 
     Args:
         local_version: Local tool version (e.g., '3.0.0')
-        remote_version: Remote release version (e.g., '3.3.2.1')
+        remote_version: Remote release version (e.g., '3.3.3.0')
 
     Returns:
         True if local version matches remote, False otherwise
@@ -131,7 +131,7 @@ def is_software_dev_version(local_version: str, remote_version: str) -> bool:
 
     Args:
         local_version: Local tool version (e.g., '3.4.0.0')
-        remote_version: Remote release version (e.g., '3.3.2.1')
+        remote_version: Remote release version (e.g., '3.3.3.0')
 
     Returns:
         True if local version is strictly greater than remote, False otherwise
