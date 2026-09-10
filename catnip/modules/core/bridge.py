@@ -393,6 +393,7 @@ def run_sx_bridge(
     ascii_file: str = None,
     pcap_file: str = None,
     force: bool = False,
+    wireshark_args: list = None,
 ):
     """
     Run the LoRa sniffer bridge for the unified RP2040 firmware.
@@ -427,6 +428,8 @@ def run_sx_bridge(
         ascii_file:    Path to append packets as decoded ASCII, or None to disable.
         pcap_file:     Path to write the capture as .pcap/.pcapng, or None to disable.
         force:         Overwrite pcap_file when it already exists.
+        wireshark_args: Extra Wireshark command-line arguments, e.g. the ``-d``
+                       decode-as rule built by ``lora_decode_as_args``.
 
     Returns:
         The number of packets captured, or None when the bridge could not be
@@ -456,7 +459,7 @@ def run_sx_bridge(
     threading.Thread(target=pipe.open, daemon=True).start()
 
     if wireshark:
-        Wireshark().start()
+        Wireshark(extra_args=wireshark_args).start()
 
     # ── 4. Open shell and configure ───────────────────────────────────────────
     shell = ShellConnection(port=device.shell_port)

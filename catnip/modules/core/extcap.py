@@ -391,12 +391,15 @@ def print_wireshark_install_hint():
     print_dim("  https://www.wireshark.org/download.html")
 
 
-def open_capture_in_wireshark(capture_file) -> bool:
+def open_capture_in_wireshark(capture_file, extra_args=None) -> bool:
     """Open an existing capture file in Wireshark (``wireshark -r FILE``).
 
     Unlike the live paths this needs no pipe and no extcap plugin: the file is
     already on disk, so Wireshark is launched detached and the CLI returns
-    immediately.  Returns True when the process was started.
+    immediately.  ``extra_args`` is appended to the command line so the offline
+    path dissects the capture exactly like the live one (``sniff lora`` passes
+    its ``-d`` decode-as rule through here).  Returns True when the process was
+    started.
     """
     path = Path(capture_file)
     if not path.is_file():
@@ -410,9 +413,10 @@ def open_capture_in_wireshark(capture_file) -> bool:
         print_info(f"The capture is saved and can be opened later: {path}")
         return False
 
+    cmd = [wireshark_path, "-r", str(path.resolve())] + list(extra_args or [])
     try:
         subprocess.Popen(
-            [wireshark_path, "-r", str(path.resolve())],
+            cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

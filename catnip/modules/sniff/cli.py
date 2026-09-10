@@ -23,7 +23,11 @@ from ..core.extcap import (
 )
 from ..core.usb_connection import open_serial_port
 from ..firmware.flasher import Flasher
-from protocol.sniffer_sx import normalize_syncword
+from protocol.sniffer_sx import (
+    LORAWAN_SYNCWORD,
+    lora_decode_as_args,
+    normalize_syncword,
+)
 
 # External
 import click
@@ -77,11 +81,38 @@ def _require_wireshark() -> bool:
     return False
 
 
+def _warn_about_lorawan_dissection(
+    opening_wireshark: bool, dissect_as: str, sync_word: str
+) -> None:
+    """Name the fix before the user has to go looking for it.
+
+    Wireshark's LoRaTap dissector hands anything captured on sync word 0x34 to
+    the LoRaWAN dissector, so a plain-LoRa payload arrives as "LoRaWAN MAC
+    Header malformed".  The sync word has to match the transmitter, so the
+    answer is never to change it — it is ``--dissect-as data``.
+    """
+    if not opening_wireshark or dissect_as != "auto":
+        return
+    try:
+        _, syncword_byte = normalize_syncword(sync_word)
+    except ValueError:
+        return
+    if syncword_byte != LORAWAN_SYNCWORD:
+        return
+
+    print_warning(
+        f"Sync word 0x{LORAWAN_SYNCWORD:02X} — Wireshark will dissect payloads "
+        "as LoRaWAN"
+    )
+    print_dim("If this is plain LoRa (not LoRaWAN), re-run with: --dissect-as data")
+
+
 def _offer_wireshark_after_capture(
     pcap_file: str,
     packet_count: int,
     always_open: bool,
     live_wireshark: bool,
+    wireshark_args: list = None,
 ) -> None:
     """Open the saved capture in Wireshark once the sniffer has stopped.
 
@@ -111,7 +142,7 @@ def _offer_wireshark_after_capture(
             # A second Ctrl+C at the prompt means "just quit".
             return
 
-    open_capture_in_wireshark(pcap_file)
+    open_capture_in_wireshark(pcap_file, extra_args=wireshark_args)
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
@@ -306,6 +337,18 @@ def _validate_sync_word(ctx, param, value):
         "the packets are saved to a temporary .pcapng file first"
     ),
 )
+@click.option(
+    "--dissect-as",
+    "-da",
+    "dissect_as",
+    default="auto",
+    type=click.Choice(["auto", "data", "lorawan"]),
+    help=(
+        "How Wireshark dissects the payload. 'auto' follows the sync word "
+        "(0x34 = LoRaWAN); 'data' shows raw bytes, which is what plain LoRa "
+        "captured on 0x34 needs to stop showing malformed LoRaWAN frames"
+    ),
+)
 @click.option("-v", "--verbose", is_flag=True, help="Show verbose output in terminal")
 @click.option(
     "--frequency",
@@ -382,6 +425,7 @@ def _validate_sync_word(ctx, param, value):
 def sniff_lora(
     ws,
     open_capture,
+    dissect_as,
     verbose,
     frequency,
     bandwidth,
@@ -406,6 +450,7 @@ def sniff_lora(
         catnip sniff lora -ws                      # live Wireshark while sniffing
         catnip sniff lora -oc                      # sniff, then open Wireshark
         catnip sniff lora -w capture.pcapng        # save it, offer to open it
+        catnip sniff lora -ws -sw public -da data  # plain LoRa on the 0x34 sync word
         catnip sniff lora -sw 0x2B -pre 16         # Meshtastic sync word
         catnip sniff lora -sw public --iq inverted # LoRaWAN downlinks
     """
@@ -427,6 +472,11 @@ def sniff_lora(
             f"catnip_lora_{time.strftime('%Y%m%d_%H%M%S')}_{os.getpid()}.pcapng",
         )
         print_info(f"No --write given — saving the capture to {pcap_file}")
+
+    # Wireshark keys the payload dissector off the sync word in the LoRaTap
+    # header, so a plain-LoRa capture on 0x34 needs to be told otherwise.
+    wireshark_args = lora_decode_as_args(dissect_as, sync_word)
+    _warn_about_lorawan_dissection(ws or open_capture, dissect_as, sync_word)
 
     dev = get_device_or_exit(device)
 
@@ -465,10 +515,15 @@ def sniff_lora(
         ascii_file,
         pcap_file,
         force,
+        wireshark_args=wireshark_args,
     )
 
     _offer_wireshark_after_capture(
-        pcap_file, packet_count, open_capture, live_wireshark=ws
+        pcap_file,
+        packet_count,
+        open_capture,
+        live_wireshark=ws,
+        wireshark_args=wireshark_args,
     )
 
 
