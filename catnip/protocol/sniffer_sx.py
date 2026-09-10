@@ -27,6 +27,29 @@ _LORATAP_SYNCWORD = {"private": 0x12, "public": 0x34}
 LORATAP_DECODE_AS_FIELD = "loratap.syncword"
 LORAWAN_SYNCWORD = 0x34
 
+# Wireshark's default columns assume an addressed link layer: Source and
+# Destination stay empty for every LoRaTap frame, because a LoRa radio reports
+# no addresses at all.  Info is empty too - the LoRaTap dissector never writes
+# it, and neither does the payload dissector it hands the frame to - so a
+# capture arrives with three blank columns and the payload only visible after
+# clicking into a packet.  `loratap.payload` is a LoRaTap field, so it is
+# populated whichever payload dissector `lora_decode_as_args` selects.
+LORATAP_COLUMN_FORMAT = (
+    '"No.","%m","Time","%t","Protocol","%p","Length","%L",'
+    '"Info","%Cus:loratap.payload:0:R"'
+)
+
+
+def lora_wireshark_column_args() -> list:
+    """Wireshark ``-o`` arguments that make the packet list readable.
+
+    Replaces the default column set with one that fits LoRa: no Source and
+    Destination columns, and an Info column carrying the payload bytes.  The
+    override lives on the command line, so the user's saved column layout is
+    untouched.  Accepted by both ``wireshark`` and ``tshark``.
+    """
+    return ["-o", f"gui.column.format:{LORATAP_COLUMN_FORMAT}"]
+
 
 def lora_decode_as_args(dissect_as: str = "auto", sync_word="private") -> list:
     """Wireshark ``-d`` arguments that decide how the LoRa payload is dissected.

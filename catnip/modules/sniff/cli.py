@@ -26,6 +26,7 @@ from ..firmware.flasher import Flasher
 from protocol.sniffer_sx import (
     LORAWAN_SYNCWORD,
     lora_decode_as_args,
+    lora_wireshark_column_args,
     normalize_syncword,
 )
 
@@ -480,6 +481,7 @@ def sniff_lora(
     # header; `auto` overrides that for 0x34 so plain LoRa is not shown as
     # malformed LoRaWAN, without the user having to know any of it.
     wireshark_args = lora_decode_as_args(dissect_as, sync_word)
+    wireshark_args += lora_wireshark_column_args()
     _explain_lorawan_dissection(ws or open_capture, dissect_as, sync_word)
 
     dev = get_device_or_exit(device)
