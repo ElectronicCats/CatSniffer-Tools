@@ -327,9 +327,24 @@ class TestLoRaDecodeAsArgs:
     override belongs on the Wireshark command line.
     """
 
-    def test_auto_leaves_wiresharks_own_mapping_alone(self, sniffer_sx):
-        assert sniffer_sx.lora_decode_as_args("auto", "public") == []
-        assert sniffer_sx.lora_decode_as_args("auto", "private") == []
+    def test_auto_overrides_the_lorawan_mapping_without_being_asked(self, sniffer_sx):
+        """``--sync-word public`` alone has to produce a readable capture.
+
+        A sniffer cannot know whether a 0x34 payload is LoRaWAN, so ``auto``
+        picks the harmless reading — raw bytes — rather than stamping a red
+        "malformed" over every plain-LoRa frame.
+        """
+        assert sniffer_sx.lora_decode_as_args("auto", "public") == [
+            "-d",
+            "loratap.syncword==52,data",
+        ]
+
+    @pytest.mark.parametrize("sync_word", ["private", "0x2B"])
+    def test_auto_adds_nothing_where_wireshark_is_already_right(
+        self, sniffer_sx, sync_word
+    ):
+        """0x34 is the only sync word Wireshark maps; nothing else needs a rule."""
+        assert sniffer_sx.lora_decode_as_args("auto", sync_word) == []
 
     @pytest.mark.parametrize("sync_word", ["public", "private", "0x2B"])
     def test_data_disables_lorawan_for_every_sync_word(self, sniffer_sx, sync_word):
@@ -371,8 +386,6 @@ class TestSniffLoRaDissectAs:
 
         from modules.core.cli import build_cli
 
-        warnings = []
-
         def fake_bridge(*call_args, **kwargs):
             pcap_file = call_args[13]
             if pcap_file:
@@ -395,16 +408,14 @@ class TestSniffLoRaDissectAs:
         ), patch(
             "modules.sniff.cli.open_capture_in_wireshark"
         ) as opener, patch(
-            "modules.sniff.cli.print_warning", side_effect=warnings.append
-        ), patch(
             "modules.sniff.cli.sys"
         ) as fake_sys:
             fake_sys.stdin.isatty.return_value = True
             result = CliRunner().invoke(build_cli(), ["sniff", "lora", *args])
-        return result, bridge, opener, "\n".join(warnings)
+        return result, bridge, opener
 
     def test_rule_reaches_the_live_wireshark(self, sniffer_sx):
-        result, bridge, _, _ = self._invoke(
+        result, bridge, _ = self._invoke(
             sniffer_sx, "-ws", "-sw", "public", "-da", "data"
         )
         assert result.exit_code == 0
@@ -415,28 +426,74 @@ class TestSniffLoRaDissectAs:
 
     def test_rule_reaches_the_capture_file(self, sniffer_sx, tmp_path):
         target = tmp_path / "capture.pcapng"
-        _, _, opener, _ = self._invoke(
+        _, _, opener = self._invoke(
             sniffer_sx, "-oc", "-w", str(target), "-sw", "public", "-da", "data"
         )
         opener.assert_called_once_with(
             str(target), extra_args=["-d", "loratap.syncword==52,data"]
         )
 
-    def test_auto_passes_nothing(self, sniffer_sx):
-        _, bridge, _, _ = self._invoke(sniffer_sx, "-ws", "-sw", "private")
+    def test_auto_fixes_the_public_sync_word_with_no_extra_flag(self, sniffer_sx):
+        """The point of the default: ``-sw public`` needs no ``-da`` to be readable."""
+        _, bridge, _ = self._invoke(sniffer_sx, "-ws", "-sw", "public")
+        assert bridge.call_args.kwargs["wireshark_args"] == [
+            "-d",
+            "loratap.syncword==52,data",
+        ]
+
+    def test_auto_passes_nothing_for_a_private_sync_word(self, sniffer_sx):
+        _, bridge, _ = self._invoke(sniffer_sx, "-ws", "-sw", "private")
         assert bridge.call_args.kwargs["wireshark_args"] == []
 
-    def test_lorawan_sync_word_warns_about_the_default_dissector(self, sniffer_sx):
-        """The malformed frames are confusing; name the flag that fixes them."""
-        _, _, _, warnings = self._invoke(sniffer_sx, "-ws", "-sw", "public")
-        assert "LoRaWAN" in warnings
-
-    def test_no_warning_once_the_rule_is_explicit(self, sniffer_sx):
-        _, _, _, warnings = self._invoke(
-            sniffer_sx, "-ws", "-sw", "public", "-da", "data"
+    def test_lorawan_restores_the_lorawan_dissector(self, sniffer_sx):
+        _, bridge, _ = self._invoke(
+            sniffer_sx, "-ws", "-sw", "public", "-da", "lorawan"
         )
-        assert warnings == ""
+        # 0x34 is Wireshark's own mapping, so the rule is a no-op by omission.
+        assert bridge.call_args.kwargs["wireshark_args"] == []
 
-    def test_no_warning_for_a_private_sync_word(self, sniffer_sx):
-        _, _, _, warnings = self._invoke(sniffer_sx, "-ws", "-sw", "0x2B")
-        assert warnings == ""
+
+class TestLoRaWANDissectionNotice:
+    """``auto`` chooses for the user, so it has to say what it chose.
+
+    The helper is exercised directly: the command prints plenty of other lines
+    through the same ``print_*`` helpers, and this asserts on *this* notice.
+    """
+
+    def _notice(self, sniffer_sx, opening_wireshark, dissect_as, sync_word):
+        from unittest.mock import patch
+
+        from modules.sniff import cli
+
+        lines = []
+        with patch(
+            "modules.sniff.cli.normalize_syncword", sniffer_sx.normalize_syncword
+        ), patch(
+            "modules.sniff.cli.LORAWAN_SYNCWORD", sniffer_sx.LORAWAN_SYNCWORD
+        ), patch(
+            "modules.sniff.cli.print_info", side_effect=lines.append
+        ), patch(
+            "modules.sniff.cli.print_dim", side_effect=lines.append
+        ):
+            cli._explain_lorawan_dissection(opening_wireshark, dissect_as, sync_word)
+        return "\n".join(lines)
+
+    def test_the_automatic_choice_is_announced_with_its_escape_hatch(self, sniffer_sx):
+        """Silence is wrong here: a LoRaWAN user must learn why it says Data."""
+        notice = self._notice(sniffer_sx, True, "auto", "public")
+        assert "0x34" in notice
+        assert "--dissect-as lorawan" in notice
+
+    def test_silent_once_the_choice_is_explicit(self, sniffer_sx):
+        assert self._notice(sniffer_sx, True, "data", "public") == ""
+        assert self._notice(sniffer_sx, True, "lorawan", "public") == ""
+
+    @pytest.mark.parametrize("sync_word", ["private", "0x2B"])
+    def test_silent_when_wireshark_would_have_been_right_anyway(
+        self, sniffer_sx, sync_word
+    ):
+        assert self._notice(sniffer_sx, True, "auto", sync_word) == ""
+
+    def test_silent_when_wireshark_is_not_being_opened(self, sniffer_sx):
+        """Nothing to explain when nobody is looking at a dissector."""
+        assert self._notice(sniffer_sx, False, "auto", "public") == ""
