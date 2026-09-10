@@ -1,6 +1,7 @@
 """``catnip vhci`` - expose the CatSniffer as an ``hciX`` interface."""
 
 # Internal
+from ...firmware.board import detect_board, require_firmware_for_board
 from ...firmware.flasher import Flasher
 from ...core.catnip import Catnip, catnip_get_device, catnip_get_devices
 
@@ -97,6 +98,11 @@ def vhci_start(device, baud, verbose):
     if cat.check_firmware_by_metadata("sniffle", dev.shell_port):
         print_success("Sniffle firmware found!")
     else:
+        # See PLAN_SOPORTE_V2.md, T-06: the gate guards the flash, not the
+        # board — a board already running Sniffle needs nothing from us.
+        require_firmware_for_board(
+            detect_board(dev.shell_port), "sniffle", "catnip vhci"
+        )
         print_warning("Sniffle firmware not found — flashing now...")
         flasher = Flasher()
         if not flasher.find_flash_firmware("sniffle", dev):

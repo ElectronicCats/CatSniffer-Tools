@@ -14,6 +14,7 @@ from typing import Optional
 from . import device_utils
 from .exceptions import FirmwareError
 from .firmware_verifier import FirmwareVerifier
+from ..firmware.board import detect_board, require_firmware_for_board
 from ..utils.output import print_info, print_success, print_warning
 
 
@@ -22,6 +23,7 @@ def device_session(
     device_id=None,
     *,
     required_firmware: Optional[str] = None,
+    feature: str = "This command",
     flasher=None,
     post_flash_wait: float = 1.0,
     verify_retries: int = 2,
@@ -34,6 +36,8 @@ def device_session(
         device_id: Device selector forwarded to ``get_device_or_exit``.
         required_firmware: Official firmware id (see ``firmware_registry``)
             that must be running on the device's CC1352. Skipped when None.
+        feature: How to name the caller in a "not supported on this board"
+            message, e.g. "catnip sniff zigbee".
         flasher: A ``Flasher`` instance used to flash ``required_firmware``
             when it isn't detected. Required if ``required_firmware`` is set
             and the firmware might be missing.
@@ -47,6 +51,8 @@ def device_session(
             for a missing firmware. A failed *re*-verification after a
             successful flash only warns and continues — matching prior
             per-command behaviour, since the device commonly still works.
+        UnsupportedOnBoardError: ``required_firmware`` has no image built for
+            the connected board generation (e.g. ``ti_sniffer`` on a v2).
 
     Yields:
         The resolved ``CatSnifferDevice``.
@@ -63,6 +69,16 @@ def device_session(
                 f"'{required_firmware}' firmware found (via {result.confidence.value})!"
             )
         else:
+            # Only now does the board generation matter. The gate belongs
+            # here, not before the check: a v2 already running a firmware
+            # catnip has no v2 *image* for still works perfectly, and
+            # refusing it up front would break a board that is fine (seen on
+            # real hardware: a v2 running ti_sniffer). What cannot be done is
+            # flashing an image that does not exist for this generation.
+            require_firmware_for_board(
+                detect_board(dev.shell_port), required_firmware, feature
+            )
+
             if flasher is None:
                 raise FirmwareError(
                     f"'{required_firmware}' firmware not found on device.",

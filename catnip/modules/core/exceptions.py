@@ -10,6 +10,7 @@ Exit codes:
     2   usage error (Click's own ``ClickException``)
     3   firmware error
     4   device/connection error
+    5   not supported on the connected board generation
     130 interrupted (Ctrl-C / Abort)
 """
 
@@ -18,6 +19,7 @@ EXIT_ERROR = 1
 EXIT_USAGE = 2
 EXIT_FIRMWARE = 3
 EXIT_CONNECTION = 4
+EXIT_UNSUPPORTED = 5
 EXIT_INTERRUPT = 130
 
 
@@ -59,6 +61,19 @@ class FirmwareError(CatnipError):
     """Firmware detection, flashing, updating, or verification failed."""
 
     exit_code = EXIT_FIRMWARE
+
+
+class UnsupportedOnBoardError(CatnipError):
+    """The connected board generation cannot do what was asked.
+
+    Distinct from :class:`FirmwareError` on purpose: nothing went wrong and
+    retrying will not help, the hardware simply does not have the part (a
+    v2 has no NVS, no RP2040 to run a CMSIS-DAP probe on, and no CC1352P7
+    image built for it).  Its own exit code lets a script tell "this board
+    cannot" apart from "this failed".
+    """
+
+    exit_code = EXIT_UNSUPPORTED
 
 
 class ProtocolError(CatnipError):

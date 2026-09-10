@@ -192,6 +192,7 @@ def sniff_ble(device, wireshark, channel, mode):
     with device_session(
         device,
         required_firmware=SniffingBaseFirmware.BLE.value,
+        feature="catnip sniff ble",
         flasher=Flasher(),
         verify_retries=2,
     ) as dev:
@@ -243,6 +244,7 @@ def sniff_zigbee(ws, channel, device, raw_file, ascii_file, pcap_file, force):
     with device_session(
         device,
         required_firmware="ti_sniffer",
+        feature="catnip sniff zigbee",
         flasher=Flasher(),
         post_flash_wait=0.5,
         verify_retries=0,
@@ -291,6 +293,7 @@ def sniff_thread(ws, channel, device, raw_file, ascii_file, pcap_file, force):
     with device_session(
         device,
         required_firmware="ti_sniffer",
+        feature="catnip sniff thread",
         flasher=Flasher(),
         post_flash_wait=0.5,
         verify_retries=0,
@@ -607,6 +610,7 @@ def sniff_airtag_scanner(device, putty):
     with device_session(
         device,
         required_firmware=official_id,
+        feature="catnip sniff airtag-scanner",
         flasher=Flasher(),
         verify_retries=0,
     ) as dev:

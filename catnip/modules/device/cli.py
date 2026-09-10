@@ -11,7 +11,8 @@ from ..core.exceptions import ConnectionError as CatnipConnectionError, DeviceEr
 from ..core.firmware_registry import get_firmware, next_steps_for
 from ..core.firmware_verifier import FirmwareVerifier
 from ..core.usb_connection import ShellConnection, CATSNIFFER_VID, CATSNIFFER_PID
-from ..firmware.board import detect_board
+from ..firmware.board import capability_rows, detect_board
+from ..firmware.fw_status import read_status
 
 # External
 import click
@@ -139,9 +140,65 @@ def identify(device) -> None:
         ) from e
 
 
+# A stack this close to full is worth flagging: the SAMD21 build sizes its
+# threads by hand against a 16 KB budget (SAMD21/catsniffer/prj.conf), so the
+# headroom left is the number that says how near an overflow the board is.
+_LOW_STACK_BYTES = 96
+
+
+def _diagnostics_table(shell_status) -> Table:
+    """The firmware's own health counters, as far as this board reports them.
+
+    The SAMD21 build adds stack headroom, the last fault and a per-thread
+    dump; the RP2040 build reports only the two loss counters. Rows are added
+    for what is present, so neither firmware needs a branch here.
+    """
+    table = Table(title="Firmware diagnostics", box=box.ROUNDED)
+    table.add_column("Field", style=STYLES["device"], justify="left")
+    table.add_column("Value", justify="left")
+
+    for label in ("FW", "Radio", "LoRa", "LoRa Mode", "CC1352 FW"):
+        if label in shell_status.fields:
+            table.add_row(label, shell_status.fields[label])
+
+    for name, value in shell_status.counters.items():
+        style = "" if value == 0 else "yellow"
+        table.add_row(
+            f"loss: {name}", f"[{style}]{value}[/{style}]" if style else str(value)
+        )
+
+    for name, unused in shell_status.stacks.items():
+        low = unused < _LOW_STACK_BYTES
+        table.add_row(
+            f"stack unused: {name}",
+            f"[red]{unused} bytes[/red]" if low else f"{unused} bytes",
+        )
+
+    if shell_status.last_fault is not None:
+        clean = shell_status.last_fault.lower() == "none"
+        table.add_row(
+            "Last fault",
+            (
+                shell_status.last_fault
+                if clean
+                else f"[red]{shell_status.last_fault}[/red]"
+            ),
+        )
+    if shell_status.threads:
+        table.add_row("Threads", str(len(shell_status.threads)))
+    return table
+
+
 @click.command()
 @device_option()
-def status(device) -> None:
+@click.option(
+    "--diagnostics",
+    "-D",
+    is_flag=True,
+    help="Also dump the per-thread stack report and the trace ring "
+    "(only v2 boards report them)",
+)
+def status(device, diagnostics) -> None:
     """Show board, firmware and capabilities detected on a CatSniffer.
 
     Honest by design (Bombercat's `status` pattern, see
@@ -152,11 +209,13 @@ def status(device) -> None:
 
     \b
     Examples:
-        catnip status              # first connected device
-        catnip status --device 1   # a specific device by ID
+        catnip status                 # first connected device
+        catnip status --device 1      # a specific device by ID
+        catnip status --diagnostics   # add the v2 stack/thread dump
     """
     dev = get_device_or_exit(device)
     board = detect_board(dev.shell_port)
+    shell_status = read_status(dev.shell_port)
     detection = FirmwareVerifier(dev.bridge_port, dev.shell_port).detect()
     entry = get_firmware(detection.firmware_id) if detection.firmware_id else None
 
@@ -174,8 +233,51 @@ def status(device) -> None:
     else:
         table.add_row("Firmware", "[yellow]unknown[/yellow]")
 
+    # Why a feature is or is not available on this board, stated up front
+    # instead of only when a command refuses (see PLAN_SOPORTE_V2.md, T-08).
+    rows = capability_rows(board)
+    if rows:
+        table.add_row(
+            "Board can",
+            "\n".join(
+                (
+                    f"[green]yes[/green]  {label}"
+                    if supported
+                    else f"[yellow]no [/yellow]  {label}"
+                )
+                for label, supported in rows
+            ),
+        )
+
     print_empty_line()
     console.print(table)
+
+    if shell_status is not None:
+        print_empty_line()
+        console.print(_diagnostics_table(shell_status))
+
+        tightest = shell_status.tightest_stack
+        if tightest is not None and tightest[1] < _LOW_STACK_BYTES:
+            print_warning(
+                f"Tightest stack ({tightest[0]}) has {tightest[1]} bytes left; "
+                "this board is close to a stack overflow."
+            )
+
+        if diagnostics:
+            if shell_status.trace:
+                print_empty_line()
+                print_info(shell_status.trace)
+            for thread in shell_status.threads:
+                print_info(
+                    f"thread {thread.ident} prio={thread.priority} "
+                    f"stack={thread.stack} unused={thread.unused}"
+                )
+            for line in shell_status.unparsed:
+                # A firmware line this version does not know about: showing it
+                # verbatim beats dropping it.
+                print_info(line)
+        elif shell_status.has_diagnostics:
+            print_info("Run with --diagnostics for the per-thread stack report.")
 
     print_next_steps(
         next_steps_for(entry) if entry is not None else ["catnip flash --list"]

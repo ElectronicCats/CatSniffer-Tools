@@ -1,6 +1,7 @@
 """``catnip cativity`` - IQ activity monitor command."""
 
 # Internal
+from ...firmware.board import detect_board, require_firmware_for_board
 from ...firmware.flasher import Flasher
 from ...core.device_utils import get_device_or_exit, send_identify_command
 from ...core.catnip import Catnip
@@ -46,6 +47,12 @@ def cativity(device, channel, topology, protocol):
     elif cat.check_ti_firmware():
         print_success("Sniffer TI firmware found (via direct communication)!")
     else:
+        # Nothing to flash on a board with no ti_sniffer image: refuse here,
+        # before touching the hardware (see PLAN_SOPORTE_V2.md, T-06).
+        require_firmware_for_board(
+            detect_board(dev.shell_port), "ti_sniffer", "catnip cativity"
+        )
+
         print_warning("Sniffer TI firmware not found! - Flashing Sniffer TI")
         # Initialize Flasher for flashing
         flasher_flash = Flasher()
