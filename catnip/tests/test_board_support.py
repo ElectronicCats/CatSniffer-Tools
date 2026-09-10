@@ -616,3 +616,503 @@ def test_firmware_always_emits_the_board_line(generation):
     for name in board_names:
         assert parse_board_line(f"Board: {name}") is board
         assert board.mcu in name and board.cc_chip in name
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# "not supported on this board": the typed refusal and its two helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestRequireCapability:
+    def test_v3_can_program_its_own_cc1352(self):
+        assert (
+            board_mod.require_capability(
+                BOARD_V3, "can_self_program_cc1352", "catnip restore"
+            )
+            is BOARD_V3
+        )
+
+    def test_v2_is_refused_with_the_reason_and_a_hint(self):
+        from modules.core.exceptions import UnsupportedOnBoardError
+
+        with pytest.raises(UnsupportedOnBoardError) as excinfo:
+            board_mod.require_capability(
+                BOARD_V2, "can_self_program_cc1352", "catnip restore"
+            )
+        message = str(excinfo.value)
+        assert "catnip restore" in message
+        assert "RP2040" in message  # says *why*, not just "unsupported"
+        assert excinfo.value.hint  # and what hardware would work
+
+    def test_unknown_board_is_refused_too(self):
+        from modules.core.exceptions import UnsupportedOnBoardError
+
+        with pytest.raises(UnsupportedOnBoardError):
+            board_mod.require_capability(None, "can_self_program_cc1352", "catnip x")
+
+    @pytest.mark.parametrize(
+        "capability",
+        ("has_fw_id_storage", "can_self_program_cc1352", "ships_cc1352_hex_assets"),
+    )
+    def test_every_capability_the_v2_lacks_has_a_written_reason(self, capability):
+        from modules.core.exceptions import UnsupportedOnBoardError
+
+        with pytest.raises(UnsupportedOnBoardError) as excinfo:
+            board_mod.require_capability(BOARD_V2, capability, "feature")
+        # A generic "lacks '<field>'" fallback would leak the field name.
+        assert capability not in str(excinfo.value)
+
+    def test_exit_code_is_its_own(self):
+        from modules.core import exceptions
+
+        assert (
+            exceptions.UnsupportedOnBoardError.exit_code == exceptions.EXIT_UNSUPPORTED
+        )
+        assert exceptions.EXIT_UNSUPPORTED not in (
+            exceptions.EXIT_ERROR,
+            exceptions.EXIT_FIRMWARE,
+            exceptions.EXIT_CONNECTION,
+            exceptions.EXIT_USAGE,
+        )
+
+
+class TestRequireFirmwareForBoard:
+    def test_ti_sniffer_is_refused_on_v2(self):
+        from modules.core.exceptions import UnsupportedOnBoardError
+
+        with pytest.raises(UnsupportedOnBoardError) as excinfo:
+            board_mod.require_firmware_for_board(
+                BOARD_V2, "ti_sniffer", "catnip sniff zigbee"
+            )
+        assert "ti_sniffer" in str(excinfo.value)
+        assert "catnip sniff zigbee" in str(excinfo.value)
+        # The hint lists what *is* available, so the user has somewhere to go.
+        assert any("sniffle" in line for line in excinfo.value.hint)
+
+    def test_sniffle_is_fine_on_v2(self):
+        assert (
+            board_mod.require_firmware_for_board(BOARD_V2, "sniffle", "catnip vhci")
+            is None
+        )
+
+    def test_every_v3_image_is_fine_on_v3(self):
+        for official_id in fw_aliases.official_ids_for_board("v3"):
+            board_mod.require_firmware_for_board(BOARD_V3, official_id, "feature")
+
+    def test_unknown_board_does_not_block_the_early_check(self):
+        # The flashing path refuses an unknown board itself (T-01); this check
+        # is informative and must not turn detection failure into a refusal.
+        assert (
+            board_mod.require_firmware_for_board(None, "ti_sniffer", "feature") is None
+        )
+
+
+class TestFileAvailableForBoard:
+    def test_v2_sees_its_own_images_and_uf2(self):
+        assert board_mod.file_available_for_board(
+            "sniffle_cc1352p1_cc2652p1_1M.hex", BOARD_V2
+        )
+        assert board_mod.file_available_for_board("catsniffer-v2.1.0.0.uf2", BOARD_V2)
+
+    def test_v2_does_not_see_p7_images_nor_the_v3_uf2(self):
+        assert not board_mod.file_available_for_board(
+            "sniffle_cc1352p7_1M.hex", BOARD_V2
+        )
+        assert not board_mod.file_available_for_board(
+            "catsniffer-v3.1.0.1.uf2", BOARD_V2
+        )
+
+    def test_v3_does_not_see_the_v2_uf2(self):
+        assert board_mod.file_available_for_board("catsniffer-v3.1.0.1.uf2", BOARD_V3)
+        assert not board_mod.file_available_for_board(
+            "catsniffer-v2.1.0.0.uf2", BOARD_V3
+        )
+
+    def test_unknown_board_hides_nothing(self):
+        assert board_mod.file_available_for_board("anything.hex", None)
+
+
+class TestRestoreRefusesOnV2:
+    def test_v2_is_refused_before_any_tool_is_touched(self):
+        from modules.core.exceptions import UnsupportedOnBoardError
+        from modules.firmware import restore as restore_mod
+
+        device = MagicMock()
+        device.shell_port = "/dev/ttyACM2"
+        with patch.object(
+            restore_mod, "detect_board", return_value=BOARD_V2
+        ), patch.object(restore_mod, "check_openocd") as openocd:
+            with pytest.raises(UnsupportedOnBoardError):
+                restore_mod.restore_cc1352(device=device)
+            openocd.assert_not_called()
+
+    def test_board_override_is_honoured(self):
+        from modules.core.exceptions import UnsupportedOnBoardError
+        from modules.firmware import restore as restore_mod
+
+        with patch.object(restore_mod, "detect_board") as detect:
+            with pytest.raises(UnsupportedOnBoardError):
+                restore_mod.restore_cc1352(board=BOARD_V2)
+            detect.assert_not_called()
+
+    def test_unknown_board_still_lets_a_recovery_run(self):
+        # The board being recovered is exactly the one that cannot answer.
+        from modules.firmware import restore as restore_mod
+
+        device = MagicMock()
+        device.shell_port = "/dev/ttyACM2"
+        with patch.object(restore_mod, "detect_board", return_value=None), patch.object(
+            restore_mod, "check_openocd", return_value=None
+        ) as openocd:
+            assert restore_mod.restore_cc1352(device=device) is False
+            openocd.assert_called_once()
+
+
+class TestEarlyFirmwareCheck:
+    """The gate guards the *flash*, not the board.
+
+    A v2 already running a firmware catnip has no v2 image for keeps working
+    (this happens: a v2 flashed with a CC1352P1 TI sniffer build by hand).
+    What must never happen is trying to flash an image that does not exist
+    for the connected generation.
+    """
+
+    def _session(self, verified, board=BOARD_V2, flasher=None):
+        from modules.core import device_session as session_mod
+
+        device = MagicMock()
+        device.shell_port = "/dev/ttyACM3"
+        patches = (
+            patch.object(
+                session_mod.device_utils, "get_device_or_exit", return_value=device
+            ),
+            patch.object(session_mod, "detect_board", return_value=board),
+            patch.object(session_mod, "FirmwareVerifier"),
+            patch.object(session_mod.device_utils, "send_identify_command"),
+        )
+        started = [p.start() for p in patches]
+        started[2].return_value.verify.return_value = MagicMock(verified=verified)
+        return session_mod, device, patches
+
+    @staticmethod
+    def _stop(patches):
+        for p in patches:
+            p.stop()
+
+    def test_a_v2_already_running_the_firmware_is_left_alone(self):
+        session_mod, device, patches = self._session(verified=True)
+        try:
+            flasher = MagicMock()
+            with session_mod.device_session(
+                None,
+                required_firmware="ti_sniffer",
+                feature="catnip sniff zigbee",
+                flasher=flasher,
+            ) as dev:
+                assert dev is device
+            flasher.find_flash_firmware.assert_not_called()
+        finally:
+            self._stop(patches)
+
+    def test_a_v2_without_it_is_refused_before_the_flash(self):
+        from modules.core.exceptions import UnsupportedOnBoardError
+
+        session_mod, _, patches = self._session(verified=False)
+        try:
+            flasher = MagicMock()
+            with pytest.raises(UnsupportedOnBoardError):
+                with session_mod.device_session(
+                    None,
+                    required_firmware="ti_sniffer",
+                    feature="catnip sniff zigbee",
+                    flasher=flasher,
+                ):
+                    pass
+            flasher.find_flash_firmware.assert_not_called()
+        finally:
+            self._stop(patches)
+
+    def test_a_v2_missing_sniffle_still_gets_flashed(self):
+        session_mod, _, patches = self._session(verified=False)
+        try:
+            flasher = MagicMock()
+            flasher.find_flash_firmware.return_value = True
+            with session_mod.device_session(
+                None, required_firmware="sniffle", flasher=flasher
+            ):
+                pass
+            flasher.find_flash_firmware.assert_called_once()
+        finally:
+            self._stop(patches)
+
+    def test_an_unknown_board_is_not_blocked(self):
+        session_mod, _, patches = self._session(verified=False, board=None)
+        try:
+            flasher = MagicMock()
+            flasher.find_flash_firmware.return_value = True
+            with session_mod.device_session(
+                None, required_firmware="ti_sniffer", flasher=flasher
+            ):
+                pass
+            flasher.find_flash_firmware.assert_called_once()
+        finally:
+            self._stop(patches)
+
+
+class TestFlashListFiltersByBoard:
+    """``flash --list`` offers what this board can take, not the catalogue.
+
+    ``rich.table`` is mocked globally (see tests/conftest.py), so the rows are
+    read from the Table mock instead of from the rendered output.
+    """
+
+    FIRMWARES = [
+        "sniffle_cc1352p1_cc2652p1_1M.hex",
+        "sniffle_cc1352p7_1M.hex",
+        "sniffer_fw_Catsniffer_v3.x.hex",
+    ]
+
+    def _run(self, args, board, firmwares=None):
+        from click.testing import CliRunner
+
+        from modules.firmware import cli as fw_cli
+
+        with patch.object(
+            fw_cli.Flasher,
+            "get_local_firmware",
+            return_value=list(self.FIRMWARES if firmwares is None else firmwares),
+        ), patch.object(
+            fw_cli.Flasher, "parse_descriptions", return_value={}
+        ), patch.object(
+            fw_cli, "_board_for_list", return_value=board
+        ), patch.object(
+            fw_cli, "Table"
+        ) as table, patch.object(
+            fw_cli, "print_dim"
+        ) as dim, patch.object(
+            fw_cli, "print_info"
+        ) as info, patch.object(
+            fw_cli, "print_warning"
+        ) as warning:
+            result = CliRunner().invoke(fw_cli.flash, ["--list"] + args)
+        listed = [call.args[1] for call in table.return_value.add_row.call_args_list]
+        # The console is patched out by other suites when everything runs
+        # together, so what the user is told is read from the printers.
+        said = " ".join(
+            str(call.args[0])
+            for printer in (dim, info, warning)
+            for call in printer.call_args_list
+        )
+        return result, listed, said
+
+    def test_v2_list_hides_p7_images(self):
+        result, listed, said = self._run([], BOARD_V2)
+        assert result.exit_code == 0
+        assert listed == ["sniffle_cc1352p1_cc2652p1_1M.hex"]
+        assert "2 image(s) for other boards hidden" in said
+
+    def test_all_shows_the_whole_catalogue(self):
+        result, listed, said = self._run(["--all"], BOARD_V2)
+        assert result.exit_code == 0
+        assert sorted(listed) == sorted(self.FIRMWARES)
+
+    def test_unknown_board_shows_everything(self):
+        result, listed, said = self._run([], None)
+        assert result.exit_code == 0
+        assert sorted(listed) == sorted(self.FIRMWARES)
+        assert "Board generation unknown" in said
+
+    def test_a_v2_with_nothing_flashable_says_so_instead_of_an_empty_table(self):
+        result, listed, said = self._run(
+            [], BOARD_V2, firmwares=["sniffle_cc1352p7_1M.hex"]
+        )
+        assert result.exit_code == 0
+        assert listed == []
+        assert "None of the local images is built for" in said
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# the status parser: one firmware reports four extra sections, the other none
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Captured verbatim from a real v2 board (SAMD21, FW v2.1.0.0) on 2026-09-10.
+V2_STATUS = (
+    "status\r\n"
+    "Trace(4557): 01 03 04 30 01 02 04 01 03 04 30 01 02 04\r\n"
+    "Mode: 0, Band: 0, Radio: LoRa, LoRa: initialized, LoRa Mode: Stream, "
+    "FW: v2.1.0.0, CC1352 FW: unset (n/a)\r\n"
+    "CC1352 loss: uart_overrun=0, ring_dropped=0 bytes, dma_regress=0\r\n"
+    "Stack unused: main=200 lora=56 isr=440 bytes\r\n"
+    "Last fault: none\r\n"
+    "  thread 0x20000a20 prio=-11 stack=1024 unused=56\r\n"
+    "  thread 0x20000f28 prio=0 stack=1536 unused=200"
+)
+# The RP2040 build stops after the loss line (RP2040/.../shell_commands.c).
+V3_STATUS = (
+    "status\r\n"
+    "Mode: 0, Band: 0, Radio: LoRa, LoRa: initialized, LoRa Mode: Stream, "
+    "FW: v3.1.0.0, CC1352 FW: sniffle (official)\r\n"
+    "CC1352 loss: uart_overrun=0, ring_dropped=0 bytes"
+)
+
+
+class TestParseStatusResponse:
+    def _parse(self, text):
+        from modules.firmware.fw_status import parse_status_response
+
+        return parse_status_response(text)
+
+    def test_v2_extended_block_is_read_whole(self):
+        status = self._parse(V2_STATUS)
+        assert status.fields["FW"] == "v2.1.0.0"
+        assert status.fields["CC1352 FW"] == "unset (n/a)"
+        assert status.counters == {
+            "uart_overrun": 0,
+            "ring_dropped": 0,
+            "dma_regress": 0,
+        }
+        assert status.stacks == {"main": 200, "lora": 56, "isr": 440}
+        assert status.last_fault == "none"
+        assert len(status.threads) == 2
+        assert status.trace.startswith("Trace(")
+        assert status.has_diagnostics is True
+
+    def test_v3_minimal_block_is_not_mistaken_for_zeros(self):
+        status = self._parse(V3_STATUS)
+        assert status.fields["CC1352 FW"] == "sniffle (official)"
+        # No dma_regress on this firmware: absent, not zero.
+        assert "dma_regress" not in status.counters
+        assert status.stacks == {}
+        assert status.threads == ()
+        assert status.last_fault is None
+        assert status.has_diagnostics is False
+
+    def test_the_echoed_command_is_not_data(self):
+        assert "status" not in self._parse(V3_STATUS).unparsed
+
+    def test_an_unknown_line_is_kept_verbatim_not_dropped(self):
+        status = self._parse(V3_STATUS + "\r\nSomething new: 42")
+        assert "Something new: 42" in status.unparsed
+
+    def test_a_missing_section_never_raises(self):
+        # Every section is optional, in any combination.
+        assert self._parse("Mode: 0, Band: 0").counters == {}
+        assert self._parse("CC1352 loss: uart_overrun=3").fields == {}
+        assert self._parse("  thread 0x1 prio=0 stack=8 unused=4").threads[0].stack == 8
+
+    @pytest.mark.parametrize("text", [None, "", "   \r\n"])
+    def test_nothing_to_read_is_none(self, text):
+        assert self._parse(text) is None
+
+    def test_tightest_stack_spans_named_stacks_and_threads(self):
+        status = self._parse(V2_STATUS)
+        assert status.tightest_stack == ("lora", 56)
+
+    def test_tightest_stack_is_none_when_nothing_reports_one(self):
+        assert self._parse(V3_STATUS).tightest_stack is None
+
+
+class TestStatusCommandShowsBoardTruth:
+    def _run(self, board, shell_status, args=()):
+        from click.testing import CliRunner
+
+        from modules.device import cli as device_cli
+
+        device = MagicMock()
+        device.shell_port = "/dev/ttyACM3"
+        with patch.object(
+            device_cli, "get_device_or_exit", return_value=device
+        ), patch.object(device_cli, "detect_board", return_value=board), patch.object(
+            device_cli, "read_status", return_value=shell_status
+        ), patch.object(
+            device_cli, "FirmwareVerifier"
+        ) as verifier, patch.object(
+            device_cli, "Table"
+        ) as table, patch.object(
+            device_cli, "print_info"
+        ) as info, patch.object(
+            device_cli, "print_warning"
+        ) as warning:
+            verifier.return_value.detect.return_value = MagicMock(firmware_id=None)
+            result = CliRunner().invoke(device_cli.status, list(args))
+        rendered = " ".join(
+            str(arg)
+            for call in table.return_value.add_row.call_args_list
+            for arg in call.args
+        )
+        said = " ".join(
+            str(call.args[0])
+            for printer in (info, warning)
+            for call in printer.call_args_list
+        )
+        return result, rendered, said
+
+    def _status(self, text):
+        from modules.firmware.fw_status import parse_status_response
+
+        return parse_status_response(text)
+
+    def test_v2_capabilities_are_listed_as_unsupported(self):
+        result, rendered, _ = self._run(BOARD_V2, self._status(V2_STATUS))
+        assert result.exit_code == 0
+        assert "Board can" in rendered
+        assert "Stores the CC1352 firmware id" in rendered
+        assert "yes" not in rendered.split("Board can")[1]
+
+    def test_v3_capabilities_are_listed_as_supported(self):
+        _, rendered, _ = self._run(BOARD_V3, self._status(V3_STATUS))
+        assert "Can self-program the CC1352" in rendered
+        assert "no " not in rendered.split("Board can")[1]
+
+    def test_the_v2_diagnostics_reach_the_table(self):
+        _, rendered, said = self._run(BOARD_V2, self._status(V2_STATUS))
+        assert "stack unused: lora" in rendered
+        assert "loss: dma_regress" in rendered
+        assert "Last fault" in rendered
+        assert "close to a stack overflow" in said
+
+    def test_v3_shows_no_diagnostics_it_did_not_report(self):
+        _, rendered, said = self._run(BOARD_V3, self._status(V3_STATUS))
+        assert "stack unused" not in rendered
+        assert "Last fault" not in rendered
+        assert "close to a stack overflow" not in said
+        assert "--diagnostics" not in said  # nothing extra to offer
+
+    def test_diagnostics_flag_dumps_every_thread(self):
+        _, _, said = self._run(BOARD_V2, self._status(V2_STATUS), args=["-D"])
+        assert "thread 0x20000a20" in said
+        assert "thread 0x20000f28" in said
+        assert "Trace(" in said
+
+    def test_a_silent_shell_still_renders_the_board(self):
+        result, rendered, said = self._run(BOARD_V2, None)
+        assert result.exit_code == 0
+        assert "Board can" in rendered
+        assert "stack unused" not in rendered
+
+
+class TestMetadataStorageIsAskedOnce:
+    def test_a_board_that_says_no_storage_is_believed(self):
+        from modules.firmware.fw_metadata import FirmwareMetadata
+
+        shell = MagicMock()
+        shell.send_command.return_value = "ERR storage unavailable"
+        assert FirmwareMetadata(shell).keeps_firmware_id() is False
+
+        shell.send_command.return_value = "ERR not supported on this board"
+        assert FirmwareMetadata(shell).keeps_firmware_id() is False
+
+    def test_a_normal_answer_means_it_keeps_one(self):
+        from modules.firmware.fw_metadata import FirmwareMetadata
+
+        shell = MagicMock()
+        shell.send_command.return_value = "OK cc1352_fw_id=sniffle type=official"
+        assert FirmwareMetadata(shell).keeps_firmware_id() is True
+
+    def test_a_broken_port_is_not_read_as_a_refusal(self):
+        # "We could not ask" must not cut the retry loop short.
+        from modules.firmware.fw_metadata import FirmwareMetadata
+
+        shell = MagicMock()
+        shell.send_command.side_effect = OSError("port went away")
+        assert FirmwareMetadata(shell).keeps_firmware_id() is True

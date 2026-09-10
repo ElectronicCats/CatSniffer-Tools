@@ -210,6 +210,7 @@ def test_catnip_debug_re_raises(run_main, monkeypatch):
         (exceptions.DeviceError, exceptions.EXIT_CONNECTION),
         (exceptions.ConnectionError, exceptions.EXIT_CONNECTION),
         (exceptions.FirmwareError, exceptions.EXIT_FIRMWARE),
+        (exceptions.UnsupportedOnBoardError, exceptions.EXIT_UNSUPPORTED),
         (exceptions.ProtocolError, exceptions.EXIT_ERROR),
     ],
 )
