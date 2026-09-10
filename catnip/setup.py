@@ -44,6 +44,7 @@ setup(
             "pytest-cov>=5.0.0",
         ],
     },
+    package_data={"protocol": ["*.lua"]},
     py_modules=["catnip"],
     scripts=["lora_extcap.py"],
     entry_points={

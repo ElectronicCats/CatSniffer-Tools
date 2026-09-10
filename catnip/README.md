@@ -113,6 +113,7 @@
     - [Integrated Capture Workflow](#integrated-capture-workflow)
     - [Current Limitations](#current-limitations)
   - [Common Problem Solving](#common-problem-solving)
+    - [Error Handling and Exit Codes](#error-handling-and-exit-codes)
     - [Problem: Pipeline Already Exists](#problem-pipeline-already-exists)
     - [Problem: Permission Denied on Serial Ports](#problem-permission-denied-on-serial-ports)
     - [Problem: Device Not Detected](#problem-device-not-detected)
@@ -2184,6 +2185,38 @@ python catnip.py sniff ble --wireshark -c 37 -m passive_scan
 ---
 
 ## Common Problem Solving
+
+### Error Handling and Exit Codes
+
+Catnip maps errors to a small, documented set of exit codes so scripts and CI
+can react to *what kind* of failure happened, not just "it failed":
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0`   | Success |
+| `1`   | Generic/unexpected error |
+| `2`   | Usage error (bad flags/arguments) |
+| `3`   | Firmware error (detection, flashing, verification) |
+| `4`   | Device/connection error (not found, port busy, disconnected) |
+| `130` | Interrupted (Ctrl-C) |
+
+By default, unexpected errors are printed as a single readable line instead
+of a Python traceback:
+
+```bash
+✗ DeviceError: No CatSniffer device found! (set CATNIP_DEBUG=1 for a traceback)
+```
+
+Set `CATNIP_DEBUG=1` to get the full traceback instead, which is what you
+should include when reporting a bug:
+
+```bash
+CATNIP_DEBUG=1 catnip devices
+```
+
+Values that look like credentials (passwords, PSKs, tokens, keys) are
+automatically redacted from these error messages before they are printed, so
+it is safe to paste them when asking for help.
 
 ### Problem: Pipeline Already Exists
 
