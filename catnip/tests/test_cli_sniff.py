@@ -238,6 +238,9 @@ class TestSniffLoRaWireshark:
         ), patch(
             "modules.sniff.cli.lora_decode_as_args", sniffer_sx.lora_decode_as_args
         ), patch(
+            "modules.sniff.cli.lora_wireshark_column_args",
+            sniffer_sx.lora_wireshark_column_args,
+        ), patch(
             "modules.sniff.cli.LORAWAN_SYNCWORD", sniffer_sx.LORAWAN_SYNCWORD
         ), patch(
             "modules.sniff.cli.run_sx_bridge", side_effect=fake_bridge
@@ -279,14 +282,18 @@ class TestSniffLoRaWireshark:
         pcap_file = bridge.call_args.args[13]
         assert result.exit_code == 0
         assert pcap_file and pcap_file.endswith(".pcapng")
-        opener.assert_called_once_with(pcap_file, extra_args=[])
+        opener.assert_called_once_with(
+            pcap_file, extra_args=sniffer_sx.lora_wireshark_column_args()
+        )
 
     def test_write_only_offers_the_capture_and_opens_it_on_yes(
         self, sniffer_sx, tmp_path
     ):
         target = tmp_path / "capture.pcapng"
         _, _, opener, _ = self._invoke(sniffer_sx, "-w", str(target), confirm=True)
-        opener.assert_called_once_with(str(target), extra_args=[])
+        opener.assert_called_once_with(
+            str(target), extra_args=sniffer_sx.lora_wireshark_column_args()
+        )
 
     def test_declined_prompt_leaves_wireshark_closed(self, sniffer_sx, tmp_path):
         target = tmp_path / "capture.pcapng"
@@ -370,6 +377,30 @@ class TestLoRaDecodeAsArgs:
             sniffer_sx.lora_decode_as_args("wireshark-please-guess", "public")
 
 
+class TestLoRaWiresharkColumnArgs:
+    """``lora_wireshark_column_args``: the packet list a LoRa capture deserves.
+
+    A LoRa radio reports no addresses, and neither the LoRaTap dissector nor the
+    payload dissector it calls writes the Info column, so Wireshark's default
+    columns leave Source, Destination and Info blank on every single packet.
+    """
+
+    def test_the_payload_is_what_the_info_column_shows(self, sniffer_sx):
+        option = sniffer_sx.lora_wireshark_column_args()[1]
+        assert '"Info","%Cus:loratap.payload:0:R"' in option
+
+    def test_source_and_destination_are_left_out(self, sniffer_sx):
+        option = sniffer_sx.lora_wireshark_column_args()[1]
+        assert "%s" not in option and "%d" not in option
+
+    def test_it_is_a_wireshark_preference_override(self, sniffer_sx):
+        args = sniffer_sx.lora_wireshark_column_args()
+        # -o overrides the preference for this run only: the user's own saved
+        # column layout has to survive a catnip capture.
+        assert args[0] == "-o"
+        assert args[1].startswith("gui.column.format:")
+
+
 @pytest.mark.slow
 class TestSniffLoRaDissectAs:
     """``-da/--dissect-as`` has to reach *both* Wireshark paths.
@@ -398,6 +429,9 @@ class TestSniffLoRaDissectAs:
         ), patch(
             "modules.sniff.cli.lora_decode_as_args", sniffer_sx.lora_decode_as_args
         ), patch(
+            "modules.sniff.cli.lora_wireshark_column_args",
+            sniffer_sx.lora_wireshark_column_args,
+        ), patch(
             "modules.sniff.cli.LORAWAN_SYNCWORD", sniffer_sx.LORAWAN_SYNCWORD
         ), patch(
             "modules.sniff.cli.run_sx_bridge", side_effect=fake_bridge
@@ -414,12 +448,16 @@ class TestSniffLoRaDissectAs:
             result = CliRunner().invoke(build_cli(), ["sniff", "lora", *args])
         return result, bridge, opener
 
+    def _decode_rule(self, args):
+        """The ``-d`` pair, dropping the column layout every capture also gets."""
+        return args[: args.index("-o")] if "-o" in args else args
+
     def test_rule_reaches_the_live_wireshark(self, sniffer_sx):
         result, bridge, _ = self._invoke(
             sniffer_sx, "-ws", "-sw", "public", "-da", "data"
         )
         assert result.exit_code == 0
-        assert bridge.call_args.kwargs["wireshark_args"] == [
+        assert self._decode_rule(bridge.call_args.kwargs["wireshark_args"]) == [
             "-d",
             "loratap.syncword==52,data",
         ]
@@ -430,27 +468,38 @@ class TestSniffLoRaDissectAs:
             sniffer_sx, "-oc", "-w", str(target), "-sw", "public", "-da", "data"
         )
         opener.assert_called_once_with(
-            str(target), extra_args=["-d", "loratap.syncword==52,data"]
+            str(target),
+            extra_args=["-d", "loratap.syncword==52,data"]
+            + sniffer_sx.lora_wireshark_column_args(),
         )
 
     def test_auto_fixes_the_public_sync_word_with_no_extra_flag(self, sniffer_sx):
         """The point of the default: ``-sw public`` needs no ``-da`` to be readable."""
         _, bridge, _ = self._invoke(sniffer_sx, "-ws", "-sw", "public")
-        assert bridge.call_args.kwargs["wireshark_args"] == [
+        assert self._decode_rule(bridge.call_args.kwargs["wireshark_args"]) == [
             "-d",
             "loratap.syncword==52,data",
         ]
 
     def test_auto_passes_nothing_for_a_private_sync_word(self, sniffer_sx):
         _, bridge, _ = self._invoke(sniffer_sx, "-ws", "-sw", "private")
-        assert bridge.call_args.kwargs["wireshark_args"] == []
+        assert self._decode_rule(bridge.call_args.kwargs["wireshark_args"]) == []
 
     def test_lorawan_restores_the_lorawan_dissector(self, sniffer_sx):
         _, bridge, _ = self._invoke(
             sniffer_sx, "-ws", "-sw", "public", "-da", "lorawan"
         )
         # 0x34 is Wireshark's own mapping, so the rule is a no-op by omission.
-        assert bridge.call_args.kwargs["wireshark_args"] == []
+        assert self._decode_rule(bridge.call_args.kwargs["wireshark_args"]) == []
+
+    @pytest.mark.parametrize("args", [("-ws",), ("-ws", "-sw", "public")])
+    def test_the_column_layout_reaches_wireshark_whatever_the_sync_word(
+        self, sniffer_sx, args
+    ):
+        """Empty Source/Destination/Info columns are not a per-sync-word problem."""
+        _, bridge, _ = self._invoke(sniffer_sx, *args)
+        passed = bridge.call_args.kwargs["wireshark_args"]
+        assert sniffer_sx.lora_wireshark_column_args() == passed[-2:]
 
 
 class TestLoRaWANDissectionNotice:
