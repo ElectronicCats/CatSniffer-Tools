@@ -755,7 +755,7 @@ class TestFlasherFindFlash:
         flasher = self._flasher()
         with patch.object(flasher, "flash_firmware", return_value=True) as mock_flash:
             result = flasher.find_flash_firmware(str(fw), fake_device)
-        mock_flash.assert_called_once_with(str(fw), fake_device)
+        mock_flash.assert_called_once_with(str(fw), fake_device, board=None)
         assert result is True
 
     def test_nonexistent_path_returns_false(self, fake_device):
@@ -768,8 +768,12 @@ class TestFlasherFindFlash:
 
     def test_alias_resolved(self, fake_device):
         flasher = self._flasher()
+        # The board has to be known before an image is chosen: catalogs are
+        # per generation. Detection is mocked so the test needs no hardware.
+        from modules.firmware.board import BOARD_V3
+
         # FIX: Patch the correct module (fw_aliases) instead of flasher
-        with patch(
+        with patch("modules.firmware.board.detect_board", return_value=BOARD_V3), patch(
             "modules.firmware.fw_aliases.get_official_id", return_value="sniffle_ble"
         ), patch(
             "modules.firmware.fw_aliases.get_filename_pattern", return_value="sniffle"
