@@ -236,6 +236,10 @@ class TestSniffLoRaWireshark:
         with patch(
             "modules.sniff.cli.normalize_syncword", sniffer_sx.normalize_syncword
         ), patch(
+            "modules.sniff.cli.lora_decode_as_args", sniffer_sx.lora_decode_as_args
+        ), patch(
+            "modules.sniff.cli.LORAWAN_SYNCWORD", sniffer_sx.LORAWAN_SYNCWORD
+        ), patch(
             "modules.sniff.cli.run_sx_bridge", side_effect=fake_bridge
         ) as bridge, patch(
             "modules.sniff.cli.get_device_or_exit", return_value=MagicMock()
@@ -275,14 +279,14 @@ class TestSniffLoRaWireshark:
         pcap_file = bridge.call_args.args[13]
         assert result.exit_code == 0
         assert pcap_file and pcap_file.endswith(".pcapng")
-        opener.assert_called_once_with(pcap_file)
+        opener.assert_called_once_with(pcap_file, extra_args=[])
 
     def test_write_only_offers_the_capture_and_opens_it_on_yes(
         self, sniffer_sx, tmp_path
     ):
         target = tmp_path / "capture.pcapng"
         _, _, opener, _ = self._invoke(sniffer_sx, "-w", str(target), confirm=True)
-        opener.assert_called_once_with(str(target))
+        opener.assert_called_once_with(str(target), extra_args=[])
 
     def test_declined_prompt_leaves_wireshark_closed(self, sniffer_sx, tmp_path):
         target = tmp_path / "capture.pcapng"
@@ -310,3 +314,129 @@ class TestSniffLoRaWireshark:
         _, bridge, opener, _ = self._invoke(sniffer_sx, "-ws", "-w", str(target))
         assert bridge.call_args.args[6] is True  # wireshark flag reaches the bridge
         assert not opener.called
+
+
+class TestLoRaDecodeAsArgs:
+    """``lora_decode_as_args``: which dissector Wireshark uses for the payload.
+
+    Wireshark's LoRaTap dissector chooses by sync word — ``tshark -G decodes``
+    lists exactly one default entry, ``loratap.syncword 52 lorawan`` — so a
+    plain-LoRa capture made on the LoRaWAN sync word (0x34, what ``--sync-word
+    public`` sets) is fed to the LoRaWAN dissector and comes out as "LoRaWAN MAC
+    Header malformed".  The sync word has to match the transmitter, so the
+    override belongs on the Wireshark command line.
+    """
+
+    def test_auto_leaves_wiresharks_own_mapping_alone(self, sniffer_sx):
+        assert sniffer_sx.lora_decode_as_args("auto", "public") == []
+        assert sniffer_sx.lora_decode_as_args("auto", "private") == []
+
+    @pytest.mark.parametrize("sync_word", ["public", "private", "0x2B"])
+    def test_data_disables_lorawan_for_every_sync_word(self, sniffer_sx, sync_word):
+        """0x34 is the only mapping Wireshark ships, so one rule covers them all."""
+        assert sniffer_sx.lora_decode_as_args("data", sync_word) == [
+            "-d",
+            "loratap.syncword==52,data",
+        ]
+
+    def test_lorawan_maps_a_custom_sync_word_onto_the_lorawan_dissector(
+        self, sniffer_sx
+    ):
+        assert sniffer_sx.lora_decode_as_args("lorawan", "0x2B") == [
+            "-d",
+            "loratap.syncword==43,lorawan",
+        ]
+
+    def test_lorawan_on_the_standard_sync_word_needs_no_rule(self, sniffer_sx):
+        assert sniffer_sx.lora_decode_as_args("lorawan", "public") == []
+
+    def test_unknown_mode_is_rejected(self, sniffer_sx):
+        with pytest.raises(ValueError):
+            sniffer_sx.lora_decode_as_args("wireshark-please-guess", "public")
+
+
+@pytest.mark.slow
+class TestSniffLoRaDissectAs:
+    """``-da/--dissect-as`` has to reach *both* Wireshark paths.
+
+    The live pipe and the capture file are opened by different code (the bridge
+    and ``open_capture_in_wireshark``), and a rule that only reaches one of them
+    means the same packets dissect differently depending on how they are viewed.
+    """
+
+    def _invoke(self, sniffer_sx, *args):
+        from unittest.mock import patch
+
+        from click.testing import CliRunner
+
+        from modules.core.cli import build_cli
+
+        warnings = []
+
+        def fake_bridge(*call_args, **kwargs):
+            pcap_file = call_args[13]
+            if pcap_file:
+                with open(pcap_file, "wb") as fh:
+                    fh.write(b"header")
+            return 3
+
+        with patch(
+            "modules.sniff.cli.normalize_syncword", sniffer_sx.normalize_syncword
+        ), patch(
+            "modules.sniff.cli.lora_decode_as_args", sniffer_sx.lora_decode_as_args
+        ), patch(
+            "modules.sniff.cli.LORAWAN_SYNCWORD", sniffer_sx.LORAWAN_SYNCWORD
+        ), patch(
+            "modules.sniff.cli.run_sx_bridge", side_effect=fake_bridge
+        ) as bridge, patch(
+            "modules.sniff.cli.get_device_or_exit", return_value=MagicMock()
+        ), patch(
+            "modules.sniff.cli.find_wireshark_path", return_value="/usr/bin/wireshark"
+        ), patch(
+            "modules.sniff.cli.open_capture_in_wireshark"
+        ) as opener, patch(
+            "modules.sniff.cli.print_warning", side_effect=warnings.append
+        ), patch(
+            "modules.sniff.cli.sys"
+        ) as fake_sys:
+            fake_sys.stdin.isatty.return_value = True
+            result = CliRunner().invoke(build_cli(), ["sniff", "lora", *args])
+        return result, bridge, opener, "\n".join(warnings)
+
+    def test_rule_reaches_the_live_wireshark(self, sniffer_sx):
+        result, bridge, _, _ = self._invoke(
+            sniffer_sx, "-ws", "-sw", "public", "-da", "data"
+        )
+        assert result.exit_code == 0
+        assert bridge.call_args.kwargs["wireshark_args"] == [
+            "-d",
+            "loratap.syncword==52,data",
+        ]
+
+    def test_rule_reaches_the_capture_file(self, sniffer_sx, tmp_path):
+        target = tmp_path / "capture.pcapng"
+        _, _, opener, _ = self._invoke(
+            sniffer_sx, "-oc", "-w", str(target), "-sw", "public", "-da", "data"
+        )
+        opener.assert_called_once_with(
+            str(target), extra_args=["-d", "loratap.syncword==52,data"]
+        )
+
+    def test_auto_passes_nothing(self, sniffer_sx):
+        _, bridge, _, _ = self._invoke(sniffer_sx, "-ws", "-sw", "private")
+        assert bridge.call_args.kwargs["wireshark_args"] == []
+
+    def test_lorawan_sync_word_warns_about_the_default_dissector(self, sniffer_sx):
+        """The malformed frames are confusing; name the flag that fixes them."""
+        _, _, _, warnings = self._invoke(sniffer_sx, "-ws", "-sw", "public")
+        assert "LoRaWAN" in warnings
+
+    def test_no_warning_once_the_rule_is_explicit(self, sniffer_sx):
+        _, _, _, warnings = self._invoke(
+            sniffer_sx, "-ws", "-sw", "public", "-da", "data"
+        )
+        assert warnings == ""
+
+    def test_no_warning_for_a_private_sync_word(self, sniffer_sx):
+        _, _, _, warnings = self._invoke(sniffer_sx, "-ws", "-sw", "0x2B")
+        assert warnings == ""
