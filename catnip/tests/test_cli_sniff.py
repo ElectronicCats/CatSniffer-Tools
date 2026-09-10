@@ -389,6 +389,23 @@ class TestLoRaWiresharkDisplayArgs:
         option = sniffer_sx.lora_wireshark_display_args()[1]
         assert '"Info","%Cus:loratap.payload:0:R"' in option
 
+    def test_link_quality_gets_its_own_columns(self, sniffer_sx):
+        """RSSI and SNR are the reason to look at a LoRa capture at all."""
+        option = sniffer_sx.lora_wireshark_display_args()[1]
+        assert '"RSSI","%Cus:loratap.rssi.packet:0:R"' in option
+        assert '"SNR","%Cus:loratap.rssi.snr:0:R"' in option
+
+    def test_link_quality_columns_are_resolved_not_raw(self, sniffer_sx):
+        """LoRaTap stores RSSI as (dBm + 139) and SNR as (dB * 4).
+
+        Only the resolved form (``:R``) renders those back as "-42 dBm" and
+        "9.0 dB"; ``:U`` would put the stored bytes -- 97 and 36 -- in the
+        packet list, which is worse than no column at all.
+        """
+        option = sniffer_sx.lora_wireshark_display_args()[1]
+        assert "loratap.rssi.packet:0:U" not in option
+        assert "loratap.rssi.snr:0:U" not in option
+
     def test_source_and_destination_are_left_out(self, sniffer_sx):
         option = sniffer_sx.lora_wireshark_display_args()[1]
         assert "%s" not in option and "%d" not in option
