@@ -9,6 +9,7 @@ import sys
 import time
 
 # Internal
+from .board import file_available_for_board
 from .flasher import Flasher
 from .verify import run_verification
 from ..core.catnip import catnip_get_device, catnip_get_devices
@@ -41,6 +42,27 @@ from ..utils.output import (
     print_alias_item,
     print_next_steps,
 )
+
+
+def _board_for_list(device, board_override):
+    """Which board ``flash --list`` should filter for, or None if unknown.
+
+    An explicit ``--board`` wins; otherwise the connected device is asked.
+    Nothing here is an error: with no device attached the catalogue is simply
+    shown unfiltered.
+    """
+    from .board import board_from_generation, detect_board
+
+    board = board_from_generation(board_override)
+    if board is not None:
+        return board
+    try:
+        dev = catnip_get_device(device)
+    except Exception:
+        return None
+    if dev is None or not getattr(dev, "shell_port", None):
+        return None
+    return detect_board(dev.shell_port)
 
 
 def _one_line(description):
@@ -104,13 +126,21 @@ def complete_firmware(ctx, param, incomplete):
     is_flag=True,
     help="Show full descriptions without truncation in the list",
 )
+@click.option(
+    "--all",
+    "show_all",
+    is_flag=True,
+    help="With --list, show the whole catalogue instead of only the images "
+    "that can be flashed on the connected board",
+)
 @board_option()
-def flash(firmware, device, list, full, board_override) -> None:
+def flash(firmware, device, list, full, show_all, board_override) -> None:
     """Flash CC1352 Firmware or list available firmware images.
 
     \b
     Examples:
-        catnip flash --list               # see available firmware images/aliases
+        catnip flash --list               # images this board can take
+        catnip flash --list --all         # the whole catalogue
         catnip flash ble                  # flash Sniffle BLE firmware
         catnip flash zigbee --device 1    # flash TI sniffer to device #1
         catnip flash ble --board v2       # name the board when its shell is dead
@@ -134,6 +164,52 @@ def flash(firmware, device, list, full, board_override) -> None:
                 print_empty_line()
                 print_info("Run the CLI once to download the latest firmware images.")
                 return
+
+            # Only offer what the board in front of the user can actually
+            # take: a CC1352P7 image on a CC1352P1 needs a cJTAG programmer
+            # to undo, so listing it as available is an invitation to brick.
+            list_board = _board_for_list(device, board_override)
+            if list_board is not None and not show_all:
+                shown = [
+                    f for f in firmwares if file_available_for_board(f, list_board)
+                ]
+                hidden = len(firmwares) - len(shown)
+                firmwares = shown
+                print_info(f"Board: {list_board.label}")
+                if hidden:
+                    print_dim(
+                        f"{hidden} image(s) for other boards hidden — use --all to "
+                        "see the full catalogue."
+                    )
+                if not firmwares:
+                    # The bundle is downloaded per release, so a board whose
+                    # images are simply not in it yet is the normal case, not
+                    # an error: name what exists for it and how to get it.
+                    from .fw_aliases import official_ids_for_board
+
+                    print_warning(
+                        f"None of the local images is built for a {list_board.label}."
+                    )
+                    print_empty_line()
+                    catalogue = ", ".join(
+                        sorted(official_ids_for_board(list_board.generation))
+                    )
+                    print_info(f"Built for {list_board.generation}: {catalogue}")
+                    print_info(
+                        "'catnip flash <name>' downloads the image for this board on "
+                        "demand; 'catnip flash --list --all' shows what is already here."
+                    )
+                    return
+            elif list_board is None:
+                print_dim(
+                    "Board generation unknown — showing every image. Connect the "
+                    "Cat-Shell port or pass --board v2/--board v3 to filter."
+                )
+            elif show_all:
+                print_dim(
+                    f"Showing every image; this board is a {list_board.label} and "
+                    "cannot take all of them."
+                )
 
             # Create table to display firmwares
             table = Table(box=box.ROUNDED, show_header=True)
@@ -510,11 +586,14 @@ def update(device, force, board_override):
     default="0x1BB7702F",
     help="CC1352 JTAG TAPID (default: CC1352P7)",
 )
-def restore(firmware, device, tapid):
+@board_option()
+def restore(firmware, device, tapid, board_override):
     """Restore CC1352 when bootloader is broken.
 
     Uses RP2040 as CMSIS-DAP JTAG programmer via OpenOCD to flash
-    the CC1352 directly. Requires OpenOCD installed.
+    the CC1352 directly. Requires OpenOCD installed. Only v3 boards can do
+    this: a v2 (SAMD21) has no RP2040 to load the probe onto and needs an
+    external cJTAG programmer instead.
 
     If no firmware is specified, uses the default CatSniffer firmware
     from the catnip release.
@@ -524,6 +603,7 @@ def restore(firmware, device, tapid):
         catnip restore                    # default CatSniffer firmware
         catnip restore firmware.hex       # custom firmware
         catnip restore firmware.hex -d 1  # specific device
+        catnip restore --board v3         # name the board when its shell is dead
     """
     from .restore import restore_cc1352
 
@@ -548,11 +628,14 @@ def restore(firmware, device, tapid):
 
     flasher_inst = Flasher()
 
+    from .board import board_from_generation
+
     success = restore_cc1352(
         hex_path=firmware,
         device=dev,
         flasher=flasher_inst,
         tapid=tapid,
+        board=board_from_generation(board_override),
     )
 
     if not success:

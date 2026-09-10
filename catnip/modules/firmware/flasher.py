@@ -1039,6 +1039,7 @@ class Flasher:
 
                     # CONNECTION AND COMMAND RETRIES
                     success = False
+                    no_storage = False
                     last_error = None
 
                     for attempt in range(5):  # 5 attempts
@@ -1075,10 +1076,28 @@ class Flasher:
                             success = update_firmware_metadata_after_flash(
                                 shell, firmware_name
                             )
+                            # A board that answers "no storage" answers that
+                            # every time, so four more attempts buy nothing
+                            # (PLAN_SOPORTE_V2.md, T-11). Asked while the
+                            # shell is still open, and only when something
+                            # went wrong.
+                            no_storage = False
+                            if not success:
+                                from .fw_metadata import FirmwareMetadata
+
+                                no_storage = not FirmwareMetadata(
+                                    shell
+                                ).keeps_firmware_id()
                             shell.disconnect()
 
                             if success:
                                 print_dim("  └─ Metadata updated successfully")
+                                break
+                            elif no_storage:
+                                print_dim(
+                                    "  └─ This board keeps no CC1352 firmware ID; "
+                                    "not retrying"
+                                )
                                 break
                             else:
                                 print_dim("  └─ Metadata update command failed")
@@ -1096,6 +1115,11 @@ class Flasher:
 
                     if success:
                         print_success("Firmware metadata updated successfully")
+                    elif no_storage:
+                        # Not a failure: this board never had anywhere to put it.
+                        print_dim(
+                            "[*] Board keeps no CC1352 firmware ID; metadata skipped"
+                        )
                     else:
                         print_warning(
                             "Could not update firmware metadata after 5 attempts"

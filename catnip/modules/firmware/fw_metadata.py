@@ -94,6 +94,22 @@ class FirmwareMetadata:
             logger.debug(f"Error in get_firmware_id: {e}")
             return None
 
+    def keeps_firmware_id(self) -> bool:
+        """
+        Whether this board can store a CC1352 firmware ID at all.
+
+        False only when the board says so outright ("not supported on this
+        board", "storage unavailable"). A silent or broken port answers True,
+        because "we could not ask" is not "it cannot": only an explicit
+        refusal is a reason to stop retrying.
+        """
+        try:
+            response = self.shell.send_command("cc1352_fw_id get", timeout=2.0)
+        except Exception as e:
+            logger.debug(f"Error asking whether the board keeps a firmware id: {e}")
+            return True
+        return not _storage_missing(response)
+
     def set_firmware_id(self, fw_id: str) -> bool:
         """
         Sets the CC1352 firmware ID in the RP2040 flash.

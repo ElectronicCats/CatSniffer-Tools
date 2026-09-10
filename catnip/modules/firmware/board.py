@@ -30,7 +30,7 @@ tests/test_board_support.py enforces that with an AST check.
 
 import re
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 CC1352P1_FLASH_SIZE = 0x58000  # 352 KB
 CC1352P7_FLASH_SIZE = 0xB0000  # 704 KB
@@ -231,3 +231,123 @@ def board_for_chip_size(chip_flash_size: int) -> Optional[BoardInfo]:
         if board.cc_flash_size == chip_flash_size:
             return board
     return None
+
+
+# ── preconditions ────────────────────────────────────────────────────────
+#
+# Everything below turns the capability data above into the single sentence
+# a user should read *before* a command touches the hardware, instead of
+# letting them find out halfway through a flash.
+
+# What each capability means when it is missing, phrased as the reason the
+# board cannot do it.
+_CAPABILITY_REASON = {
+    "has_fw_id_storage": "has no non-volatile storage for the CC1352 firmware id",
+    "can_self_program_cc1352": "has no RP2040 to run the CMSIS-DAP probe on",
+    "ships_cc1352_hex_assets": "publishes no CC1352 .hex assets in its releases",
+    "accepts_unnamed_images": "only accepts images that name their CC1352 variant",
+}
+
+_UNKNOWN_BOARD_HINT = [
+    "Connect the Cat-Shell port and run 'catnip devices' to confirm it answers.",
+    "Or name the board by hand: --board v2 / --board v3.",
+]
+
+
+def require_capability(
+    board: Optional[BoardInfo], capability: str, feature: str
+) -> BoardInfo:
+    """
+    Assert that ``board`` can do ``feature``, or raise.
+
+    ``capability`` is the name of a BoardInfo capability field. An unknown
+    board (None) raises too: a command that depends on the generation may
+    not run on a board that never said which one it is.
+
+    Returns the board, so callers can keep using it in one expression.
+    """
+    from ..core.exceptions import UnsupportedOnBoardError
+
+    if board is None:
+        raise UnsupportedOnBoardError(
+            f"{feature} needs to know the board generation, and this board did "
+            "not answer.",
+            hint=list(_UNKNOWN_BOARD_HINT),
+        )
+    if not getattr(board, capability):
+        reason = _CAPABILITY_REASON.get(capability, f"lacks '{capability}'")
+        raise UnsupportedOnBoardError(
+            f"{feature} is not supported on a CatSniffer {board.label}: it {reason}.",
+            hint=[f"This needs a CatSniffer {BOARD_V3.label}."],
+        )
+    return board
+
+
+def require_firmware_for_board(
+    board: Optional[BoardInfo], official_id: str, feature: str
+) -> None:
+    """
+    Assert that a CC1352 image for ``official_id`` exists for ``board``.
+
+    Unlike :func:`require_capability`, an unknown board is *not* an error
+    here: this is an early, informative check, and the flashing path refuses
+    an unknown board on its own (see ``flasher.find_flash_firmware``). Its
+    job is to turn "sniff zigbee fails halfway through a flash on a v2" into
+    one sentence printed before anything is touched.
+    """
+    from ..core.exceptions import UnsupportedOnBoardError
+    from .fw_aliases import official_ids_for_board
+
+    if board is None:
+        return
+    available = official_ids_for_board(board.generation)
+    if official_id in available:
+        return
+    raise UnsupportedOnBoardError(
+        f"{feature} needs the '{official_id}' firmware, which is not built for a "
+        f"CatSniffer {board.label}.",
+        hint=[
+            f"Images available for {board.generation}: {', '.join(sorted(available))}.",
+            f"This needs a CatSniffer {BOARD_V3.label}.",
+        ],
+    )
+
+
+def file_available_for_board(filename: str, board: Optional[BoardInfo]) -> bool:
+    """
+    Whether a file in the release folder is meant for ``board``.
+
+    Covers both kinds of asset the folder holds: CC1352 images, judged by the
+    variant in their name, and host UF2 bundles, judged by the board's own
+    release-asset pattern (a v2 UF2 names no CC1352 variant, so the image
+    rule alone would hide the very firmware that board runs).
+
+    An unknown board makes everything visible: this only decides what to
+    *show*, never what to write.
+    """
+    if board is None:
+        return True
+    if filename.lower().endswith(".uf2"):
+        return board.uf2_pattern in filename.lower()
+    return image_allowed_for_board(filename, board)[0]
+
+
+# How each capability reads when it is being *listed* rather than refused.
+_CAPABILITY_LABEL = {
+    "has_fw_id_storage": "Stores the CC1352 firmware id",
+    "can_self_program_cc1352": "Can self-program the CC1352 (catnip restore)",
+    "ships_cc1352_hex_assets": "Its releases ship CC1352 .hex assets",
+}
+
+
+def capability_rows(board: Optional[BoardInfo]) -> List[Tuple[str, bool]]:
+    """(label, supported) for every capability worth showing to a user.
+
+    ``accepts_unnamed_images`` is deliberately absent: it is an internal rule
+    about how the release bundle is named, not something a user can act on.
+    """
+    if board is None:
+        return []
+    return [
+        (label, bool(getattr(board, name))) for name, label in _CAPABILITY_LABEL.items()
+    ]
