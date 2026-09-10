@@ -238,8 +238,8 @@ class TestSniffLoRaWireshark:
         ), patch(
             "modules.sniff.cli.lora_decode_as_args", sniffer_sx.lora_decode_as_args
         ), patch(
-            "modules.sniff.cli.lora_wireshark_column_args",
-            sniffer_sx.lora_wireshark_column_args,
+            "modules.sniff.cli.lora_wireshark_display_args",
+            sniffer_sx.lora_wireshark_display_args,
         ), patch(
             "modules.sniff.cli.LORAWAN_SYNCWORD", sniffer_sx.LORAWAN_SYNCWORD
         ), patch(
@@ -283,7 +283,7 @@ class TestSniffLoRaWireshark:
         assert result.exit_code == 0
         assert pcap_file and pcap_file.endswith(".pcapng")
         opener.assert_called_once_with(
-            pcap_file, extra_args=sniffer_sx.lora_wireshark_column_args()
+            pcap_file, extra_args=sniffer_sx.lora_wireshark_display_args()
         )
 
     def test_write_only_offers_the_capture_and_opens_it_on_yes(
@@ -292,7 +292,7 @@ class TestSniffLoRaWireshark:
         target = tmp_path / "capture.pcapng"
         _, _, opener, _ = self._invoke(sniffer_sx, "-w", str(target), confirm=True)
         opener.assert_called_once_with(
-            str(target), extra_args=sniffer_sx.lora_wireshark_column_args()
+            str(target), extra_args=sniffer_sx.lora_wireshark_display_args()
         )
 
     def test_declined_prompt_leaves_wireshark_closed(self, sniffer_sx, tmp_path):
@@ -377,8 +377,8 @@ class TestLoRaDecodeAsArgs:
             sniffer_sx.lora_decode_as_args("wireshark-please-guess", "public")
 
 
-class TestLoRaWiresharkColumnArgs:
-    """``lora_wireshark_column_args``: the packet list a LoRa capture deserves.
+class TestLoRaWiresharkDisplayArgs:
+    """``lora_wireshark_display_args``: the packet list a LoRa capture deserves.
 
     A LoRa radio reports no addresses, and neither the LoRaTap dissector nor the
     payload dissector it calls writes the Info column, so Wireshark's default
@@ -386,19 +386,48 @@ class TestLoRaWiresharkColumnArgs:
     """
 
     def test_the_payload_is_what_the_info_column_shows(self, sniffer_sx):
-        option = sniffer_sx.lora_wireshark_column_args()[1]
+        option = sniffer_sx.lora_wireshark_display_args()[1]
         assert '"Info","%Cus:loratap.payload:0:R"' in option
 
     def test_source_and_destination_are_left_out(self, sniffer_sx):
-        option = sniffer_sx.lora_wireshark_column_args()[1]
+        option = sniffer_sx.lora_wireshark_display_args()[1]
         assert "%s" not in option and "%d" not in option
 
     def test_it_is_a_wireshark_preference_override(self, sniffer_sx):
-        args = sniffer_sx.lora_wireshark_column_args()
+        args = sniffer_sx.lora_wireshark_display_args()
         # -o overrides the preference for this run only: the user's own saved
         # column layout has to survive a catnip capture.
         assert args[0] == "-o"
         assert args[1].startswith("gui.column.format:")
+
+    def test_the_ascii_column_is_loaded_with_its_postdissector(self, sniffer_sx):
+        """The column and the Lua that fills it are useless one without the other."""
+        args = sniffer_sx.lora_wireshark_display_args()
+        script = sniffer_sx.LORATAP_ASCII_POSTDISSECTOR
+
+        assert script.is_file(), f"postdissector not shipped: {script}"
+        assert sniffer_sx.LORATAP_ASCII_COLUMN in args[1]
+        assert args[-2:] == ["-X", f"lua_script:{script}"]
+
+    def test_the_column_names_the_field_the_postdissector_registers(self, sniffer_sx):
+        """A custom column is silently empty when the field name drifts."""
+        lua = sniffer_sx.LORATAP_ASCII_POSTDISSECTOR.read_text()
+
+        assert 'ProtoField.string("catnip_lora.ascii"' in lua
+        assert "catnip_lora.ascii" in sniffer_sx.LORATAP_ASCII_COLUMN
+
+    def test_the_ascii_column_is_dropped_without_the_script(
+        self, sniffer_sx, tmp_path, monkeypatch
+    ):
+        """A frozen build that shipped no Lua must not ask for a column Wireshark
+        cannot fill, nor for a script it cannot load."""
+        monkeypatch.setattr(
+            sniffer_sx, "LORATAP_ASCII_POSTDISSECTOR", tmp_path / "absent.lua"
+        )
+        args = sniffer_sx.lora_wireshark_display_args()
+
+        assert "-X" not in args
+        assert "catnip_lora.ascii" not in args[1]
 
 
 @pytest.mark.slow
@@ -429,8 +458,8 @@ class TestSniffLoRaDissectAs:
         ), patch(
             "modules.sniff.cli.lora_decode_as_args", sniffer_sx.lora_decode_as_args
         ), patch(
-            "modules.sniff.cli.lora_wireshark_column_args",
-            sniffer_sx.lora_wireshark_column_args,
+            "modules.sniff.cli.lora_wireshark_display_args",
+            sniffer_sx.lora_wireshark_display_args,
         ), patch(
             "modules.sniff.cli.LORAWAN_SYNCWORD", sniffer_sx.LORAWAN_SYNCWORD
         ), patch(
@@ -470,7 +499,7 @@ class TestSniffLoRaDissectAs:
         opener.assert_called_once_with(
             str(target),
             extra_args=["-d", "loratap.syncword==52,data"]
-            + sniffer_sx.lora_wireshark_column_args(),
+            + sniffer_sx.lora_wireshark_display_args(),
         )
 
     def test_auto_fixes_the_public_sync_word_with_no_extra_flag(self, sniffer_sx):
@@ -499,7 +528,8 @@ class TestSniffLoRaDissectAs:
         """Empty Source/Destination/Info columns are not a per-sync-word problem."""
         _, bridge, _ = self._invoke(sniffer_sx, *args)
         passed = bridge.call_args.kwargs["wireshark_args"]
-        assert sniffer_sx.lora_wireshark_column_args() == passed[-2:]
+        display = sniffer_sx.lora_wireshark_display_args()
+        assert passed[-len(display) :] == display
 
 
 class TestLoRaWANDissectionNotice:
