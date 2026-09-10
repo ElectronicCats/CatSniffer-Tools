@@ -6,7 +6,7 @@
 -- by clicking into a packet and squinting at the hex pane.  A postdissector
 -- runs after the LoRaTap dissector, so it can pick `loratap.payload` back up
 -- and register the same bytes a second time as a string field, whichever
--- dissector `--dissect-as` gave the payload to.
+-- dissector the payload was handed to.
 
 local catnip_lora = Proto("catnip_lora", "CatSniffer LoRa")
 local ascii_field = ProtoField.string("catnip_lora.ascii", "Payload (ASCII)")
