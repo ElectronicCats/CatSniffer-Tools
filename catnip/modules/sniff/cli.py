@@ -81,15 +81,17 @@ def _require_wireshark() -> bool:
     return False
 
 
-def _warn_about_lorawan_dissection(
+def _explain_lorawan_dissection(
     opening_wireshark: bool, dissect_as: str, sync_word: str
 ) -> None:
-    """Name the fix before the user has to go looking for it.
+    """Say out loud which dissector ``--dissect-as auto`` just picked.
 
     Wireshark's LoRaTap dissector hands anything captured on sync word 0x34 to
-    the LoRaWAN dissector, so a plain-LoRa payload arrives as "LoRaWAN MAC
-    Header malformed".  The sync word has to match the transmitter, so the
-    answer is never to change it — it is ``--dissect-as data``.
+    the LoRaWAN dissector, and a plain-LoRa payload then arrives as "LoRaWAN MAC
+    Header malformed".  ``auto`` overrides that, since raw bytes are a harmless
+    reading of a LoRaWAN frame while the reverse looks like a broken capture —
+    but a real LoRaWAN user has to be told, in one line, which flag gets their
+    dissector back.
     """
     if not opening_wireshark or dissect_as != "auto":
         return
@@ -100,11 +102,11 @@ def _warn_about_lorawan_dissection(
     if syncword_byte != LORAWAN_SYNCWORD:
         return
 
-    print_warning(
-        f"Sync word 0x{LORAWAN_SYNCWORD:02X} — Wireshark will dissect payloads "
-        "as LoRaWAN"
+    print_info(
+        f"Sync word 0x{LORAWAN_SYNCWORD:02X} (LoRaWAN) — payloads shown as raw "
+        "data in Wireshark"
     )
-    print_dim("If this is plain LoRa (not LoRaWAN), re-run with: --dissect-as data")
+    print_dim("If this really is LoRaWAN traffic, re-run with: --dissect-as lorawan")
 
 
 def _offer_wireshark_after_capture(
@@ -344,9 +346,10 @@ def _validate_sync_word(ctx, param, value):
     default="auto",
     type=click.Choice(["auto", "data", "lorawan"]),
     help=(
-        "How Wireshark dissects the payload. 'auto' follows the sync word "
-        "(0x34 = LoRaWAN); 'data' shows raw bytes, which is what plain LoRa "
-        "captured on 0x34 needs to stop showing malformed LoRaWAN frames"
+        "How Wireshark dissects the payload. 'auto' (default) shows raw bytes, "
+        "including on the 0x34 sync word, where Wireshark would otherwise "
+        "report plain LoRa as malformed LoRaWAN; 'lorawan' forces the LoRaWAN "
+        "dissector; 'data' is 'auto' stated explicitly"
     ),
 )
 @click.option("-v", "--verbose", is_flag=True, help="Show verbose output in terminal")
@@ -450,7 +453,7 @@ def sniff_lora(
         catnip sniff lora -ws                      # live Wireshark while sniffing
         catnip sniff lora -oc                      # sniff, then open Wireshark
         catnip sniff lora -w capture.pcapng        # save it, offer to open it
-        catnip sniff lora -ws -sw public -da data  # plain LoRa on the 0x34 sync word
+        catnip sniff lora -sw public -da lorawan   # decode a real LoRaWAN network
         catnip sniff lora -sw 0x2B -pre 16         # Meshtastic sync word
         catnip sniff lora -sw public --iq inverted # LoRaWAN downlinks
     """
@@ -474,9 +477,10 @@ def sniff_lora(
         print_info(f"No --write given — saving the capture to {pcap_file}")
 
     # Wireshark keys the payload dissector off the sync word in the LoRaTap
-    # header, so a plain-LoRa capture on 0x34 needs to be told otherwise.
+    # header; `auto` overrides that for 0x34 so plain LoRa is not shown as
+    # malformed LoRaWAN, without the user having to know any of it.
     wireshark_args = lora_decode_as_args(dissect_as, sync_word)
-    _warn_about_lorawan_dissection(ws or open_capture, dissect_as, sync_word)
+    _explain_lorawan_dissection(ws or open_capture, dissect_as, sync_word)
 
     dev = get_device_or_exit(device)
 

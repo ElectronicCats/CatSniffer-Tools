@@ -31,32 +31,41 @@ LORAWAN_SYNCWORD = 0x34
 def lora_decode_as_args(dissect_as: str = "auto", sync_word="private") -> list:
     """Wireshark ``-d`` arguments that decide how the LoRa payload is dissected.
 
-    ``auto``    - leave Wireshark's default mapping alone (0x34 -> LoRaWAN,
-                  every other sync word -> raw data).
-    ``data``    - never dissect as LoRaWAN: what a plain-LoRa capture on the
-                  0x34 sync word needs to stop showing malformed frames.
-    ``lorawan`` - dissect as LoRaWAN whatever sync word this capture uses, for
-                  a LoRaWAN network running on a non-standard sync word.
+    ``auto``    - the default: catnip picks, from the sync word the capture was
+                  made on.  A sniffer that is handed arbitrary LoRa traffic
+                  cannot know whether a 0x34 payload is LoRaWAN, so it picks the
+                  reading whose failure mode is harmless: raw bytes.  Guessing
+                  the other way stamps a red "LoRaWAN MAC Header malformed" over
+                  every plain-LoRa frame, which looks like a broken capture
+                  rather than a dissector mismatch.
+    ``data``    - never dissect as LoRaWAN, whatever the sync word.
+    ``lorawan`` - dissect as LoRaWAN whatever sync word this capture uses, for a
+                  LoRaWAN network (0x34, or a non-standard sync word).
 
-    Returns an empty list for ``auto`` (and for ``lorawan`` when the sync word
-    is already 0x34), so the caller can always splice the result into a command
-    line.  Accepted by both ``wireshark`` and ``tshark``.
+    Returns an empty list when Wireshark's own defaults already do the right
+    thing - every sync word except 0x34 - so the caller can always splice the
+    result into a command line.  Accepted by both ``wireshark`` and ``tshark``.
     """
     mode = str(dissect_as).strip().lower()
 
-    if mode == "data":
-        return ["-d", f"{LORATAP_DECODE_AS_FIELD}=={LORAWAN_SYNCWORD},data"]
+    if mode not in ("auto", "data", "lorawan"):
+        raise ValueError(
+            f"Invalid dissect-as {dissect_as!r}: use 'auto', 'data' or 'lorawan'"
+        )
+
+    _, byte = normalize_syncword(sync_word)
 
     if mode == "lorawan":
-        _, byte = normalize_syncword(sync_word)
         if byte == LORAWAN_SYNCWORD:
             return []  # already Wireshark's default mapping
         return ["-d", f"{LORATAP_DECODE_AS_FIELD}=={byte},lorawan"]
 
-    if mode != "auto":
-        raise ValueError(
-            f"Invalid dissect-as {dissect_as!r}: use 'auto', 'data' or 'lorawan'"
-        )
+    # auto and data agree today, because 0x34 is the only mapping Wireshark
+    # ships; ``data`` stays explicit so a capture keeps dissecting the same way
+    # if that ever changes, and so scripts can state what they meant.
+    if mode == "data" or byte == LORAWAN_SYNCWORD:
+        return ["-d", f"{LORATAP_DECODE_AS_FIELD}=={LORAWAN_SYNCWORD},data"]
+
     return []
 
 
