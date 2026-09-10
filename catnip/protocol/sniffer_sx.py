@@ -36,8 +36,15 @@ LORAWAN_SYNCWORD = 0x34
 # capture arrives with three blank columns and the payload only visible after
 # clicking into a packet.  `loratap.payload` is a LoRaTap field, so it is
 # populated whichever payload dissector `lora_decode_as_args` selects.
+# RSSI and SNR are already in the LoRaTap header this module writes, so
+# Wireshark's own dissector resolves them: `:R` renders the raw bytes back as
+# "-42 dBm" and "9.0 dB", the same strings the details pane shows.  Link
+# quality is the first thing a sniffing session is judged on - whether a frame
+# arrived at the noise floor or from the bench next door - and reading it one
+# packet at a time in the details pane defeats the point of a packet list.
 LORATAP_COLUMN_FORMAT = (
     '"No.","%m","Time","%t","Protocol","%p","Length","%L",'
+    '"RSSI","%Cus:loratap.rssi.packet:0:R","SNR","%Cus:loratap.rssi.snr:0:R",'
     '"Info","%Cus:loratap.payload:0:R"'
 )
 
@@ -52,10 +59,12 @@ def lora_wireshark_display_args() -> list:
     """Wireshark arguments that make the packet list readable at a glance.
 
     Replaces the default column set with one that fits LoRa: no Source and
-    Destination columns, which a LoRa radio has nothing to put in, and the
-    payload in an Info column as hex and an ASCII column as text.  The override
-    lives on the command line, so the user's own saved column layout is
-    untouched.  Accepted by both ``wireshark`` and ``tshark``.
+    Destination columns, which a LoRa radio has nothing to put in; RSSI and SNR
+    from the LoRaTap header, so link quality reads down the list instead of one
+    packet at a time; and the payload in an Info column as hex and an ASCII
+    column as text.  The override lives on the command line, so the user's own
+    saved column layout is untouched.  Accepted by both ``wireshark`` and
+    ``tshark``.
 
     The ASCII column comes from a Lua postdissector, which a build that did not
     ship the script - or a Wireshark compiled without Lua - cannot load, so the
