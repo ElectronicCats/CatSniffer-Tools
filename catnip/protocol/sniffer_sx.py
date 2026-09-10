@@ -15,6 +15,50 @@ _LORATAP_BANDWIDTH = {125: 1, 250: 2, 500: 4}
 # loratap.syncword: 0x12 = private LoRa, 0x34 = LoRaWAN
 _LORATAP_SYNCWORD = {"private": 0x12, "public": 0x34}
 
+# Wireshark's LoRaTap dissector picks the payload dissector from the sync word
+# in the header: `tshark -G decodes` shows a single default entry,
+# "loratap.syncword 52 lorawan".  So anything captured on the LoRaWAN sync word
+# (0x34, what --sync-word public sets) is handed to the LoRaWAN dissector, and
+# a payload that is plain LoRa - Meshtastic, a RadioHead/LoRa.h sketch, a raw
+# test frame - comes out as "LoRaWAN MAC Header malformed" rather than bytes.
+# The sync word is a radio setting, not a protocol marker, so the fix is to
+# override that mapping on the Wireshark command line instead of lying about
+# the sync word in the header.
+LORATAP_DECODE_AS_FIELD = "loratap.syncword"
+LORAWAN_SYNCWORD = 0x34
+
+
+def lora_decode_as_args(dissect_as: str = "auto", sync_word="private") -> list:
+    """Wireshark ``-d`` arguments that decide how the LoRa payload is dissected.
+
+    ``auto``    - leave Wireshark's default mapping alone (0x34 -> LoRaWAN,
+                  every other sync word -> raw data).
+    ``data``    - never dissect as LoRaWAN: what a plain-LoRa capture on the
+                  0x34 sync word needs to stop showing malformed frames.
+    ``lorawan`` - dissect as LoRaWAN whatever sync word this capture uses, for
+                  a LoRaWAN network running on a non-standard sync word.
+
+    Returns an empty list for ``auto`` (and for ``lorawan`` when the sync word
+    is already 0x34), so the caller can always splice the result into a command
+    line.  Accepted by both ``wireshark`` and ``tshark``.
+    """
+    mode = str(dissect_as).strip().lower()
+
+    if mode == "data":
+        return ["-d", f"{LORATAP_DECODE_AS_FIELD}=={LORAWAN_SYNCWORD},data"]
+
+    if mode == "lorawan":
+        _, byte = normalize_syncword(sync_word)
+        if byte == LORAWAN_SYNCWORD:
+            return []  # already Wireshark's default mapping
+        return ["-d", f"{LORATAP_DECODE_AS_FIELD}=={byte},lorawan"]
+
+    if mode != "auto":
+        raise ValueError(
+            f"Invalid dissect-as {dissect_as!r}: use 'auto', 'data' or 'lorawan'"
+        )
+    return []
+
 
 def normalize_syncword(syncword) -> tuple:
     """
