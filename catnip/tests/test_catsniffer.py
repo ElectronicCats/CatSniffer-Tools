@@ -1785,11 +1785,15 @@ class TestMeshtasticCoreConstants:
                 pytest.fail(f"Invalid key in DEFAULT_KEYS: {key}")
 
     def test_sync_word_meshtastic(self):
-        """Verify SYNC_WORD_MESHTASTIC is correct."""
+        """Verify SYNC_WORD_MESHTASTIC is correct.
+
+        Now sourced from modules.radio.profiles, in the "0xNN" shape
+        normalize_syncword() expects rather than a bare int.
+        """
         from modules.protocols.meshtastic.core import SYNC_WORD_MESHTASTIC
 
-        assert SYNC_WORD_MESHTASTIC == 0x2B
-        assert isinstance(SYNC_WORD_MESHTASTIC, int)
+        assert SYNC_WORD_MESHTASTIC == "0x2B"
+        assert isinstance(SYNC_WORD_MESHTASTIC, str)
 
     def test_channels_preset_defined(self):
         """Verify CHANNELS_PRESET is defined."""
@@ -1802,14 +1806,19 @@ class TestMeshtasticCoreConstants:
         assert "LongSlow" in CHANNELS_PRESET
 
     def test_channels_preset_structure(self):
-        """Verify the structure of presets."""
+        """Verify the structure of presets.
+
+        "pl" was renamed "preamble" when these moved to
+        modules.radio.profiles, to match the ``sniff lora`` flag name a
+        radio profile now feeds it through Click's default_map.
+        """
         from modules.protocols.meshtastic.core import CHANNELS_PRESET
 
         for preset_name, preset_config in CHANNELS_PRESET.items():
             assert "sf" in preset_config, f"Missing 'sf' in {preset_name}"
             assert "bw" in preset_config, f"Missing 'bw' in {preset_name}"
             assert "cr" in preset_config, f"Missing 'cr' in {preset_name}"
-            assert "pl" in preset_config, f"Missing 'pl' in {preset_name}"
+            assert "preamble" in preset_config, f"Missing 'preamble' in {preset_name}"
 
 
 class TestMeshtasticCoreFunctions:

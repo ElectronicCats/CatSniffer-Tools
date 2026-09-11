@@ -243,6 +243,81 @@ class TestSniffLoRaDefaults:
         assert isinstance(bandwidth, int)
 
 
+@pytest.mark.slow
+class TestSniffLoRaProfile:
+    """``--profile`` seeds Click's default_map before the other options
+    resolve theirs -- an explicit flag still has to win, and a mismatched or
+    unknown profile has to fail loudly, before the radio is ever touched.
+    """
+
+    def _invoke(self, sniffer_sx, *args, profiles_file=None, monkeypatch=None):
+        from unittest.mock import patch
+
+        from click.testing import CliRunner
+
+        from modules.core.cli import build_cli
+
+        if profiles_file is not None:
+            monkeypatch.setenv("CATNIP_PROFILES_FILE", str(profiles_file))
+
+        with patch(
+            "modules.sniff.cli.normalize_syncword", sniffer_sx.normalize_syncword
+        ), patch("modules.sniff.cli.run_sx_bridge") as bridge, patch(
+            "modules.sniff.cli.get_device_or_exit", return_value=MagicMock()
+        ):
+            result = CliRunner().invoke(build_cli(), ["sniff", "lora", *args])
+        return result, bridge
+
+    def test_profile_fills_the_radio_defaults(self, sniffer_sx):
+        _, bridge = self._invoke(sniffer_sx, "--profile", "eu868-meshtastic-longfast")
+        # run_sx_bridge(dev, frequency, bandwidth, spread_factor, coding_rate,
+        # tx_power, ws, verbose, sync_word, preamble, iq, ...) -- positional.
+        args = bridge.call_args.args
+        assert args[1] == 869_525_000
+        assert args[2] == 250
+        assert args[3] == 11
+        assert args[4] == 5
+        assert args[8] == "0x2B"
+        assert args[9] == 8
+
+    def test_an_explicit_flag_still_overrides_the_profile(self, sniffer_sx):
+        _, bridge = self._invoke(
+            sniffer_sx,
+            "--profile",
+            "eu868-meshtastic-longfast",
+            "-freq",
+            "915000000",
+        )
+        args = bridge.call_args.args
+        assert args[1] == 915000000
+        # Fields not touched on the command line still come from the profile.
+        assert args[3] == 11
+
+    def test_unknown_profile_is_rejected_before_the_device_is_touched(self, sniffer_sx):
+        result, bridge = self._invoke(sniffer_sx, "--profile", "does-not-exist")
+        assert result.exit_code != 0
+        assert "Unknown profile" in result.output
+        bridge.assert_not_called()
+
+    def test_an_fsk_profile_is_rejected_under_sniff_lora(
+        self, sniffer_sx, tmp_path, monkeypatch
+    ):
+        profiles_file = tmp_path / "profiles.toml"
+        profiles_file.write_text(
+            '[profiles.home-fsk]\ncommand = "fsk"\nfrequency = 868000000\n'
+        )
+        result, bridge = self._invoke(
+            sniffer_sx,
+            "--profile",
+            "home-fsk",
+            profiles_file=profiles_file,
+            monkeypatch=monkeypatch,
+        )
+        assert result.exit_code != 0
+        assert "fsk profile" in result.output
+        bridge.assert_not_called()
+
+
 class TestFskShellCommands:
     """``fsk_*`` command formatting.
 
@@ -441,6 +516,30 @@ class TestSniffFskDefaults:
     def test_a_wide_enough_bandwidth_says_nothing(self, sniffer_sx):
         result, _ = self._invoke(sniffer_sx, "-bw", "187.2")
         assert "too narrow" not in result.warnings
+
+    def test_profile_fills_the_radio_defaults(self, sniffer_sx, tmp_path, monkeypatch):
+        profiles_file = tmp_path / "profiles.toml"
+        profiles_file.write_text(
+            "[profiles.home-fsk]\n"
+            'command = "fsk"\n'
+            "frequency = 868000000\n"
+            "bitrate = 100000\n"
+            "fdev = 50000\n"
+            'sync_word = "2DD4"\n'
+        )
+        monkeypatch.setenv("CATNIP_PROFILES_FILE", str(profiles_file))
+        _, bridge = self._invoke(sniffer_sx, "--profile", "home-fsk")
+        args = bridge.call_args.args
+        assert args[1:4] == (868000000, 100000, 50000)
+        assert args[7] == "2DD4"
+
+    def test_a_lora_profile_is_rejected_under_sniff_fsk(self, sniffer_sx):
+        result, bridge = self._invoke(
+            sniffer_sx, "--profile", "eu868-meshtastic-longfast"
+        )
+        assert result.exit_code != 0
+        assert "lora profile" in result.output
+        bridge.assert_not_called()
 
 
 @pytest.mark.slow
