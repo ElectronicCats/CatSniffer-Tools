@@ -489,21 +489,74 @@ class TestResolveBoardUf2:
 
 
 class TestExpectedTagForBoard:
-    def test_uses_the_loaded_tag_when_it_belongs_to_the_board(self):
+    def test_the_release_line_beats_the_local_catalogue_tag(self):
+        """The reported bug: ~/.catnip/release_v3.1.0.0 hid the v3.1.0.1 release.
+
+        ``release_tag`` is restored from the local folder name, so preferring
+        it holds the board against the release it already has and no update
+        is ever found.
+        """
         from modules.firmware.fw_update import expected_tag_for_board
 
         flasher = MagicMock()
         flasher.release_tag = "v3.1.0.0"
-        assert expected_tag_for_board(flasher, BOARD_V3) == "v3.1.0.0"
-        flasher.get_release_for_board.assert_not_called()
+        flasher.get_release_for_board.return_value = {"tag_name": "v3.1.0.1"}
+        assert expected_tag_for_board(flasher, BOARD_V3) == "v3.1.0.1"
 
-    def test_queries_the_boards_own_release_line_otherwise(self):
+    def test_queries_the_boards_own_release_line(self):
         from modules.firmware.fw_update import expected_tag_for_board
 
         flasher = MagicMock()
         flasher.release_tag = "v3.1.0.0"
         flasher.get_release_for_board.return_value = {"tag_name": "v2.0.1.0"}
         assert expected_tag_for_board(flasher, BOARD_V2) == "v2.0.1.0"
+
+    def test_offline_falls_back_to_the_catalogue_tag(self):
+        from modules.firmware.fw_update import expected_tag_for_board
+
+        flasher = MagicMock()
+        flasher.release_tag = "v3.1.0.0"
+        flasher.get_release_for_board.side_effect = OSError("no network")
+        assert expected_tag_for_board(flasher, BOARD_V3) == "v3.1.0.0"
+
+    def test_offline_never_hands_back_another_boards_tag(self):
+        from modules.firmware.fw_update import expected_tag_for_board
+
+        flasher = MagicMock()
+        flasher.release_tag = "v3.1.0.0"
+        flasher.get_release_for_board.return_value = None
+        assert expected_tag_for_board(flasher, BOARD_V2) is None
+
+
+class TestFwVersionIsRetried:
+    def test_a_single_silent_reply_is_not_a_broken_board(self):
+        from modules.firmware import fw_update
+
+        parsed = fw_update.parse_fw_version_response(V3_FW_VERSION_NEW)
+        with patch.object(
+            fw_update, "_read_fw_version_once", side_effect=[None, parsed]
+        ) as once, patch.object(fw_update.time, "sleep"):
+            assert fw_update.get_device_fw_version("/dev/ttyACM2") == parsed
+        assert once.call_count == 2
+
+    def test_it_still_gives_up(self):
+        from modules.firmware import fw_update
+
+        with patch.object(
+            fw_update, "_read_fw_version_once", return_value=None
+        ) as once, patch.object(fw_update.time, "sleep"):
+            assert fw_update.get_device_fw_version("/dev/ttyACM2", attempts=3) is None
+        assert once.call_count == 3
+
+    def test_a_board_that_answers_at_once_is_asked_once(self):
+        from modules.firmware import fw_update
+
+        parsed = fw_update.parse_fw_version_response(V3_FW_VERSION_NEW)
+        with patch.object(
+            fw_update, "_read_fw_version_once", return_value=parsed
+        ) as once:
+            assert fw_update.get_device_fw_version("/dev/ttyACM2") == parsed
+        assert once.call_count == 1
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1145,3 +1198,247 @@ class TestMetadataStorageIsAskedOnce:
         shell = MagicMock()
         shell.send_command.side_effect = OSError("port went away")
         assert FirmwareMetadata(shell).keeps_firmware_id() is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# vA.X.Y.Z version comparison and the update decision
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestParseFwVersion:
+    def test_reads_the_four_components(self):
+        from modules.firmware.fw_update import parse_fw_version
+
+        assert parse_fw_version("v3.1.0.0") == (3, 1, 0, 0)
+        assert parse_fw_version("3.1.2.4") == (3, 1, 2, 4)
+        assert parse_fw_version("v3.1.0.0-dirty") == (3, 1, 0, 0)
+
+    def test_a_dev_build_names_no_version(self):
+        from modules.firmware.fw_update import parse_fw_version
+
+        assert parse_fw_version("dev-373e0cd-clean") is None
+        assert parse_fw_version("") is None
+        assert parse_fw_version(None) is None
+
+    def test_a_partial_version_is_not_padded_into_one(self):
+        # "v3.1" is not a firmware version; reading it as v3.1.0.0 would
+        # invent an ordering the firmware never claimed.
+        from modules.firmware.fw_update import parse_fw_version
+
+        assert parse_fw_version("v3.1") is None
+        assert parse_fw_version("v3.1.0") is None
+        assert parse_fw_version("v3.1.0.0.5") is None
+
+
+class TestDecideFwUpdate:
+    def _fw(self, version):
+        return {"fw": version}
+
+    def test_same_version_is_up_to_date(self):
+        from modules.firmware.fw_update import decide_fw_update
+
+        decision = decide_fw_update(self._fw("v3.1.0.0"), "v3.1.0.0", BOARD_V3)
+        assert decision.action == "up-to-date"
+        assert decision.needs_update is False
+
+    def test_older_device_is_updated(self):
+        from modules.firmware.fw_update import decide_fw_update
+
+        for older in ("v3.0.9.9", "v3.1.0.0", "v3.1.1.0"):
+            decision = decide_fw_update(self._fw(older), "v3.1.2.0", BOARD_V3)
+            assert decision.needs_update is True, older
+
+    def test_patch_bump_is_an_update(self):
+        from modules.firmware.fw_update import decide_fw_update
+
+        assert decide_fw_update(self._fw("v3.1.0.0"), "v3.1.0.1", BOARD_V3).action == (
+            "update"
+        )
+
+    def test_a_newer_device_is_never_downgraded(self):
+        """The bug the substring test had: differing is not being behind."""
+        from modules.firmware.fw_update import decide_fw_update
+
+        for newer in ("v3.1.0.1", "v3.1.1.0", "v3.2.0.0"):
+            decision = decide_fw_update(self._fw(newer), "v3.1.0.0", BOARD_V3)
+            assert decision.action == "ahead", newer
+            assert decision.needs_update is False, newer
+
+    def test_a_release_for_another_board_is_refused(self):
+        from modules.firmware.fw_update import decide_fw_update
+
+        decision = decide_fw_update(self._fw("v2.0.1.0"), "v3.1.0.0", BOARD_V2)
+        assert decision.is_refusal is True
+        assert decision.needs_update is False
+
+    def test_firmware_from_another_line_is_reflashed(self):
+        # A v2 board running a v3 image: the numbers order "ahead", but the
+        # board number A is what decides, and it says wrong firmware.
+        from modules.firmware.fw_update import decide_fw_update
+
+        decision = decide_fw_update(self._fw("v3.9.9.9"), "v2.0.1.0", BOARD_V2)
+        assert decision.action == "update"
+        assert decision.needs_update is True
+
+    def test_a_dev_build_cannot_be_ordered(self):
+        from modules.firmware.fw_update import decide_fw_update
+
+        decision = decide_fw_update(self._fw("dev-87c5174-dirty"), "v3.1.0.0", BOARD_V3)
+        assert decision.action == "unknown"
+        assert decision.needs_update is True
+
+    def test_a_tag_that_is_not_a_version_is_not_an_ordering(self):
+        from modules.firmware.fw_update import decide_fw_update
+
+        assert (
+            decide_fw_update(self._fw("v3.1.0.0"), None, BOARD_V3).action == "unknown"
+        )
+        assert decide_fw_update(self._fw("v3.1.0.0"), "latest", BOARD_V3).action == (
+            "unknown"
+        )
+
+
+class TestUpToDateBoardIsLeftAlone:
+    def _flasher(self, release="v3.1.0.0"):
+        flasher = MagicMock()
+        flasher.release_tag = release
+        flasher.get_release_for_board.return_value = {"tag_name": release}
+        return flasher
+
+    def _run(self, fw_text, flasher=None):
+        from modules.firmware import fw_update
+
+        device = MagicMock()
+        device.shell_port = "/dev/ttyACM2"
+        with patch.object(
+            fw_update,
+            "get_device_fw_version",
+            return_value=fw_update.parse_fw_version_response(fw_text),
+        ), patch.object(
+            fw_update, "get_latest_software_version", return_value=None
+        ), patch.object(
+            fw_update, "enter_boot_mode"
+        ) as reboot, patch.object(
+            fw_update, "_perform_rp2040_update"
+        ) as perform:
+            result = fw_update.check_and_update_rp2040(
+                device=device, flasher=flasher or self._flasher()
+            )
+        return result, reboot, perform
+
+    def test_matching_version_does_not_reboot(self):
+        result, reboot, perform = self._run(V3_FW_VERSION_NEW)
+        assert result is True
+        reboot.assert_not_called()
+        perform.assert_not_called()
+
+    def test_newer_device_firmware_does_not_reboot(self):
+        flasher = self._flasher("v3.1.0.0")
+        newer = "FW: v3.2.0.0\r\nBoard: v3 RP2040 CC1352P7\r\n"
+        result, reboot, perform = self._run(newer, flasher)
+        assert result is True
+        reboot.assert_not_called()
+        perform.assert_not_called()
+
+    def test_outdated_device_is_updated(self):
+        from modules.firmware import fw_update
+
+        flasher = self._flasher("v3.2.0.0")
+        device = MagicMock()
+        device.shell_port = "/dev/ttyACM2"
+        with patch.object(
+            fw_update,
+            "get_device_fw_version",
+            return_value=fw_update.parse_fw_version_response(V3_FW_VERSION_NEW),
+        ), patch.object(
+            fw_update, "get_latest_software_version", return_value=None
+        ), patch.object(
+            fw_update, "_perform_rp2040_update", return_value=True
+        ) as perform:
+            assert (
+                fw_update.check_and_update_rp2040(device=device, flasher=flasher)
+                is True
+            )
+        assert perform.call_args.kwargs["tag"] == "v3.2.0.0"
+        assert perform.call_args.kwargs["board"] is BOARD_V3
+
+
+class TestUf2MatchesTheExpectedRelease:
+    def test_an_older_local_uf2_is_not_taken_for_the_release(self, tmp_path):
+        from modules.firmware.fw_update import find_board_uf2
+
+        (tmp_path / "catsniffer-v3.0.0.0.uf2").write_bytes(b"x")
+        flasher = MagicMock()
+        flasher.get_releases_path.return_value = str(tmp_path)
+        assert find_board_uf2(flasher, BOARD_V3, "v3.1.0.0") is None
+        assert find_board_uf2(flasher, BOARD_V3, "v3.0.0.0").endswith(
+            "catsniffer-v3.0.0.0.uf2"
+        )
+
+    def test_resolve_downloads_when_the_local_one_is_stale(self, tmp_path):
+        from modules.firmware.fw_update import resolve_board_uf2
+
+        (tmp_path / "catsniffer-v3.0.0.0.uf2").write_bytes(b"x")
+        fresh = tmp_path / "catsniffer-v3.1.0.0.uf2"
+        fresh.write_bytes(b"x")
+        flasher = MagicMock()
+        flasher.get_releases_path.return_value = str(tmp_path)
+        flasher.fetch_board_uf2.return_value = str(fresh)
+        assert resolve_board_uf2(flasher, BOARD_V3, "v3.1.0.0").endswith(
+            "catsniffer-v3.1.0.0.uf2"
+        )
+
+    def test_a_stale_uf2_is_still_better_than_nothing(self, tmp_path):
+        from modules.firmware.fw_update import resolve_board_uf2
+
+        (tmp_path / "catsniffer-v2.0.0.0.uf2").write_bytes(b"x")
+        flasher = MagicMock()
+        flasher.get_releases_path.return_value = str(tmp_path)
+        flasher.fetch_board_uf2.return_value = None
+        assert resolve_board_uf2(flasher, BOARD_V2, "v2.0.1.0").endswith(
+            "catsniffer-v2.0.0.0.uf2"
+        )
+
+
+class TestSoftwareVersionPadding:
+    def test_a_trailing_zero_is_not_a_different_version(self):
+        from modules.firmware.fw_update import (
+            is_software_dev_version,
+            is_software_up_to_date,
+        )
+
+        assert is_software_up_to_date("3.3.3", "3.3.3.0") is True
+        assert is_software_up_to_date("3.3.3.0", "3.3.3") is True
+        assert is_software_dev_version("3.3.3", "3.3.3.0") is False
+        assert is_software_dev_version("3.4.0.0", "3.3.3.0") is True
+
+
+class TestReleaseForBoardPicksTheHighest:
+    def test_a_backported_patch_does_not_win_on_recency(self):
+        from modules.firmware.flasher import Flasher
+
+        flasher = Flasher.__new__(Flasher)
+        # GitHub lists newest-created first: the backport comes before v3.1.0.0
+        releases = [
+            {"tag_name": "v3.0.1.1"},
+            {"tag_name": "v3.1.0.0"},
+            {"tag_name": "v2.0.1.0"},
+        ]
+        resp = MagicMock()
+        resp.json.return_value = releases
+        with patch("modules.firmware.flasher.requests.get", return_value=resp):
+            assert flasher.get_release_for_board(BOARD_V3)["tag_name"] == "v3.1.0.0"
+            assert flasher.get_release_for_board(BOARD_V2)["tag_name"] == "v2.0.1.0"
+
+    def test_drafts_and_nonversion_tags_are_skipped(self):
+        from modules.firmware.flasher import Flasher
+
+        flasher = Flasher.__new__(Flasher)
+        resp = MagicMock()
+        resp.json.return_value = [
+            {"tag_name": "v3.9.9.9", "draft": True},
+            {"tag_name": "v3-nightly"},
+            {"tag_name": "v3.1.0.0"},
+        ]
+        with patch("modules.firmware.flasher.requests.get", return_value=resp):
+            assert flasher.get_release_for_board(BOARD_V3)["tag_name"] == "v3.1.0.0"
