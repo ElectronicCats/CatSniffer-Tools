@@ -1305,7 +1305,11 @@ class TestRunBridge:
 
         assert order[0] == "shell:band1"
         assert "ti-config" in order
-        shell.disconnect.assert_called_once()
+        # The loss counters are zeroed after the band and before the sniffer
+        # is configured, so what they hold at the end belongs to this capture.
+        assert order.index("shell:loss_reset") < order.index("ti-config")
+        # One session for the band, one for the counters — both closed.
+        assert shell.disconnect.call_count == shell.connect.call_count
 
     def test_keyboard_interrupt_stops(self, fake_device):
         from modules.core.bridge import run_bridge
@@ -1380,6 +1384,45 @@ class TestRunBridge:
         mock_pipe.open.assert_not_called()
 
 
+class TestRunBridgeReportsItsLosses:
+    """The closing report is part of the capture, not of the happy path."""
+
+    def _run_until(self, read_side_effect):
+        from modules.core import bridge
+
+        mock_serial = MagicMock()
+        mock_serial.read_until.side_effect = read_side_effect
+        mock_pipe = MagicMock()
+        device = MagicMock()
+        device.bridge_port = "/dev/ttyACM0"
+        device.shell_port = "/dev/ttyACM2"
+
+        with patch("modules.core.bridge.Catnip", return_value=mock_serial), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch("platform.system", return_value="Linux"), patch(
+            "modules.core.bridge.select_rf_band"
+        ), patch(
+            "modules.core.bridge.reset_loss_counters", return_value=True
+        ) as reset, patch(
+            "modules.core.bridge.report_capture_loss"
+        ) as report:
+            bridge.run_bridge(device, channel=11, wireshark=False)
+        return reset, report
+
+    def test_a_capture_stopped_with_ctrl_c_still_reports(self):
+        reset, report = self._run_until(KeyboardInterrupt())
+        reset.assert_called_once_with("/dev/ttyACM2")
+        report.assert_called_once_with("/dev/ttyACM2", True)
+
+    def test_a_capture_killed_by_a_serial_error_still_reports(self):
+        """A device unplugged mid-capture is exactly when the user most needs
+        to know how much of the stream made it."""
+        import serial
+
+        reset, report = self._run_until(serial.SerialException("gone"))
+        report.assert_called_once_with("/dev/ttyACM2", True)
+
+
 class TestSelectRfBand:
     """Tests for select_rf_band (shared antenna-switch helper)."""
 
@@ -1409,6 +1452,145 @@ class TestSelectRfBand:
         with patch("modules.core.bridge.ShellConnection", return_value=mock_shell):
             assert select_rf_band("/dev/ttyACM2", "band1", "2.4 GHz") is False
         mock_shell.disconnect.assert_called_once()
+
+
+class TestCaptureLossCounters:
+    """Tests for the capture-integrity counters (reset → capture → report).
+
+    The firmware has always counted what it drops between the CC1352 and this
+    host; the point of these is that the tool now says so, and — just as
+    important — that it never says "nothing was lost" when what it actually
+    has is no measurement.
+    """
+
+    def _shell(self, reply="CC1352 loss counters reset"):
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = reply
+        return mock_shell
+
+    # ── reset ────────────────────────────────────────────────────────────────
+
+    def test_an_acknowledged_reset_arms_the_report(self):
+        from modules.core.bridge import reset_loss_counters
+
+        shell = self._shell()
+        with patch("modules.core.bridge.ShellConnection", return_value=shell):
+            assert reset_loss_counters("/dev/ttyACM2") is True
+        shell.disconnect.assert_called_once()
+
+    def test_a_firmware_without_loss_reset_is_not_armed(self):
+        """An older build answers "Unknown command"; the counters then still
+        hold whatever the previous capture left in them."""
+        from modules.core.bridge import reset_loss_counters
+
+        shell = self._shell(reply="Unknown command: loss_reset")
+        with patch("modules.core.bridge.ShellConnection", return_value=shell):
+            assert reset_loss_counters("/dev/ttyACM2") is False
+        shell.disconnect.assert_called_once()
+
+    def test_a_silent_reset_is_not_armed(self):
+        from modules.core.bridge import reset_loss_counters
+
+        shell = self._shell(reply=None)
+        with patch("modules.core.bridge.ShellConnection", return_value=shell):
+            assert reset_loss_counters("/dev/ttyACM2") is False
+
+    def test_no_config_port_is_not_armed(self):
+        from modules.core.bridge import reset_loss_counters
+
+        assert reset_loss_counters(None) is False
+
+    # ── describe ─────────────────────────────────────────────────────────────
+
+    def test_all_zero_counters_are_the_only_clean_reading(self):
+        from modules.core.bridge import describe_loss
+
+        clean, message = describe_loss({"uart_overrun": 0, "ring_dropped": 0})
+        assert clean is True
+        assert "0 bytes lost" in message
+
+    def test_dropped_bytes_are_reported_in_bytes(self):
+        from modules.core.bridge import describe_loss
+
+        clean, message = describe_loss({"uart_overrun": 0, "ring_dropped": 1536})
+        assert clean is False
+        assert "1536 byte(s)" in message
+
+    def test_a_fifo_overrun_alone_is_never_reported_as_zero_loss(self):
+        """uart_overrun counts events, not bytes: each one lost an unknown
+        amount, so a capture with overruns cannot claim zero loss."""
+        from modules.core.bridge import describe_loss
+
+        clean, message = describe_loss({"uart_overrun": 7, "ring_dropped": 0})
+        assert clean is False
+        assert "7 UART FIFO overrun(s)" in message
+        assert "0 bytes lost" not in message
+
+    def test_a_counter_this_version_does_not_know_is_still_reported(self):
+        from modules.core.bridge import describe_loss
+
+        clean, message = describe_loss({"dma_regress": 3, "some_new_counter": 9})
+        assert clean is False
+        assert "3 DMA progress regression(s)" in message
+        assert "9 some_new_counter" in message
+
+    def test_no_counters_at_all_is_not_clean(self):
+        from modules.core.bridge import describe_loss
+
+        assert describe_loss({})[0] is False
+
+    # ── report ───────────────────────────────────────────────────────────────
+
+    def _report(self, armed, counters):
+        from modules.core import bridge
+
+        with patch.object(bridge, "read_loss_counters", return_value=counters), patch(
+            "modules.core.bridge.print_success"
+        ) as ok, patch("modules.core.bridge.print_warning") as warn, patch(
+            "modules.core.bridge.print_dim"
+        ) as dim:
+            bridge.report_capture_loss("/dev/ttyACM2", armed)
+        said = {
+            name: " ".join(str(call.args[0]) for call in printer.call_args_list)
+            for name, printer in (("ok", ok), ("warn", warn), ("dim", dim))
+        }
+        return said
+
+    def test_a_clean_capture_closes_with_zero_bytes_lost(self):
+        said = self._report(True, {"uart_overrun": 0, "ring_dropped": 0})
+        assert "0 bytes lost" in said["ok"]
+        assert said["warn"] == ""
+
+    def test_a_lossy_capture_closes_with_an_explicit_warning(self):
+        said = self._report(True, {"uart_overrun": 2, "ring_dropped": 4096})
+        assert "4096 byte(s)" in said["warn"]
+        assert "incomplete" in said["dim"]
+        assert said["ok"] == ""
+
+    def test_an_unread_counter_is_unknown_not_zero(self):
+        said = self._report(True, None)
+        assert "unknown" in said["warn"]
+        assert said["ok"] == ""
+
+    def test_a_capture_that_was_never_armed_claims_nothing(self):
+        said = self._report(False, {"uart_overrun": 0, "ring_dropped": 0})
+        assert "not measured" in said["dim"]
+        assert said["ok"] == ""
+        assert said["warn"] == ""
+
+    def test_a_second_ctrl_c_during_the_check_does_not_escape(self):
+        """Ctrl+C is how a capture ends; pressing it again while the closing
+        query runs must not replace the summary with a traceback."""
+        from modules.core import bridge
+
+        with patch.object(
+            bridge, "read_loss_counters", side_effect=KeyboardInterrupt
+        ), patch("modules.core.bridge.print_dim") as dim:
+            bridge.report_capture_loss("/dev/ttyACM2", True)
+        assert "interrupted" in " ".join(
+            str(call.args[0]) for call in dim.call_args_list
+        )
 
 
 # ═════════════════════════════════════════════════════════════════════════════

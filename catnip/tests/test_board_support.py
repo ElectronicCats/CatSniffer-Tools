@@ -1012,6 +1012,35 @@ class TestParseStatusResponse:
         assert self._parse(V3_STATUS).tightest_stack is None
 
 
+class TestReadLossCounters:
+    """``read_loss_counters`` has to keep three answers apart: unknown, not
+    reported, and actually zero."""
+
+    def _read(self, status_text):
+        from modules.firmware import fw_status
+
+        shell = MagicMock()
+        shell.connect.return_value = status_text is not None
+        shell.send_command.return_value = status_text
+        with patch("modules.core.usb_connection.ShellConnection", return_value=shell):
+            return fw_status.read_loss_counters("/dev/ttyACM2")
+
+    def test_a_board_that_cannot_be_asked_is_none_not_zero(self):
+        from modules.firmware.fw_status import read_loss_counters
+
+        assert read_loss_counters(None) is None
+        assert self._read(None) is None
+
+    def test_the_v3_counters_are_read(self):
+        assert self._read(V3_STATUS) == {"uart_overrun": 0, "ring_dropped": 0}
+
+    def test_the_v2_extra_counter_comes_along(self):
+        assert self._read(V2_STATUS)["dma_regress"] == 0
+
+    def test_a_status_without_a_loss_line_is_empty_not_zero(self):
+        assert self._read("Mode: 0, Band: 0") == {}
+
+
 class TestStatusCommandShowsBoardTruth:
     def _run(self, board, shell_status, args=()):
         from click.testing import CliRunner

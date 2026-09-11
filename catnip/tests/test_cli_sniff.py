@@ -55,6 +55,89 @@ class TestSniffGroup:
         assert result.returncode != 0 or "Error" in result.stdout + result.stderr
 
 
+class TestCc1352CaptureIntegrity:
+    """``sniff ble``/``airtag_scanner`` bracket their capture with the loss
+    counters, the same way the TI bridge does.
+
+    These two never touch the bridge themselves — Sniffle is driven by its
+    extcap plugin and the AirTag scanner reads plain text lines — so the
+    bracketing has to live in the CLI, and this is what checks it is there.
+    """
+
+    def _invoke(self, args, inner_patch, inner_raises=None, inner_returns=True):
+        from contextlib import contextmanager
+        from unittest.mock import patch
+
+        from click.testing import CliRunner
+
+        from modules.core.cli import build_cli
+
+        dev = MagicMock()
+        dev.bridge_port = "/dev/ttyACM0"
+        dev.shell_port = "/dev/ttyACM2"
+
+        @contextmanager
+        def fake_session(*a, **kw):
+            yield dev
+
+        with patch("modules.sniff.cli.device_session", fake_session), patch(
+            "modules.sniff.cli.select_rf_band"
+        ), patch(
+            "modules.sniff.cli.reset_loss_counters", return_value=True
+        ) as reset, patch(
+            "modules.sniff.cli.report_capture_loss"
+        ) as report, patch(
+            inner_patch, side_effect=inner_raises, return_value=inner_returns
+        ) as inner:
+            result = CliRunner().invoke(build_cli(), args)
+        return result, reset, report, inner
+
+    def test_a_sniffle_capture_is_bracketed_by_the_counters(self):
+        result, reset, report, inner = self._invoke(
+            ["sniff", "ble", "--wireshark"], "modules.sniff.cli.run_extcap_directly"
+        )
+        assert result.exit_code == 0
+        assert inner.called
+        reset.assert_called_once_with("/dev/ttyACM2")
+        report.assert_called_once_with("/dev/ttyACM2", True)
+
+    def test_a_sniffle_capture_that_never_started_claims_nothing(self):
+        """A missing extcap plugin is not a capture with zero loss."""
+        _, _, report, _ = self._invoke(
+            ["sniff", "ble", "--wireshark"],
+            "modules.sniff.cli.run_extcap_directly",
+            inner_returns=False,
+        )
+        assert not report.called
+
+    def test_ble_without_a_capture_claims_nothing(self):
+        """Without ``--wireshark`` the command only prints instructions; there
+        is no capture to measure, so it must not report on one."""
+        _, reset, report, _ = self._invoke(
+            ["sniff", "ble"], "modules.sniff.cli.run_extcap_directly"
+        )
+        assert not reset.called
+        assert not report.called
+
+    def test_the_airtag_scanner_is_bracketed_by_the_counters(self):
+        _, reset, report, inner = self._invoke(
+            ["sniff", "airtag_scanner"], "modules.sniff.cli._stream_airtag_scanner"
+        )
+        assert inner.called
+        reset.assert_called_once_with("/dev/ttyACM2")
+        report.assert_called_once_with("/dev/ttyACM2", True)
+
+    def test_the_airtag_scanner_reports_even_when_the_stream_dies(self):
+        """A scan that ends on an unhandled error is still a scan whose
+        completeness the user is entitled to know."""
+        _, _, report, _ = self._invoke(
+            ["sniff", "airtag_scanner"],
+            "modules.sniff.cli._stream_airtag_scanner",
+            inner_raises=RuntimeError("port vanished"),
+        )
+        report.assert_called_once_with("/dev/ttyACM2", True)
+
+
 class TestLoRaShellCommands:
     """``lora_syncword``/``lora_preamble``/``lora_iq`` command formatting.
 
