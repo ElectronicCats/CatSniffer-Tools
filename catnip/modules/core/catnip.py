@@ -60,6 +60,7 @@ class SniffingFirmware(enum.Enum):
     THREAD = enum.auto()  # TI Sniffer Firmware
     JWORKS = enum.auto()  # Just works
     LORA = enum.auto()
+    FSK = enum.auto()  # same RP2040 firmware as LORA, SX1262 in (G)FSK mode
     AIRTAG_SCANNER = enum.auto()
 
 

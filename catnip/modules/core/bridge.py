@@ -14,7 +14,12 @@ from .catnip import (
     DEFAULT_READLINE_MAX_BYTES,
 )
 from .pipes import UnixPipe, WindowsPipe, Wireshark
-from protocol.sniffer_sx import SnifferSx, LORATAP_DLT
+from protocol.sniffer_sx import (
+    SnifferSx,
+    LORATAP_DLT,
+    modulation_command,
+    sx1262_band_command,
+)
 from protocol.sniffer_ti import SnifferTI, PacketCategory
 from protocol.common import (
     START_OF_FRAME,
@@ -42,6 +47,7 @@ sniffer = SnifferTI()
 snifferSx = SnifferSx()
 snifferTICmd = sniffer.Commands()
 snifferSxCmd = snifferSx.Commands()
+snifferSxFskCmd = snifferSx.FskCommands()
 
 # Delay between shell commands (seconds) — RP2040 needs a small gap
 _SHELL_CMD_DELAY = 0.15
@@ -299,6 +305,78 @@ class PcapFileWriter:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+# The Cat-Shell port echoes back every byte it receives (cdc2_interrupt_handler
+# in the RP2040 firmware), so a reply always arrives with the command in front
+# of it.  Left in place, that echo defeats every test on the reply text:
+# "STREAM" is found in the echo of `lora_mode stream` whether or not the
+# firmware accepted it, and a refused setting reads as an accepted one.
+def _shell_reply(response: str, command: str) -> str:
+    """The firmware's answer to ``command``, with the echoed command removed.
+
+    Returns "" when nothing but the echo came back — a command that went
+    unanswered — and the response untouched when the echo is absent or only
+    partial, so a firmware that does not echo is read exactly as it is.
+    """
+    if response is None:
+        return ""
+    text = response.strip()
+    if text.startswith(command):
+        text = text[len(command) :]
+    return text.strip()
+
+
+# How the RP2040 shell opens a line when it refuses a command: ``Error:`` or
+# ``ERROR:`` for a rejected value or a failed apply, ``Usage:`` when the
+# argument did not parse at all, and ``Unknown command`` for a name this
+# firmware build does not have.
+_SHELL_ERROR_PREFIXES = ("error", "usage:", "unknown command")
+
+
+def _shell_error(reply: str) -> str:
+    """The first line of ``reply`` that reports a failure, or "" if none does.
+
+    Line by line rather than over the whole reply: applying a configuration
+    answers with several lines, and the one that failed is not always first.
+    """
+    for line in reply.splitlines():
+        line = line.strip()
+        if line.lower().startswith(_SHELL_ERROR_PREFIXES):
+            return line
+    return ""
+
+
+def _send_config_steps(shell: ShellConnection, steps: list) -> bool:
+    """Send ``(label, command)`` pairs to Cat-Shell, echoing each reply.
+
+    Returns True when every command was answered and none was refused.  A
+    command that fails is reported and the rest are still sent: one lost reply
+    on a busy USB CDC link — or one setting the firmware would not take — is
+    not a reason to leave the radio half-configured.
+    """
+    all_ok = True
+    for label, cmd in steps:
+        reply = _shell_reply(shell.send_command(cmd, timeout=1.5), cmd)
+        error = _shell_error(reply)
+
+        if not reply:
+            print_warning(f"No response while setting {label}")
+            all_ok = False
+        elif error:
+            print_warning(f"Firmware refused the {label}: {error}")
+            all_ok = False
+        else:
+            # Joined rather than cut to the first line: an apply answers with
+            # several, and the one worth seeing — a "WARN: FSK BW too narrow"
+            # the firmware silently corrected — is never the first of them.
+            summary = " | ".join(
+                line.strip() for line in reply.splitlines() if line.strip()
+            )
+            print_dim(f"{label}: {summary[:100]}")
+        time.sleep(_SHELL_CMD_DELAY)
+
+    return all_ok
+
+
 def _configure_lora(
     shell: ShellConnection,
     frequency: int,
@@ -313,9 +391,18 @@ def _configure_lora(
     """
     Send all LoRa configuration commands via Cat-Shell and apply them.
 
-    Returns True if every command received a response.
+    Returns True when every command was answered and none was refused.
     """
     steps = [
+        # The RF switch comes first: the firmware boots it on the CC1352's
+        # 2.4GHz port, so without this the SX1262 is configured correctly and
+        # then listens through the wrong antenna path.
+        ("RF switch", sx1262_band_command()),
+        # The modulation is selected next because an earlier `sniff fsk` left
+        # the firmware with lora_initialized = false, and apply_lora_config()
+        # refuses to run in that state — `lora_apply` alone would answer
+        # "LoRa not initialized" and the capture would come up silent.
+        ("modulation", modulation_command("lora")),
         ("frequency", snifferSxCmd.set_freq(frequency)),
         ("bandwidth", snifferSxCmd.set_bw(bandwidth)),
         ("spread factor", snifferSxCmd.set_sf(spread_factor)),
@@ -327,17 +414,54 @@ def _configure_lora(
         ("apply", snifferSxCmd.apply_config()),
     ]
 
-    all_ok = True
-    for label, cmd in steps:
-        response = shell.send_command(cmd, timeout=1.5)
-        if response is None:
-            print_warning(f"No response while setting {label}")
-            all_ok = False
-        else:
-            print_dim(f"{label}: {response[:80]}")
-        time.sleep(_SHELL_CMD_DELAY)
+    return _send_config_steps(shell, steps)
 
-    return all_ok
+
+def _configure_fsk(
+    shell: ShellConnection,
+    frequency: int,
+    bitrate: int,
+    fdev: int,
+    bandwidth: str,
+    tx_power: int,
+    preamble: int,
+    sync_word: str,
+    crc: bool,
+    whitening: bool,
+    pktlen: str,
+    payload: int,
+    bt: str,
+) -> bool:
+    """
+    Send all (G)FSK configuration commands via Cat-Shell and apply them.
+
+    Returns True when every command was answered and none was refused.
+    """
+    steps = [
+        # See _configure_lora: the antenna path has to be switched to the
+        # SX1262 before any of this matters.
+        ("RF switch", sx1262_band_command()),
+        ("frequency", snifferSxFskCmd.set_freq(frequency)),
+        ("bitrate", snifferSxFskCmd.set_bitrate(bitrate)),
+        ("deviation", snifferSxFskCmd.set_fdev(fdev)),
+        ("RX bandwidth", snifferSxFskCmd.set_bw(bandwidth)),
+        ("TX power", snifferSxFskCmd.set_power(tx_power)),
+        ("BT shaping", snifferSxFskCmd.set_bt(bt)),
+        ("preamble", snifferSxFskCmd.set_preamble(preamble)),
+        ("sync word", snifferSxFskCmd.set_syncword(sync_word)),
+        ("packet length", snifferSxFskCmd.set_pktlen(pktlen)),
+        ("payload length", snifferSxFskCmd.set_payload(payload)),
+        ("CRC", snifferSxFskCmd.set_crc(crc)),
+        ("whitening", snifferSxFskCmd.set_whitening(whitening)),
+        # `modulation fsk` rather than `fsk_apply`: both end in
+        # apply_fsk_config(), but switch_to_fsk() also stops LoRa reception
+        # first, and it applies unconditionally — `fsk_apply` is a no-op when
+        # the firmware thinks nothing is pending, which would leave the radio
+        # in whatever modulation the last session chose.
+        ("modulation", modulation_command("fsk")),
+    ]
+
+    return _send_config_steps(shell, steps)
 
 
 def _stop_lora_capture(
@@ -353,11 +477,15 @@ def _stop_lora_capture(
     try:
         if shell.connection is None:
             shell.connect()
-        resp = shell.send_command(snifferSxCmd.start_command(), timeout=2.0)
-        if resp is not None and "COMMAND" in resp.upper():
+        stop_cmd = snifferSxCmd.start_command()
+        reply = _shell_reply(shell.send_command(stop_cmd, timeout=2.0), stop_cmd)
+        # Both halves matter: the firmware quotes the mode names back in its
+        # own rejection ("Error: Mode must be 'stream' or 'command'"), so the
+        # word alone is not proof the mode was taken.
+        if "COMMAND" in reply.upper() and not _shell_error(reply):
             print_success("Command mode restored")
         else:
-            print_warning(f"Response to stop: {resp!r}")
+            print_warning(f"Response to stop: {reply!r}")
     except Exception as exc:
         print_warning(f"Could not restore command mode: {exc}")
     finally:
@@ -373,57 +501,55 @@ def _stop_lora_capture(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# LoRa (SX1262 / RP2040) bridge
+# SX1262 bridge (LoRa and FSK)
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def run_sx_bridge(
+def _run_sx_capture(
     device: CatSnifferDevice,
-    frequency: int,
-    bandwidth: int,
-    spread_factor: int,
-    coding_rate: int,
-    tx_power: int = 20,
+    configure,
+    context: dict,
+    summary: list,
+    modulation: str = "LoRa",
     wireshark: bool = False,
     verbose: bool = False,
-    sync_word: str = "private",
-    preamble: int = 12,
-    iq: str = "normal",
     raw_file: str = None,
     ascii_file: str = None,
     pcap_file: str = None,
     force: bool = False,
     wireshark_args: list = None,
 ):
-    """
-    Run the LoRa sniffer bridge for the unified RP2040 firmware.
+    """Configure the SX1262 and stream what it receives, in either modulation.
 
     Data flow
     ─────────
-    Cat-Shell ← configuration commands (lora_freq, lora_sf, lora_apply …)
-    Cat-LoRa  → received packets as ASCII text lines:
-                    "RX: <HEX> | RSSI: <int> | SNR: <int>\\r\\n"
+    Cat-Shell ← configuration commands (lora_freq…/fsk_freq…, modulation)
+    Cat-LoRa  → received frames as ASCII text lines:
+                    "LORA RX: <HEX> | RSSI: <int> | SNR: <int>\\r\\n"
+                    "FSK RX: <HEX> | RSSI: <int> | Len: <int>\\r\\n"
 
-    Each line is parsed by SnifferSx.Packet (text path), converted to a
-    PCAP record, and written to a named pipe for Wireshark.
+    Everything below the radio settings is shared: each line is parsed by
+    SnifferSx.Packet, turned into a LoRaTap record and written to the named
+    pipe Wireshark reads, to the capture file and to the text logs.  So LoRa
+    and FSK differ only in ``configure`` — which shell commands set the modem
+    up — and in ``context``, what the LoRaTap header should then claim.
 
-    The RP2040 starts in STREAM mode by default (see main.c:854) so the
-    lora_thread wakes on the semaphore.  We send lora_mode stream explicitly
-    after configuration to be safe, and also write a keepalive byte to
-    CDC1 every few seconds so the lora_data_sem keeps firing.
+    The RP2040 starts in STREAM mode by default, so the lora_thread wakes on
+    the semaphore; ``lora_mode stream`` is sent explicitly after configuration
+    to be safe.  It governs both modulations, the firmware keeps only the one
+    mode flag.
 
     Args:
         device:        CatSnifferDevice with shell_port and lora_port.
-        frequency:     Hz  (e.g. 915_000_000).
-        bandwidth:     kHz (125, 250 or 500).
-        spread_factor: 7–12.
-        coding_rate:   5–8.
-        tx_power:      dBm.
+        configure:     Called with the open ShellConnection; returns False when
+                       a configuration command went unanswered or was refused
+                       by the firmware.
+        context:       Radio settings handed to SnifferSx.Packet for the
+                       LoRaTap header.
+        summary:       ``(label, value)`` pairs echoed before configuring.
+        modulation:    Name used in the progress messages ("LoRa" / "FSK").
         wireshark:     Launch Wireshark when True.
         verbose:       Show packet output in terminal when True.
-        sync_word:     "private", "public" or a raw byte such as "0x2B".
-        preamble:      Preamble length in symbols (6-65535).
-        iq:            "normal" or "inverted" (LoRaWAN downlinks use inverted).
         raw_file:      Path to append packets as raw hex, or None to disable.
         ascii_file:    Path to append packets as decoded ASCII, or None to disable.
         pcap_file:     Path to write the capture as .pcap/.pcapng, or None to disable.
@@ -434,16 +560,16 @@ def run_sx_bridge(
     Returns:
         The number of packets captured, or None when the bridge could not be
         started (bad ports, unwritable capture file, no Wireshark on the pipe).
-        ``sniff lora`` uses it to decide whether there is a capture worth
-        opening in Wireshark once the session ends.
+        ``sniff lora``/``sniff fsk`` use it to decide whether there is a capture
+        worth opening in Wireshark once the session ends.
     """
 
     # ── 1. Validate ports ────────────────────────────────────────────────────
     if not device.shell_port:
-        print_error("No shell_port on device — cannot configure LoRa")
+        print_error(f"No shell_port on device — cannot configure {modulation}")
         return
     if not device.lora_port:
-        print_error("No lora_port on device — cannot receive LoRa stream")
+        print_error(f"No lora_port on device — cannot receive the {modulation} stream")
         return
 
     # ── 2. Open the capture file first: a refused overwrite must abort before
@@ -469,28 +595,12 @@ def run_sx_bridge(
         pipe.remove()
         return
 
-    print_info(f"Configuring LoRa via {device.shell_port}...")
-    print_dim(f"Frequency:        {frequency / 1e6:.3f} MHz")
-    print_dim(f"Bandwidth:        {bandwidth} kHz")
-    print_dim(f"Spreading Factor: SF{spread_factor}")
-    print_dim(f"Coding Rate:      4/{coding_rate}")
-    print_dim(f"TX Power:         {tx_power} dBm")
-    print_dim(f"Sync Word:        {sync_word}")
-    print_dim(f"Preamble:         {preamble} symbols")
-    print_dim(f"IQ:               {iq}")
+    print_info(f"Configuring {modulation} via {device.shell_port}...")
+    for label, value in summary:
+        print_dim(f"{label:<18}{value}")
 
-    if not _configure_lora(
-        shell,
-        frequency,
-        bandwidth,
-        spread_factor,
-        coding_rate,
-        tx_power,
-        sync_word,
-        preamble,
-        iq,
-    ):
-        print_warning("Some config commands had no response — continuing")
+    if not configure(shell):
+        print_warning("Some settings were not confirmed by the firmware — continuing")
 
     # ── 5. Open Cat-LoRa data port ────────────────────────────────────────────
     lora = LoRaConnection(port=device.lora_port)
@@ -509,48 +619,29 @@ def run_sx_bridge(
         pass
 
     # ── 6. Switch to stream mode ──────────────────────────────────────────────
+    # NOTE: Do NOT write bytes to CDC1 afterwards — in stream mode the RP2040
+    # lora_thread treats anything on rb_usb_to_sx1262 as payload to transmit,
+    # which stops RX for the duration of that TX.  No host-side keepalive is
+    # needed either: the thread loops on k_sem_take(K_MSEC(100)) and re-arms
+    # reception on its own.
     print_info("Switching RP2040 to stream mode...")
-    stream_resp = shell.send_command(snifferSxCmd.start_streaming(), timeout=2.0)
-    if stream_resp and "STREAM" in stream_resp.upper():
+    stream_cmd = snifferSxCmd.start_streaming()
+    stream_reply = _shell_reply(shell.send_command(stream_cmd, timeout=2.0), stream_cmd)
+    if "STREAM" in stream_reply.upper() and not _shell_error(stream_reply):
         print_success("Stream mode active")
     else:
-        print_warning(f"Unexpected stream response: {stream_resp!r} — continuing")
+        print_warning(f"Unexpected stream response: {stream_reply!r} — continuing")
 
-    # ── 7. Keepalive thread ───────────────────────────────────────────────────
-    # NOTE: Do NOT write bytes to CDC1 in stream mode — the RP2040 lora_thread
-    # treats any data on rb_usb_to_sx1262 as payload to transmit, which calls
-    # lora_stop_rx() and breaks reception for the duration of that TX.
-    # The lora_thread already loops on k_sem_take(K_MSEC(100)), so it keeps
-    # lora_start_rx_async() armed without any host-side stimulation.
-    _keepalive_stop = threading.Event()
-
-    def _keepalive():
-        _keepalive_stop.wait()  # just block until the capture ends
-
-    ka_thread = threading.Thread(target=_keepalive, daemon=True)
-    ka_thread.start()
-
-    # ── 8. Wait for Wireshark ─────────────────────────────────────────────────
+    # ── 7. Wait for Wireshark ─────────────────────────────────────────────────
     if wireshark:
         print_info(f"Waiting for Wireshark (timeout {_WIRESHARK_PIPE_TIMEOUT}s)...")
         if not pipe.ready_event.wait(timeout=_WIRESHARK_PIPE_TIMEOUT):
             print_error("Timed out waiting for Wireshark — aborting")
-            _keepalive_stop.set()
             pcap_writer.close(summary=False)
             _stop_lora_capture(shell, lora, pipe)
             return
 
-    # ── 9. Streaming loop ─────────────────────────────────────────────────────
-    lora_context = {
-        "frequency": frequency,
-        "bandwidth": bandwidth,
-        "spread_factor": spread_factor,
-        "coding_rate": coding_rate,
-        "sync_word": sync_word,
-        "preamble": preamble,
-        "iq": iq,
-    }
-
+    # ── 8. Streaming loop ─────────────────────────────────────────────────────
     # Determine if we should show verbose output
     # Show output if verbose is True OR if wireshark is False (default behavior)
     show_output = verbose or not wireshark
@@ -596,7 +687,7 @@ def run_sx_bridge(
                 continue
 
             try:
-                packet = snifferSx.Packet(raw, context=lora_context)
+                packet = snifferSx.Packet(raw, context=context)
 
                 if not header_written:
                     pipe.write_packet(get_global_header(LORATAP_DLT))
@@ -608,22 +699,25 @@ def run_sx_bridge(
                 packet_count += 1
 
                 # Persist only the relevant fields to the log file(s).
-                # LoRa carries both RSSI and SNR.
-                log_writer.write(
-                    packet.payload,
-                    meta=f"RSSI: {int(packet.rssi)} | SNR: {int(packet.snr)}",
-                )
+                # LoRa carries both RSSI and SNR; an FSK frame is reported
+                # without one, so logging "SNR: 0" would invent a measurement.
+                meta = f"RSSI: {int(packet.rssi)}"
+                if not packet.is_fsk:
+                    meta += f" | SNR: {int(packet.snr)}"
+                log_writer.write(packet.payload, meta=meta)
 
                 if show_output:
                     ascii_str = "".join(
                         chr(b) if 32 <= b < 127 else "." for b in packet.payload
                     )
                     hex_str = packet.payload.hex()
+                    quality = f"RSSI={packet.rssi:>7.1f} dBm"
+                    if not packet.is_fsk:
+                        quality += f"  SNR={packet.snr:>5.1f} dB"
                     console.print(
                         f"[green]  [{packet_count:>5}][/green] "
                         f"len={packet.length:>4}B  "
-                        f"RSSI={packet.rssi:>7.1f} dBm  "
-                        f"SNR={packet.snr:>5.1f} dB\n"
+                        f"{quality}\n"
                         f"         hex={hex_str}\n"
                         f"         ascii=[italic]{ascii_str}[/italic]"
                     )
@@ -640,12 +734,191 @@ def run_sx_bridge(
             f"Capture stopped — {packet_count} packet(s), {error_count} error(s)"
         )
     finally:
-        _keepalive_stop.set()
         log_writer.close()
         pcap_writer.close()
         _stop_lora_capture(shell, lora, pipe)
 
     return packet_count
+
+
+def run_sx_bridge(
+    device: CatSnifferDevice,
+    frequency: int,
+    bandwidth: int,
+    spread_factor: int,
+    coding_rate: int,
+    tx_power: int = 20,
+    wireshark: bool = False,
+    verbose: bool = False,
+    sync_word: str = "private",
+    preamble: int = 12,
+    iq: str = "normal",
+    raw_file: str = None,
+    ascii_file: str = None,
+    pcap_file: str = None,
+    force: bool = False,
+    wireshark_args: list = None,
+):
+    """Run the LoRa sniffer bridge for the unified RP2040 firmware.
+
+    Args:
+        device:        CatSnifferDevice with shell_port and lora_port.
+        frequency:     Hz  (e.g. 915_000_000).
+        bandwidth:     kHz (125, 250 or 500).
+        spread_factor: 7–12.
+        coding_rate:   5–8.
+        tx_power:      dBm.
+        wireshark:     Launch Wireshark when True.
+        verbose:       Show packet output in terminal when True.
+        sync_word:     "private", "public" or a raw byte such as "0x2B".
+        preamble:      Preamble length in symbols (6-65535).
+        iq:            "normal" or "inverted" (LoRaWAN downlinks use inverted).
+        raw_file:      Path to append packets as raw hex, or None to disable.
+        ascii_file:    Path to append packets as decoded ASCII, or None to disable.
+        pcap_file:     Path to write the capture as .pcap/.pcapng, or None to disable.
+        force:         Overwrite pcap_file when it already exists.
+        wireshark_args: Extra Wireshark command-line arguments, e.g. the ``-d``
+                       decode-as rule built by ``lora_decode_as_args``.
+
+    Returns:
+        See :func:`_run_sx_capture`, which does the work from here on.
+    """
+    return _run_sx_capture(
+        device,
+        configure=lambda shell: _configure_lora(
+            shell,
+            frequency,
+            bandwidth,
+            spread_factor,
+            coding_rate,
+            tx_power,
+            sync_word,
+            preamble,
+            iq,
+        ),
+        context={
+            "frequency": frequency,
+            "bandwidth": bandwidth,
+            "spread_factor": spread_factor,
+            "coding_rate": coding_rate,
+            "sync_word": sync_word,
+            "preamble": preamble,
+            "iq": iq,
+        },
+        summary=[
+            ("Frequency:", f"{frequency / 1e6:.3f} MHz"),
+            ("Bandwidth:", f"{bandwidth} kHz"),
+            ("Spreading Factor:", f"SF{spread_factor}"),
+            ("Coding Rate:", f"4/{coding_rate}"),
+            ("TX Power:", f"{tx_power} dBm"),
+            ("Sync Word:", sync_word),
+            ("Preamble:", f"{preamble} symbols"),
+            ("IQ:", iq),
+        ],
+        modulation="LoRa",
+        wireshark=wireshark,
+        verbose=verbose,
+        raw_file=raw_file,
+        ascii_file=ascii_file,
+        pcap_file=pcap_file,
+        force=force,
+        wireshark_args=wireshark_args,
+    )
+
+
+def run_fsk_bridge(
+    device: CatSnifferDevice,
+    frequency: int,
+    bitrate: int = 50000,
+    fdev: int = 25000,
+    bandwidth: str = "187.2",
+    tx_power: int = 14,
+    preamble: int = 8,
+    sync_word: str = "12AD",
+    crc: bool = False,
+    whitening: bool = False,
+    pktlen: str = "variable",
+    payload: int = 255,
+    bt: str = "0.5",
+    wireshark: bool = False,
+    verbose: bool = False,
+    raw_file: str = None,
+    ascii_file: str = None,
+    pcap_file: str = None,
+    force: bool = False,
+    wireshark_args: list = None,
+):
+    """Run the (G)FSK sniffer bridge for the unified RP2040 firmware.
+
+    Same radio, same ports and same stream as :func:`run_sx_bridge` — the
+    SX1262 is simply put in FSK mode, where it demodulates the sub-GHz traffic
+    LoRa cannot see: 802.15.4g/Wi-SUN, many proprietary ISM links, and the
+    FSK side of Meshtastic.  The firmware reports those frames on Cat-LoRa as
+    "FSK RX: <HEX> | RSSI: <int> | Len: <int>".
+
+    Args:
+        device:      CatSnifferDevice with shell_port and lora_port.
+        frequency:   Hz (137-1020 MHz).
+        bitrate:     bps (600-300000).
+        fdev:        Frequency deviation in Hz (600-200000).
+        bandwidth:   RX bandwidth in kHz, one of ``FSK_BANDWIDTHS``.
+        tx_power:    dBm (-9 to 22).
+        preamble:    Preamble length in *bytes* (FSK counts bytes, not symbols).
+        sync_word:   Up to 8 sync-word bytes as hex, e.g. "2DD4".
+        crc:         Let the modem check the CRC and drop failing frames.
+        whitening:   Undo the transmitter's data whitening.
+        pktlen:      "variable" (length from the packet header) or "fixed".
+        payload:     Payload length for "fixed", maximum length for "variable".
+        bt:          Gaussian filter BT: "off" (plain FSK) or 0.3/0.5/0.7/1.0.
+
+    The remaining arguments and the return value are those of
+    :func:`run_sx_bridge`.
+    """
+    return _run_sx_capture(
+        device,
+        configure=lambda shell: _configure_fsk(
+            shell,
+            frequency,
+            bitrate,
+            fdev,
+            bandwidth,
+            tx_power,
+            preamble,
+            sync_word,
+            crc,
+            whitening,
+            pktlen,
+            payload,
+            bt,
+        ),
+        # Only the frequency means anything to a LoRaTap header here; the
+        # bandwidth/SF/sync-word fields are written as "unknown" by
+        # SnifferSx.Packet for an FSK frame rather than filled with LoRa
+        # settings the radio was never using.
+        context={"frequency": frequency},
+        summary=[
+            ("Frequency:", f"{frequency / 1e6:.3f} MHz"),
+            ("Bitrate:", f"{bitrate} bps"),
+            ("Deviation:", f"{fdev} Hz"),
+            ("RX Bandwidth:", f"{bandwidth} kHz"),
+            ("TX Power:", f"{tx_power} dBm"),
+            ("Gaussian BT:", bt),
+            ("Preamble:", f"{preamble} bytes"),
+            ("Sync Word:", sync_word),
+            ("Packet Length:", pktlen),
+            ("Payload:", f"{payload} bytes"),
+            ("CRC:", "on" if crc else "off"),
+            ("Whitening:", "on" if whitening else "off"),
+        ],
+        modulation="FSK",
+        wireshark=wireshark,
+        verbose=verbose,
+        raw_file=raw_file,
+        ascii_file=ascii_file,
+        pcap_file=pcap_file,
+        force=force,
+        wireshark_args=wireshark_args,
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
