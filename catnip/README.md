@@ -475,6 +475,7 @@ Commands:
 | `sniff zigbee` | Sniffing Zigbee with Sniffer TI firmware |
 | `sniff thread` | Sniffing Thread with Sniffer TI firmware |
 | `sniff lora` | Sniffing LoRa with Sniffer SX1262 firmware |
+| `sniff fsk` | Sniffing (G)FSK with Sniffer SX1262 firmware |
 | `sniff airtag_scanner` | Apple AirTag Scanner firmware |
 
 **Meshtastic subcommands:**
@@ -491,6 +492,7 @@ Commands:
 | Command | Purpose |
 |---------|-----------|
 | `lora spectrum` | Live Spectrum Scanner for SX1262 - Real-time frequency spectrum analyzer |
+| `lora scan` | Sweep SF/BW/frequency combinations and count packets on each, to find an unknown transmitter's settings |
 
 ### Verifying Connected Devices
 
