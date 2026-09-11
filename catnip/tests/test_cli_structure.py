@@ -72,6 +72,18 @@ EXPECTED_PARAMS = {
         "-b",
         "-d",
     ],
+    "catnip lora scan": [
+        "--bw",
+        "--device",
+        "--dwell",
+        "--freq",
+        "--passes",
+        "--sf",
+        "--sync-word",
+        "-d",
+        "-f",
+        "-sw",
+    ],
     "catnip meshtastic": [],
     "catnip meshtastic config": ["<file>"],
     "catnip meshtastic dashboard": [
