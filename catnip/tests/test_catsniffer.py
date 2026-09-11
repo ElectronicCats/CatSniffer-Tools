@@ -44,15 +44,25 @@ sys.path.insert(0, PROJECT_ROOT)
 
 def make_fake_modules():
     """Registers minimal stubs in sys.modules so imports don't fail."""
-    # protocol.*
-    for mod in [
-        "protocol",
-        "protocol.sniffer_sx",
-        "protocol.sniffer_ti",
-        "protocol.common",
-    ]:
-        if mod not in sys.modules:
-            sys.modules[mod] = MagicMock()
+    # protocol.* — imported for real when it can be: these modules are pure
+    # Python with no hardware or third-party dependencies, and a MagicMock left
+    # in sys.modules is visible to *every* later test module.  It used to be:
+    # ``modules/sniff/cli.py`` builds a click.Choice out of
+    # ``protocol.sniffer_sx.FSK_BANDWIDTHS``, and a MagicMock iterates as empty,
+    # so ``sniff fsk`` was collected with no bandwidths and failed a test in
+    # another file depending on which order the two ran in.
+    try:
+        import protocol.sniffer_sx  # noqa: F401
+        import protocol.sniffer_ti  # noqa: F401
+    except ImportError:
+        for mod in [
+            "protocol",
+            "protocol.sniffer_sx",
+            "protocol.sniffer_ti",
+            "protocol.common",
+        ]:
+            if mod not in sys.modules:
+                sys.modules[mod] = MagicMock()
 
     # usb
     for mod in ["usb", "usb.core", "usb.util"]:
@@ -892,14 +902,15 @@ class TestConfigureLora:
         shell.send_command.return_value = "OK response"
         result = _configure_lora(shell, 915_000_000, 125, 7, 5, 20)
         assert result is True
-        assert shell.send_command.call_count == 9  # 8 params + apply
+        # RF switch + modulation + 8 params + apply
+        assert shell.send_command.call_count == 11
 
     def test_one_command_no_response(self):
         from modules.core.bridge import _configure_lora
 
         shell = MagicMock()
         # First command returns None, the others "OK"
-        shell.send_command.side_effect = [None] + ["OK"] * 8
+        shell.send_command.side_effect = [None] + ["OK"] * 10
         result = _configure_lora(shell, 915_000_000, 125, 7, 5, 20)
         assert result is False
 
@@ -910,6 +921,198 @@ class TestConfigureLora:
         shell.send_command.return_value = None
         result = _configure_lora(shell, 868_000_000, 250, 12, 8, 14)
         assert result is False
+
+
+class TestConfigureFsk:
+    """Tests for _configure_fsk (internal function)."""
+
+    def _sent(self, shell):
+        return [c.args[0] for c in shell.send_command.call_args_list]
+
+    def _configure(self, shell):
+        from modules.core.bridge import _configure_fsk
+
+        return _configure_fsk(
+            shell,
+            915_000_000,
+            50000,
+            25000,
+            "187.2",
+            14,
+            8,
+            "12AD",
+            False,
+            False,
+            "variable",
+            255,
+            "0.5",
+        )
+
+    def test_all_commands_succeed(self):
+        shell = MagicMock()
+        shell.send_command.return_value = "OK response"
+        assert self._configure(shell) is True
+        # RF switch + 12 params + the modulation switch that applies them
+        assert shell.send_command.call_count == 14
+
+    def test_one_command_no_response(self):
+        shell = MagicMock()
+        shell.send_command.side_effect = [None] + ["OK"] * 13
+        assert self._configure(shell) is False
+
+    def test_the_radio_is_switched_last_so_the_settings_are_there_to_apply(self):
+        """``modulation fsk`` is what applies the configuration.
+
+        ``fsk_apply`` would do it too, but only when the firmware thinks
+        something is pending — and it leaves the modulation alone, so a session
+        that followed ``sniff lora`` would configure FSK and then listen in
+        LoRa.
+        """
+        shell = MagicMock()
+        shell.send_command.return_value = "OK"
+        self._configure(shell)
+        assert self._sent(shell)[-1] == "modulation fsk"
+
+    def test_lora_selects_its_modulation_first(self):
+        """After an FSK session the firmware refuses a bare ``lora_apply``.
+
+        ``apply_fsk_config`` clears ``lora_initialized``, and
+        ``apply_lora_config`` answers "LoRa not initialized" in that state — so
+        the LoRa capture would come up configured but silent.
+        """
+        from modules.core.bridge import _configure_lora
+
+        shell = MagicMock()
+        shell.send_command.return_value = "OK"
+        _configure_lora(shell, 915_000_000, 125, 7, 5, 20)
+        sent = self._sent(shell)
+        assert sent.index("modulation lora") < sent.index("lora_freq 915000000")
+        assert sent[-1] == "lora_apply"
+
+    def test_both_modulations_switch_the_antenna_to_the_sx1262(self):
+        """The RF switch boots on the CC1352's 2.4GHz port.
+
+        Nothing in a capture session moves it, so without ``band3`` the SX1262
+        is configured correctly and then listens through the wrong antenna
+        path — poor sensitivity or an empty capture.
+        """
+        from modules.core.bridge import _configure_lora
+
+        shell = MagicMock()
+        shell.send_command.return_value = "OK"
+        self._configure(shell)
+        assert self._sent(shell)[0] == "band3"
+
+        shell = MagicMock()
+        shell.send_command.return_value = "OK"
+        _configure_lora(shell, 915_000_000, 125, 7, 5, 20)
+        assert self._sent(shell)[0] == "band3"
+
+
+class TestShellReplyParsing:
+    """The Cat-Shell port echoes back everything the host writes to it.
+
+    ``cdc2_interrupt_handler`` puts every received byte straight back on the
+    config port, so a reply always arrives with its own command in front of it.
+    Read as-is, that echo answers every question asked of the reply: "STREAM"
+    is present in the echo of ``lora_mode stream`` whether the firmware took
+    the mode or refused it, and a rejected setting reads as an accepted one.
+    """
+
+    def test_the_echoed_command_is_not_part_of_the_reply(self):
+        from modules.core.bridge import _shell_reply
+
+        reply = _shell_reply(
+            "lora_mode stream\r\nLoRa mode set to STREAM (slow blink)",
+            "lora_mode stream",
+        )
+        assert reply == "LoRa mode set to STREAM (slow blink)"
+
+    def test_an_echo_with_nothing_behind_it_is_no_answer(self):
+        from modules.core.bridge import _shell_reply
+
+        assert _shell_reply("fsk_bw 58.6", "fsk_bw 58.6") == ""
+        assert _shell_reply(None, "fsk_bw 58.6") == ""
+
+    def test_a_reply_that_was_not_echoed_is_left_alone(self):
+        """A firmware build that does not echo has to be read just as well."""
+        from modules.core.bridge import _shell_reply
+
+        assert (
+            _shell_reply("FSK Bitrate set to 50000 bps", "fsk_bitrate 50000")
+            == "FSK Bitrate set to 50000 bps"
+        )
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "Error: Bitrate must be 600-300000 bps",
+            "ERROR: FSK lora_config failed (-22)",
+            "Usage: fsk_bw <bandwidth>",
+            "Unknown command. Type 'help'",
+        ],
+    )
+    def test_every_shape_of_refusal_the_firmware_writes_is_recognised(self, line):
+        from modules.core.bridge import _shell_error
+
+        assert _shell_error(line) == line
+
+    def test_a_failure_below_the_first_line_is_still_found(self):
+        """Applying a configuration answers with several lines, not one."""
+        from modules.core.bridge import _shell_error
+
+        reply = (
+            "Applying FSK configuration...\r\n" "ERROR: FSK lora_config failed (-22)"
+        )
+        assert _shell_error(reply) == "ERROR: FSK lora_config failed (-22)"
+
+    def test_a_warning_is_not_a_failure(self):
+        """A bandwidth the firmware widened on its own still applied."""
+        from modules.core.bridge import _shell_error
+
+        reply = (
+            "Applying FSK configuration...\r\n"
+            "WARN: FSK BW too narrow (58000 Hz < 100000 Hz), forcing "
+            "FSK_BW_187_KHZ\r\n"
+            "FSK configuration applied successfully"
+        )
+        assert _shell_error(reply) == ""
+
+    def test_a_refused_setting_fails_the_configuration(self):
+        """Before the echo was stripped this passed: the reply held the command.
+
+        The remaining commands are still sent — one setting the firmware would
+        not take is not a reason to leave the radio half-configured — but the
+        caller is told, instead of reading "Stream mode active" over a radio
+        that was never given the deviation it was asked for.
+        """
+        from modules.core.bridge import _configure_fsk
+
+        shell = MagicMock()
+        shell.send_command.side_effect = lambda cmd, **kwargs: (
+            f"{cmd}\r\nError: Freq deviation must be 600-200000 Hz"
+            if cmd.startswith("fsk_fdev")
+            else f"{cmd}\r\nOK"
+        )
+
+        result = _configure_fsk(
+            shell,
+            915_000_000,
+            50000,
+            25000,
+            "187.2",
+            14,
+            8,
+            "12AD",
+            False,
+            False,
+            "variable",
+            255,
+            "0.5",
+        )
+
+        assert result is False
+        assert shell.send_command.call_count == 14
 
 
 class TestRunSxBridge:

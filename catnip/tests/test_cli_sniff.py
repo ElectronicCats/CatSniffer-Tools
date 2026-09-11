@@ -41,9 +41,10 @@ def sniffer_sx():
     try:
         yield importlib.import_module("protocol.sniffer_sx")
     finally:
-        for name in _PROTOCOL_MODULES:
-            sys.modules.pop(name, None)
-        sys.modules.update(saved)
+        if saved:
+            for name in _PROTOCOL_MODULES:
+                sys.modules.pop(name, None)
+            sys.modules.update(saved)
 
 
 @pytest.mark.slow
@@ -157,6 +158,206 @@ class TestSniffLoRaDefaults:
         bandwidth = bridge.call_args.args[2]
         assert bandwidth == expected
         assert isinstance(bandwidth, int)
+
+
+class TestFskShellCommands:
+    """``fsk_*`` command formatting.
+
+    The firmware parsers (``cmd_fsk_syncword``/``cmd_fsk_bw``/``cmd_fsk_bt`` in
+    ``shell_commands.c``) take no arguments they can report an error for: a
+    sync word stops at the first non-hex character, a bandwidth falls through a
+    threshold ladder to a neighbour, and a bad BT is simply rejected on the
+    shell the user is not reading.  So the formatting is pinned here.
+    """
+
+    def test_sync_word_accepts_what_a_datasheet_looks_like(self, sniffer_sx):
+        cmd = sniffer_sx.FskShellCommands
+        assert cmd.set_syncword("2dd4") == "fsk_syncword 2DD4"
+        assert cmd.set_syncword("0x2DD4") == "fsk_syncword 2DD4"
+        assert cmd.set_syncword("2D:D4") == "fsk_syncword 2DD4"
+        assert cmd.set_syncword("2D D4") == "fsk_syncword 2DD4"
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "",  # nothing to match on
+            "2D4",  # half a byte
+            "2DZ4",  # not hex — the firmware would stop at the Z
+            "00112233445566778899",  # 10 bytes, the SX1262 matches 8
+        ],
+    )
+    def test_sync_word_rejects_what_the_firmware_would_truncate(self, sniffer_sx, bad):
+        with pytest.raises(ValueError):
+            sniffer_sx.normalize_fsk_syncword(bad)
+
+    def test_every_offered_bandwidth_is_accepted(self, sniffer_sx):
+        for bandwidth in sniffer_sx.FSK_BANDWIDTHS:
+            assert (
+                sniffer_sx.FskShellCommands.set_bw(bandwidth) == f"fsk_bw {bandwidth}"
+            )
+
+    def test_a_bandwidth_between_two_entries_is_refused(self, sniffer_sx):
+        # 100 kHz would land on 117.3 without a word about it.
+        with pytest.raises(ValueError):
+            sniffer_sx.FskShellCommands.set_bw("100")
+
+    def test_booleans_are_spelled_the_way_the_firmware_reads_them(self, sniffer_sx):
+        cmd = sniffer_sx.FskShellCommands
+        assert cmd.set_crc(True) == "fsk_crc on"
+        assert cmd.set_crc(False) == "fsk_crc off"
+        assert cmd.set_whitening(True) == "fsk_whitening on"
+        assert cmd.set_whitening(False) == "fsk_whitening off"
+
+    def test_out_of_range_values_never_reach_the_wire(self, sniffer_sx):
+        cmd = sniffer_sx.FskShellCommands
+        with pytest.raises(ValueError):
+            cmd.set_bitrate(500)  # firmware floor is 600 bps
+        with pytest.raises(ValueError):
+            cmd.set_fdev(250_000)  # firmware ceiling is 200 kHz
+        with pytest.raises(ValueError):
+            cmd.set_payload(0)
+
+    def test_the_bandwidth_guard_predicts_the_firmware(self, sniffer_sx):
+        """``apply_fsk_config`` compares against the nominal kHz, truncated."""
+        wide_enough = sniffer_sx.fsk_bandwidth_is_wide_enough
+        # 50 kbps at 25 kHz deviation needs 100 kHz by Carson's rule.
+        assert wide_enough("187.2", 50000, 25000) is True
+        assert wide_enough("117.3", 50000, 25000) is True
+        assert wide_enough("93.8", 50000, 25000) is False
+
+
+class TestFskLoRaTapHeader:
+    """An FSK frame carries no LoRa modem settings, and must not claim any.
+
+    The capture still goes out as LoRaTap — it is the only link type Wireshark
+    dissects for this radio — so the fields that describe a LoRa modem have to
+    read as "unknown" rather than as whatever the last LoRa session used.
+    """
+
+    def _fsk_packet(self, sniffer_sx):
+        return sniffer_sx.SnifferSx.Packet(
+            b"FSK RX: 11223344 | RSSI: -42 | Len: 4\r\n",
+            context={"frequency": 868_000_000},
+        )
+
+    def test_the_frame_is_parsed_with_no_snr(self, sniffer_sx):
+        packet = self._fsk_packet(sniffer_sx)
+        assert packet.is_fsk is True
+        assert packet.payload == b"\x11\x22\x33\x44"
+        assert packet.rssi == -42.0
+
+    def test_bandwidth_spreading_factor_and_sync_word_are_unknown(self, sniffer_sx):
+        packet = self._fsk_packet(sniffer_sx)
+        # LoRaTap v0 header starts after the 16-byte pcap record header:
+        # bandwidth and SF are bytes 8 and 9, the sync word is byte 14.
+        assert packet.pcap[16 + 8] == 0
+        assert packet.pcap[16 + 9] == 0
+        assert packet.pcap[16 + 14] == 0
+
+    def test_the_frequency_is_real_and_reported(self, sniffer_sx):
+        packet = self._fsk_packet(sniffer_sx)
+        assert packet.pcap[16 + 4 : 16 + 8] == (868_000_000).to_bytes(4, "big")
+
+    def test_a_lora_frame_still_reports_its_modem(self, sniffer_sx):
+        """The FSK branch must not have taken the LoRa path with it."""
+        packet = sniffer_sx.SnifferSx.Packet(
+            b"LORA RX: aabb | RSSI: -30 | SNR: 9\r\n",
+            context={
+                "frequency": 915_000_000,
+                "bandwidth": 250,
+                "spread_factor": 9,
+                "sync_word": "public",
+            },
+        )
+        assert packet.is_fsk is False
+        assert packet.pcap[16 + 8] == 2  # loratap bandwidth enum for 250 kHz
+        assert packet.pcap[16 + 9] == 9  # SF9
+        assert packet.pcap[16 + 14] == 0x34
+
+
+@pytest.mark.slow
+class TestSniffFskOptions:
+    def test_rejects_invalid_sync_word(self, run_catnip):
+        result = run_catnip("sniff", "fsk", "-sw", "zzz")
+        assert result.returncode != 0
+        assert "sync word" in (result.stdout + result.stderr).lower()
+
+    def test_rejects_a_bandwidth_the_radio_does_not_have(self, run_catnip):
+        result = run_catnip("sniff", "fsk", "-bw", "100")
+        assert result.returncode != 0
+
+    def test_existing_capture_file_aborts(self, run_catnip, tmp_path):
+        target = tmp_path / "capture.pcap"
+        target.write_bytes(b"previous capture")
+
+        result = run_catnip("sniff", "fsk", "-w", str(target))
+        output = result.stdout + result.stderr
+
+        assert result.returncode != 0
+        assert "already exists" in output
+        assert target.read_bytes() == b"previous capture"
+
+
+@pytest.mark.slow
+class TestSniffFskDefaults:
+    """``sniff fsk`` has to work with no flags at all, like ``sniff lora``."""
+
+    def _invoke(self, sniffer_sx, *args):
+        """Run ``sniff fsk`` with the device and the bridge stubbed out.
+
+        ``print_warning`` is captured rather than read back off
+        ``result.output``: ``rich`` itself is stubbed in ``sys.modules`` by
+        whichever test module got there first, so what the console prints is
+        not reliably visible to the CliRunner.
+        """
+        from unittest.mock import patch
+
+        from click.testing import CliRunner
+
+        from modules.core.cli import build_cli
+
+        with patch(
+            "modules.sniff.cli.normalize_fsk_syncword",
+            sniffer_sx.normalize_fsk_syncword,
+        ), patch("modules.sniff.cli.run_fsk_bridge") as bridge, patch(
+            "modules.sniff.cli.get_device_or_exit", return_value=MagicMock()
+        ), patch(
+            "modules.sniff.cli.print_warning"
+        ) as warning:
+            result = CliRunner().invoke(build_cli(), ["sniff", "fsk", *args])
+        result.warnings = " ".join(str(c.args[0]) for c in warning.call_args_list)
+        return result, bridge
+
+    def test_runs_with_no_arguments(self, sniffer_sx):
+        result, bridge = self._invoke(sniffer_sx)
+        assert result.exit_code == 0, result.output
+        bridge.assert_called_once()
+
+    def test_the_defaults_reach_the_bridge(self, sniffer_sx):
+        _, bridge = self._invoke(sniffer_sx)
+        # run_fsk_bridge(dev, frequency, bitrate, fdev, bandwidth, ...)
+        args = bridge.call_args.args
+        assert args[1:5] == (915000000, 50000, 25000, "187.2")
+
+    def test_the_sync_word_is_normalised_before_it_is_sent(self, sniffer_sx):
+        _, bridge = self._invoke(sniffer_sx, "-sw", "2d:d4")
+        assert bridge.call_args.args[7] == "2DD4"
+
+    def test_a_narrow_bandwidth_is_flagged_rather_than_silently_widened(
+        self, sniffer_sx
+    ):
+        """The firmware overrides the -bw on a port the user is not watching."""
+        result, bridge = self._invoke(sniffer_sx, "-bw", "39.0", "-br", "100000")
+        assert result.exit_code == 0, result.output
+        assert "too narrow" in result.warnings
+        assert "187.2" in result.warnings
+        # The override is the firmware's to make: the value asked for is still
+        # what gets sent, so the shell reply says which one it settled on.
+        assert bridge.call_args.args[4] == "39.0"
+
+    def test_a_wide_enough_bandwidth_says_nothing(self, sniffer_sx):
+        result, _ = self._invoke(sniffer_sx, "-bw", "187.2")
+        assert "too narrow" not in result.warnings
 
 
 @pytest.mark.slow
