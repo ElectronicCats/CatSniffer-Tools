@@ -3,6 +3,7 @@ import re
 import time
 from typing import Dict, List, Optional, Tuple
 
+from modules.radio.profiles import MESHTASTIC_CHANNEL_PRESETS, SYNC_WORD_MESHTASTIC
 from modules.utils.output import console, print_success, print_error, print_info
 
 # Third-party
@@ -32,21 +33,11 @@ DEFAULT_KEYS = [
     "TiIdi8MJG+IRnIkS8iUZXRU+MHuGtuzEasOWXp4QndU=",
 ]
 
-# CORRECTED: Correct sync word for Meshtastic
-SYNC_WORD_MESHTASTIC = 0x2B
-
-CHANNELS_PRESET = {
-    "defcon33": {"sf": 7, "bw": 500, "cr": 5, "pl": 16},
-    "ShortTurbo": {"sf": 7, "bw": 500, "cr": 5, "pl": 8},
-    "ShortSlow": {"sf": 9, "bw": 250, "cr": 5, "pl": 8},
-    "ShortFast": {"sf": 8, "bw": 250, "cr": 5, "pl": 8},
-    "MediumSlow": {"sf": 10, "bw": 250, "cr": 5, "pl": 8},
-    "MediumFast": {"sf": 9, "bw": 250, "cr": 5, "pl": 8},
-    "LongSlow": {"sf": 12, "bw": 250, "cr": 5, "pl": 8},
-    "LongFast": {"sf": 11, "bw": 250, "cr": 5, "pl": 8},
-    "LongMod": {"sf": 11, "bw": 250, "cr": 6, "pl": 8},
-    "VLongSlow": {"sf": 12, "bw": 125, "cr": 5, "pl": 8},
-}
+# CHANNELS_PRESET and SYNC_WORD_MESHTASTIC now live in modules.radio.profiles,
+# generalized into the region+preset radio profiles ``sniff lora --profile``
+# draws on; kept as a module-level alias here since this is still where
+# configure_meshtastic_radio uses them.
+CHANNELS_PRESET = MESHTASTIC_CHANNEL_PRESETS
 
 
 def msb2lsb(hexstr: str) -> str:
@@ -202,8 +193,8 @@ def configure_meshtastic_radio(
             f"lora_sf {preset_config['sf']}",
             f"lora_bw {preset_config['bw']}",
             f"lora_cr {preset_config['cr']}",
-            f"lora_preamble {preset_config['pl']}",
-            f"lora_syncword 0x{SYNC_WORD_MESHTASTIC:02X}",
+            f"lora_preamble {preset_config['preamble']}",
+            f"lora_syncword {SYNC_WORD_MESHTASTIC}",
             "lora_apply",
             "lora_mode stream",
         ]

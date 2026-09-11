@@ -31,6 +31,7 @@ setup(
         "rich>=14.0.0",
         "scapy>=2.5.0",
         "textual>=0.50.0",
+        "tomli>=2.0.0; python_version < '3.11'",
         # python-magic requires libmagic system library.
         # On Windows use the bundled binary variant instead.
         "python-magic>=0.4.27; sys_platform != 'win32'",

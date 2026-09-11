@@ -70,6 +70,7 @@
       - [Practical Use Cases](#practical-use-cases)
       - [Troubleshooting](#troubleshooting)
     - [Important Notes](#important-notes)
+    - [LoRa/FSK Radio Profiles](#lorafsk-radio-profiles)
   - [IQ Activity Monitor (Cativity)](#iq-activity-monitor-cativity)
     - [Fundamental Concepts](#fundamental-concepts)
       - [What is 802.15.4?](#what-is-802154)
@@ -476,6 +477,7 @@ Commands:
 | `sniff thread` | Sniffing Thread with Sniffer TI firmware |
 | `sniff lora` | Sniffing LoRa with Sniffer SX1262 firmware |
 | `sniff fsk` | Sniffing (G)FSK with Sniffer SX1262 firmware |
+| `sniff profiles` | List radio profiles available to `sniff lora/fsk --profile` |
 | `sniff airtag_scanner` | Apple AirTag Scanner firmware |
 
 **Meshtastic subcommands:**
@@ -1474,6 +1476,53 @@ sudo usermod -a -G dialout $USER
 > [!TIP]
 > For automated logging, redirect the serial output to a file using your serial terminal's logging feature or tools like `screen -L`.
 
+### LoRa/FSK Radio Profiles
+
+`sniff lora` and `sniff fsk` each take 8-14 flags, and a wrong sync word or
+band gives zero packets with no error to point at the mistake. `--profile`
+(`-P`) fills in the whole set from a named profile — any flag typed
+explicitly still overrides it:
+
+```bash
+catnip sniff lora --profile eu868-meshtastic-longfast
+catnip sniff lora -P us915-meshtastic-shortfast -pw 10   # override tx_power only
+catnip sniff profiles                                     # list what's available
+catnip sniff profiles -c fsk                              # only FSK profiles
+```
+
+Built-in profiles cover every Meshtastic channel preset (`LongFast`,
+`ShortFast`, `LongSlow`, ...) crossed with the US915 and EU868 default
+frequencies. Add your own in `~/.config/catnip/profiles.toml`
+(override with the `CATNIP_PROFILES_FILE` environment variable) as
+`[profiles.NAME]` tables; a user profile with the same name as a built-in
+replaces it:
+
+```toml
+[profiles.home-lora]
+frequency = 915000000
+bandwidth = "125"        # one of "125", "250", "500"
+spread_factor = 7
+coding_rate = 5
+sync_word = "private"    # "private", "public" or "0xNN"
+preamble = 12
+tx_power = 20
+iq = "normal"
+
+[profiles.home-fsk]
+command = "fsk"          # defaults to "lora" when omitted
+frequency = 868000000
+bitrate = 50000
+fdev = 25000
+bandwidth = "187.2"
+sync_word = "2DD4"
+```
+
+A profile only needs the fields it wants to override; anything else keeps
+the command's own default. A profile written for `lora` is rejected under
+`sniff fsk` and vice versa, since the same field name means something
+different in each mode (`preamble` is symbols in LoRa, bytes in FSK) — that
+mismatch is exactly the kind of silent misconfiguration `--profile` exists
+to prevent.
 
 ## IQ Activity Monitor (Cativity)
 

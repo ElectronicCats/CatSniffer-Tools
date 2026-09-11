@@ -119,8 +119,8 @@ class MeshtasticLiveDecoder:
                 f"lora_sf {preset_config['sf']}",
                 f"lora_bw {preset_config['bw']}",
                 f"lora_cr {preset_config['cr']}",
-                f"lora_preamble {preset_config['pl']}",
-                f"lora_syncword 0x{SYNC_WORD_MESHTASTIC:02X}",  # CORREGIDO
+                f"lora_preamble {preset_config['preamble']}",
+                f"lora_syncword {SYNC_WORD_MESHTASTIC}",
                 "lora_apply",
                 "lora_mode stream",
             ]

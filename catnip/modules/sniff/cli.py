@@ -31,6 +31,12 @@ from ..core.extcap import (
 )
 from ..core.usb_connection import open_serial_port
 from ..firmware.flasher import Flasher
+from ..radio.profiles import (
+    ProfileError,
+    available_profiles,
+    describe_profile,
+    resolve_profile,
+)
 from protocol.sniffer_sx import (
     FSK_BANDWIDTHS,
     FSK_FALLBACK_BANDWIDTH,
@@ -346,6 +352,48 @@ def sniff_thread(ws, channel, device, raw_file, ascii_file, pcap_file, force):
         )
 
 
+def _apply_profile_defaults(command_name):
+    """Click callback: fill ``ctx.default_map`` from ``--profile`` before the
+    other options resolve their own defaults.
+
+    Click already resolves an option's value in this order: value typed on
+    the command line, else ``ctx.default_map[name]``, else the option's own
+    ``default=``. So a profile only needs to seed ``default_map`` — an
+    explicit ``-freq``/``-sf``/... the user actually types still wins, and a
+    field a profile doesn't mention still falls through to the option's
+    normal default. This has to run before the other options are processed,
+    which is what ``is_eager=True`` on the option below guarantees.
+    """
+
+    def callback(ctx, param, value):
+        if value is None:
+            return value
+        try:
+            defaults = resolve_profile(value, expected_command=command_name)
+        except ProfileError as exc:
+            raise click.BadParameter(str(exc))
+        ctx.default_map = {**(ctx.default_map or {}), **defaults}
+        return value
+
+    return callback
+
+
+def profile_option(command_name):
+    return click.option(
+        "--profile",
+        "-P",
+        default=None,
+        is_eager=True,
+        callback=_apply_profile_defaults(command_name),
+        help=(
+            "Fill in radio defaults from a named profile — built-in region/"
+            "protocol presets (see 'catnip sniff profiles'), or your own in "
+            "~/.config/catnip/profiles.toml. Flags you pass explicitly still "
+            "override it."
+        ),
+    )
+
+
 def _validate_sync_word(ctx, param, value):
     """Accept the firmware's own sync word spec: private|public|0xNN."""
     try:
@@ -374,6 +422,7 @@ def _validate_sync_word(ctx, param, value):
     ),
 )
 @click.option("-v", "--verbose", is_flag=True, help="Show verbose output in terminal")
+@profile_option("lora")
 @click.option(
     "--frequency",
     "-freq",
@@ -450,6 +499,7 @@ def sniff_lora(
     ws,
     open_capture,
     verbose,
+    profile,
     frequency,
     bandwidth,
     spread_factor,
@@ -476,6 +526,8 @@ def sniff_lora(
         catnip sniff lora -sw public               # LoRaWAN sync word (0x34)
         catnip sniff lora -sw 0x2B -pre 16         # Meshtastic sync word
         catnip sniff lora -sw public --iq inverted # LoRaWAN downlinks
+        catnip sniff lora --profile eu868-meshtastic-longfast
+        catnip sniff lora -P us915-meshtastic-shortfast -pw 10  # override tx_power only
     """
     if not _capture_file_is_writable(pcap_file, force):
         raise SystemExit(1)
@@ -509,6 +561,8 @@ def sniff_lora(
     bw_int = int(bandwidth)
 
     print_info(f"[{dev}] Sniffing LoRa with configuration:")
+    if profile:
+        print_dim(f"Profile:          {profile}")
     print_dim(f"Frequency:        {frequency} Hz ({frequency / 1000000:.3f} MHz)")
     print_dim(f"Bandwidth:        {bw_int} kHz")
     print_dim(f"Spreading Factor: SF{spread_factor}")
@@ -550,6 +604,39 @@ def sniff_lora(
         live_wireshark=ws,
         wireshark_args=wireshark_args,
     )
+
+
+@sniff.command("profiles")
+@click.option(
+    "--command",
+    "-c",
+    "filter_command",
+    type=click.Choice(["lora", "fsk"]),
+    default=None,
+    help="Only list profiles for this radio mode",
+)
+def sniff_profiles(filter_command):
+    """List radio profiles available to --profile (built-in and user-defined).
+
+    User profiles come from ~/.config/catnip/profiles.toml (or $CATNIP_PROFILES_FILE),
+    as [profiles.NAME] tables; a name also used by a built-in profile overrides it.
+
+    \b
+    Examples:
+        catnip sniff profiles
+        catnip sniff profiles -c fsk
+    """
+    profiles = available_profiles()
+    if not profiles:
+        print_info("No profiles available")
+        return
+
+    for name in sorted(profiles):
+        entry = dict(profiles[name])
+        command = str(entry.get("command", "lora")).strip().lower()
+        if filter_command and command != filter_command:
+            continue
+        console.print(f"  [cyan]{name}[/cyan] ({command}): {describe_profile(entry)}")
 
 
 def _validate_fsk_sync_word(ctx, param, value):
@@ -602,6 +689,7 @@ def _warn_narrow_fsk_bandwidth(bandwidth: str, bitrate: int, fdev: int) -> None:
     ),
 )
 @click.option("-v", "--verbose", is_flag=True, help="Show verbose output in terminal")
+@profile_option("fsk")
 @click.option(
     "--frequency",
     "-freq",
@@ -701,6 +789,7 @@ def sniff_fsk(
     ws,
     open_capture,
     verbose,
+    profile,
     frequency,
     bitrate,
     fdev,
@@ -735,6 +824,7 @@ def sniff_fsk(
         catnip sniff fsk -ws                         # live Wireshark
         catnip sniff fsk -w capture.pcapng           # save it, offer to open it
         catnip sniff fsk --bt off                    # plain FSK, no shaping
+        catnip sniff fsk --profile home-meter-fsk    # user profile
     """
     if not _capture_file_is_writable(pcap_file, force):
         raise SystemExit(1)
@@ -766,6 +856,8 @@ def sniff_fsk(
     dev = get_device_or_exit(device)
 
     print_info(f"[{dev}] Sniffing FSK")
+    if profile:
+        print_dim(f"Profile:          {profile}")
     if raw_file:
         print_dim(f"Raw log:          {raw_file}")
     if ascii_file:
