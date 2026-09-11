@@ -1263,6 +1263,50 @@ class TestRunSxBridge:
 class TestRunBridge:
     """Tests for run_bridge (TI sniffer)."""
 
+    @pytest.fixture(autouse=True)
+    def shell(self):
+        """Every TI capture now opens the config port to claim the RF band.
+
+        Patched for the whole class so that no test reaches for a real serial
+        port just because that call was added to the path it exercises.
+        """
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = "2.4GHz Band"
+        with patch("modules.core.bridge.ShellConnection", return_value=mock_shell):
+            yield mock_shell
+
+    def test_the_antenna_is_claimed_before_the_sniffer_is_configured(
+        self, fake_device, shell
+    ):
+        """The switch keeps whatever position the previous capture left it in.
+
+        ``sniff lora`` parks it on the SX1262 leg and nothing resets it — not
+        even a reboot, since the firmware's own ``change_band(GIG)`` at startup
+        hits an early return and never drives a pin.  A TI capture therefore
+        has to ask for 2.4 GHz itself, and ask for it *first*: configuring the
+        sniffer through the LoRa antenna path costs sensitivity and reports no
+        error at all.
+        """
+        from modules.core.bridge import run_bridge
+
+        order = []
+        shell.send_command.side_effect = (
+            lambda cmd, **kw: order.append(f"shell:{cmd}") or "2.4GHz Band"
+        )
+        mock_serial = MagicMock()
+        mock_serial.write.side_effect = lambda *a, **kw: order.append("ti-config")
+        mock_serial.read_until.side_effect = KeyboardInterrupt()
+        mock_pipe = MagicMock()
+        with patch("modules.core.bridge.Catnip", return_value=mock_serial), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch("platform.system", return_value="Linux"):
+            run_bridge(fake_device, channel=11, wireshark=False)
+
+        assert order[0] == "shell:band1"
+        assert "ti-config" in order
+        shell.disconnect.assert_called_once()
+
     def test_keyboard_interrupt_stops(self, fake_device):
         from modules.core.bridge import run_bridge
 
@@ -1334,6 +1378,37 @@ class TestRunBridge:
 
         mock_serial.connect.assert_not_called()
         mock_pipe.open.assert_not_called()
+
+
+class TestSelectRfBand:
+    """Tests for select_rf_band (shared antenna-switch helper)."""
+
+    def test_a_board_without_a_config_port_does_not_stop_the_capture(self):
+        """A wrong antenna path costs sensitivity; refusing to capture costs
+        all of it."""
+        from modules.core.bridge import select_rf_band
+
+        assert select_rf_band(None, "band1", "2.4 GHz") is False
+
+    def test_a_config_port_that_will_not_open_does_not_stop_the_capture(self):
+        from modules.core.bridge import select_rf_band
+
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = False
+        with patch("modules.core.bridge.ShellConnection", return_value=mock_shell):
+            assert select_rf_band("/dev/ttyACM2", "band1", "2.4 GHz") is False
+        mock_shell.send_command.assert_not_called()
+
+    def test_the_port_is_closed_even_when_the_firmware_refuses(self):
+        """The config port is borrowed for one command; a refusal must not keep it."""
+        from modules.core.bridge import select_rf_band
+
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = "ERROR: unknown command"
+        with patch("modules.core.bridge.ShellConnection", return_value=mock_shell):
+            assert select_rf_band("/dev/ttyACM2", "band1", "2.4 GHz") is False
+        mock_shell.disconnect.assert_called_once()
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1658,6 +1733,30 @@ class TestMeshtasticCoreFunctions:
             pass
 
 
+class TestConfigureMeshtasticRadio:
+    """Tests for configure_meshtastic_radio (used by `catnip meshtastic dashboard`)."""
+
+    def _run(self, mock_shell):
+        from modules.protocols.meshtastic.core import configure_meshtastic_radio
+
+        # The function imports ShellConnection from modules.core.catnip at call
+        # time, so that is where it has to be patched.
+        with patch("modules.core.catnip.ShellConnection", return_value=mock_shell):
+            return configure_meshtastic_radio("/dev/ttyACM2", 906875000, "LongFast")
+
+    def test_it_claims_the_antenna_and_the_modulation_first(self):
+        """Same sequence as the live decoder, for the same reasons."""
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = "OK"
+
+        assert self._run(mock_shell) is True
+
+        sent = [c.args[0] for c in mock_shell.send_command.call_args_list]
+        assert sent[:2] == ["band3", "modulation lora"]
+        assert sent.index("modulation lora") < sent.index("lora_apply")
+
+
 class TestMeshtasticDecoder:
     """Tests for MeshtasticDecoder."""
 
@@ -1775,6 +1874,31 @@ class TestMeshtasticLiveDecoder:
         assert result is True
         mock_shell.connect.assert_called_once()
         mock_shell.disconnect.assert_called_once()
+
+    def test_configure_radio_claims_the_antenna_and_the_modulation_first(self):
+        """`meshtastic live` drives the SX1262 through Cat-Shell like the LoRa
+        bridge does, so it needs the same two commands ahead of the settings.
+
+        ``band3`` because the antenna switch is shared and keeps its position
+        across sessions; ``modulation lora`` because an earlier ``sniff fsk``
+        left ``lora_initialized`` false, and the ``lora_apply`` at the end of
+        this sequence is refused in that state — a capture that comes up
+        silent with nothing in the log to explain it.
+        """
+        decoder = self._make_decoder()
+
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = "OK"
+
+        with patch(
+            "modules.protocols.meshtastic.live.ShellConnection", return_value=mock_shell
+        ):
+            decoder.configure_radio(906875000, "LongFast", shell_port="/dev/ttyACM2")
+
+        sent = [c.args[0] for c in mock_shell.send_command.call_args_list]
+        assert sent[:2] == ["band3", "modulation lora"]
+        assert sent.index("modulation lora") < sent.index("lora_apply")
 
     def test_configure_radio_invalid_preset(self):
         """Test configuration with invalid preset."""
