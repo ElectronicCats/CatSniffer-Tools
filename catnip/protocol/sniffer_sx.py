@@ -42,9 +42,13 @@ LORAWAN_SYNCWORD = 0x34
 # quality is the first thing a sniffing session is judged on - whether a frame
 # arrived at the noise floor or from the bench next door - and reading it one
 # packet at a time in the details pane defeats the point of a packet list.
+# The SNR column is split out because only LoRa measures one: the SX1262
+# reports FSK frames with an RSSI and nothing else, so the column would read
+# "0.0 dB" down a whole FSK capture - a measurement the radio never took.
+LORATAP_SNR_COLUMN = '"SNR","%Cus:loratap.rssi.snr:0:R"'
 LORATAP_COLUMN_FORMAT = (
     '"No.","%m","Time","%t","Protocol","%p","Length","%L",'
-    '"RSSI","%Cus:loratap.rssi.packet:0:R","SNR","%Cus:loratap.rssi.snr:0:R",'
+    '"RSSI","%Cus:loratap.rssi.packet:0:R",' + LORATAP_SNR_COLUMN + ","
     '"Info","%Cus:loratap.payload:0:R"'
 )
 
@@ -55,7 +59,7 @@ LORATAP_ASCII_COLUMN = '"ASCII","%Cus:catnip_lora.ascii:0:R"'
 LORATAP_ASCII_POSTDISSECTOR = Path(__file__).with_name("lora_ascii.lua")
 
 
-def lora_wireshark_display_args() -> list:
+def lora_wireshark_display_args(snr: bool = True) -> list:
     """Wireshark arguments that make the packet list readable at a glance.
 
     Replaces the default column set with one that fits LoRa: no Source and
@@ -69,8 +73,13 @@ def lora_wireshark_display_args() -> list:
     The ASCII column comes from a Lua postdissector, which a build that did not
     ship the script - or a Wireshark compiled without Lua - cannot load, so the
     column is only asked for when the script is actually there.
+
+    ``snr=False`` drops the SNR column, for an FSK capture where the radio
+    reports no such measurement.
     """
     columns = LORATAP_COLUMN_FORMAT
+    if not snr:
+        columns = columns.replace(f"{LORATAP_SNR_COLUMN},", "")
     script_args = []
 
     if LORATAP_ASCII_POSTDISSECTOR.is_file():
@@ -140,6 +149,107 @@ def normalize_syncword(syncword) -> tuple:
         )
 
     return f"0x{byte:02X}", byte
+
+
+# The 21 RX bandwidths the SX1262 offers in (G)FSK mode, in kHz, spelled the way
+# ``cmd_fsk_bw`` echoes them back.  The firmware maps whatever value it is given
+# to an enum entry with a threshold ladder, so each of these strings round-trips
+# to the entry it names — anything in between silently lands on a neighbour.
+FSK_BANDWIDTHS = (
+    "4.8",
+    "5.8",
+    "7.3",
+    "9.7",
+    "11.7",
+    "14.6",
+    "19.5",
+    "23.4",
+    "29.3",
+    "39.0",
+    "46.9",
+    "58.6",
+    "78.2",
+    "93.8",
+    "117.3",
+    "156.2",
+    "187.2",
+    "234.3",
+    "312.0",
+    "373.6",
+    "467.0",
+)
+
+# ``apply_fsk_config`` refuses a bandwidth narrower than the signal it is meant
+# to receive — Carson's rule, bitrate + 2*fdev — and falls back to 187.2 kHz on
+# its own.  It compares against the *nominal* enum value in kHz (FSK_BW_117_KHZ
+# is 117, not 117.3), so the prediction here truncates the same way to reach the
+# same verdict.
+FSK_FALLBACK_BANDWIDTH = "187.2"
+
+
+def fsk_bandwidth_is_wide_enough(bandwidth_khz, bitrate: int, fdev: int) -> bool:
+    """Would the firmware accept this bandwidth, or override it silently?"""
+    return int(float(bandwidth_khz)) * 1000 >= int(bitrate) + 2 * int(fdev)
+
+
+def normalize_fsk_syncword(syncword) -> str:
+    """Validate an FSK sync word and return it as bare uppercase hex.
+
+    Where LoRa matches a single byte, the SX1262 matches up to 8 in FSK, and
+    ``cmd_fsk_syncword`` reads them as one plain hex string.  Accepts the shapes
+    a datasheet or a capture tends to use — ``2DD4``, ``0x2DD4``, ``2D:D4``,
+    ``2D D4`` — and rejects what the firmware would otherwise take a silent
+    guess at: it stops at the first non-hex character and keeps only the first
+    8 bytes, so a typo turns into a sync word that never matches anything.
+    """
+    value = re.sub(r"[\s:_-]", "", str(syncword).strip())
+    if value[:2].lower() == "0x":
+        value = value[2:]
+
+    if not value:
+        raise ValueError("Empty sync word: pass hex bytes such as 2DD4")
+    if any(c not in "0123456789abcdefABCDEF" for c in value):
+        raise ValueError(f"Invalid sync word {syncword!r}: not hexadecimal")
+    if len(value) % 2:
+        raise ValueError(
+            f"Invalid sync word {syncword!r}: {len(value)} hex digits is not a "
+            "whole number of bytes"
+        )
+    if len(value) > 16:
+        raise ValueError(
+            f"Sync word {syncword!r} is {len(value) // 2} bytes: the SX1262 "
+            "matches at most 8"
+        )
+
+    return value.upper()
+
+
+def modulation_command(modulation: str) -> str:
+    """``modulation lora|fsk``: the firmware's one-step switch-and-apply.
+
+    Both ``switch_to_lora`` and ``switch_to_fsk`` stop whatever reception is in
+    flight, reconfigure the modem from the stored settings and re-arm RX, so
+    this is the only command that reliably lands the radio in a known
+    modulation — a plain ``lora_apply`` after an FSK session is refused by the
+    firmware, which cleared ``lora_initialized`` when it switched away.
+    """
+    value = str(modulation).strip().lower()
+    if value not in ("lora", "fsk"):
+        raise ValueError(f"Invalid modulation {modulation!r}: use 'lora' or 'fsk'")
+    return f"modulation {value}"
+
+
+def sx1262_band_command() -> str:
+    """``band3``: point the RF switch at the SX1262 antenna path.
+
+    The board's antenna is shared through a switch (``ctf1``/``ctf2``/``ctf3``)
+    and the firmware boots it on ``GIG`` — the CC1352's 2.4 GHz port — so an
+    SX1262 capture that never sends this configures the modem perfectly and
+    then listens through the wrong antenna path: poor sensitivity, or nothing
+    at all.  ``band3`` selects ``SUBGIG_2``, the SX1262 leg, which is what the
+    firmware's own ``lora_test.py`` sends as part of its setup sequence.
+    """
+    return "band3"
 
 
 class LoRaShellCommands:
@@ -219,6 +329,106 @@ class LoRaShellCommands:
         return "help"
 
 
+class FskShellCommands:
+    """Shell commands for (G)FSK configuration via the Cat-Shell port.
+
+    One method per ``fsk_*`` command in ``shell_commands.c``; the ranges
+    enforced here are the firmware's own, so a value it would reject never
+    reaches the wire as a silently ignored setting.
+    """
+
+    @staticmethod
+    def set_freq(frequency_hz: int) -> str:
+        frequency_hz = int(frequency_hz)
+        if not 137_000_000 <= frequency_hz <= 1_020_000_000:
+            raise ValueError(f"Frequency {frequency_hz} Hz out of range (137-1020 MHz)")
+        return f"fsk_freq {frequency_hz}"
+
+    @staticmethod
+    def set_bitrate(bitrate_bps: int) -> str:
+        bitrate_bps = int(bitrate_bps)
+        if not 600 <= bitrate_bps <= 300_000:
+            raise ValueError(f"Bitrate {bitrate_bps} out of range (600-300000 bps)")
+        return f"fsk_bitrate {bitrate_bps}"
+
+    @staticmethod
+    def set_fdev(fdev_hz: int) -> str:
+        fdev_hz = int(fdev_hz)
+        if not 600 <= fdev_hz <= 200_000:
+            raise ValueError(f"Deviation {fdev_hz} out of range (600-200000 Hz)")
+        return f"fsk_fdev {fdev_hz}"
+
+    @staticmethod
+    def set_bw(bandwidth_khz) -> str:
+        """RX bandwidth in kHz, one of :data:`FSK_BANDWIDTHS`."""
+        value = str(bandwidth_khz).strip()
+        if value not in FSK_BANDWIDTHS:
+            raise ValueError(
+                f"Invalid FSK bandwidth {bandwidth_khz!r}: use one of "
+                f"{', '.join(FSK_BANDWIDTHS)} kHz"
+            )
+        return f"fsk_bw {value}"
+
+    @staticmethod
+    def set_power(tx_power_dbm: int) -> str:
+        tx_power_dbm = int(tx_power_dbm)
+        if not -9 <= tx_power_dbm <= 22:
+            raise ValueError(f"TX power {tx_power_dbm} out of range (-9 to 22 dBm)")
+        return f"fsk_power {tx_power_dbm}"
+
+    @staticmethod
+    def set_preamble(length_bytes: int) -> str:
+        """Preamble length in *bytes* — FSK counts bytes where LoRa counts symbols."""
+        length_bytes = int(length_bytes)
+        if not 0 <= length_bytes <= 65535:
+            raise ValueError(f"Preamble {length_bytes} out of range (0-65535 bytes)")
+        return f"fsk_preamble {length_bytes}"
+
+    @staticmethod
+    def set_syncword(syncword: str) -> str:
+        """Up to 8 sync-word bytes as hex (e.g. ``2DD4`` for Meshtastic's FSK)."""
+        return f"fsk_syncword {normalize_fsk_syncword(syncword)}"
+
+    @staticmethod
+    def set_crc(enabled: bool) -> str:
+        return f"fsk_crc {'on' if enabled else 'off'}"
+
+    @staticmethod
+    def set_whitening(enabled: bool) -> str:
+        return f"fsk_whitening {'on' if enabled else 'off'}"
+
+    @staticmethod
+    def set_pktlen(mode: str) -> str:
+        """``variable`` reads the length from the header, ``fixed`` from --payload."""
+        value = str(mode).strip().lower()
+        if value not in ("fixed", "variable"):
+            raise ValueError(f"Invalid packet length mode {mode!r}")
+        return f"fsk_pktlen {value}"
+
+    @staticmethod
+    def set_payload(length: int) -> str:
+        length = int(length)
+        if not 1 <= length <= 255:
+            raise ValueError(f"Payload length {length} out of range (1-255)")
+        return f"fsk_payload {length}"
+
+    @staticmethod
+    def set_bt(shaping: str) -> str:
+        """Gaussian filter BT — ``off`` is plain FSK, anything else is GFSK."""
+        value = str(shaping).strip().lower()
+        if value not in ("off", "0.3", "0.5", "0.7", "1.0"):
+            raise ValueError(f"Invalid BT shaping {shaping!r}")
+        return f"fsk_bt {value}"
+
+    @staticmethod
+    def get_config() -> str:
+        return "fsk_config"
+
+    @staticmethod
+    def apply_config() -> str:
+        return "fsk_apply"
+
+
 class SnifferSx:
     """SX1262 LoRa sniffer protocol handler - Updated for new FW output format."""
 
@@ -235,6 +445,11 @@ class SnifferSx:
 
     class Commands(LoRaShellCommands):
         """Shell commands for LoRa configuration."""
+
+        pass
+
+    class FskCommands(FskShellCommands):
+        """Shell commands for (G)FSK configuration."""
 
         pass
 
@@ -346,13 +561,25 @@ class SnifferSx:
             (link-type 270), so frequency/bandwidth/SF/RSSI/SNR/sync word show
             up in the packet details pane instead of raw undissected bytes.
             """
-            bandwidth_enum = _LORATAP_BANDWIDTH.get(self.context["bandwidth"], 1)
-            try:
-                _, sync_word = normalize_syncword(
-                    self.context.get("sync_word", "private")
-                )
-            except ValueError:
-                sync_word = _LORATAP_SYNCWORD["private"]
+            if self.is_fsk:
+                # LoRaTap's bandwidth, spreading factor and sync word describe a
+                # LoRa modem, and an FSK frame was received by none of it.  They
+                # go out as 0 — which the dissector renders as "Unknown" —
+                # rather than as a LoRa setting the radio never used; frequency,
+                # RSSI and the payload are real either way, and those are what a
+                # capture is opened for.
+                bandwidth_enum = 0
+                spread_factor = 0
+                sync_word = 0
+            else:
+                bandwidth_enum = _LORATAP_BANDWIDTH.get(self.context["bandwidth"], 1)
+                spread_factor = self.context["spread_factor"]
+                try:
+                    _, sync_word = normalize_syncword(
+                        self.context.get("sync_word", "private")
+                    )
+                except ValueError:
+                    sync_word = _LORATAP_SYNCWORD["private"]
 
             # loratap.rssi.* are stored as (dBm + 139), clamped to a byte
             rssi_byte = max(0, min(255, round(self.rssi) + 139))
@@ -365,7 +592,7 @@ class SnifferSx:
                     ">IBB",
                     self.context["frequency"],
                     bandwidth_enum,
-                    self.context["spread_factor"],
+                    spread_factor,
                 )
                 + struct.pack(">BBBB", rssi_byte, rssi_byte, rssi_byte, snr_byte)
                 + struct.pack(">B", sync_word)
