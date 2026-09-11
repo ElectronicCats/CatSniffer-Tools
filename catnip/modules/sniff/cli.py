@@ -10,7 +10,14 @@ import tempfile
 import time
 
 # Internal
-from ..core.bridge import run_bridge, run_fsk_bridge, run_sx_bridge, select_rf_band
+from ..core.bridge import (
+    report_capture_loss,
+    reset_loss_counters,
+    run_bridge,
+    run_fsk_bridge,
+    run_sx_bridge,
+    select_rf_band,
+)
 from protocol.sniffer_ti import cc1352_band_command
 from ..core.catnip import SniffingBaseFirmware, SniffingFirmware
 from ..core.device_session import device_session
@@ -208,8 +215,19 @@ def sniff_ble(device, wireshark, channel, mode):
         select_rf_band(dev.shell_port, cc1352_band_command(), "2.4 GHz")
 
         if wireshark:
+            # Sniffle streams through the same CC1352 → USB path the firmware
+            # counts, and run_extcap_directly blocks until Wireshark closes,
+            # so the capture fits between the reset and the report.
+            loss_armed = reset_loss_counters(dev.shell_port)
+
             # Always use the direct method when --wireshark is specified
             success = run_extcap_directly(dev.bridge_port, channel, mode)
+
+            if success:
+                # Only after a capture that actually ran: the failure paths
+                # here are a missing plugin or a pipe Wireshark never opened,
+                # and there is no capture whose integrity to speak about.
+                report_capture_loss(dev.shell_port, loss_armed)
 
             if not success:
                 print_error(
@@ -911,4 +929,10 @@ def sniff_airtag_scanner(device, putty):
             except Exception as e:
                 print_error(f"Failed to launch PuTTY: {str(e)}")
         else:
-            _stream_airtag_scanner(dev.bridge_port)
+            # Another CC1352 firmware read over bridge_port: same counters,
+            # same claim to make about the detections it printed.
+            loss_armed = reset_loss_counters(dev.shell_port)
+            try:
+                _stream_airtag_scanner(dev.bridge_port)
+            finally:
+                report_capture_loss(dev.shell_port, loss_armed)

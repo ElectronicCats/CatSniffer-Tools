@@ -163,8 +163,11 @@ def _diagnostics_table(shell_status) -> Table:
 
     for name, value in shell_status.counters.items():
         style = "" if value == 0 else "yellow"
+        # ring_dropped is the only one counted in bytes; uart_overrun and
+        # dma_regress are event counts, so the unit is not shared.
+        reading = f"{value} bytes" if name == "ring_dropped" else str(value)
         table.add_row(
-            f"loss: {name}", f"[{style}]{value}[/{style}]" if style else str(value)
+            f"loss: {name}", f"[{style}]{reading}[/{style}]" if style else reading
         )
 
     for name, unused in shell_status.stacks.items():

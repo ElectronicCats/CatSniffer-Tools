@@ -156,3 +156,18 @@ def read_status(shell_port: Optional[str], timeout: float = 2.0):
                 shell.disconnect()
             except Exception:
                 pass
+
+
+def read_loss_counters(
+    shell_port: Optional[str], timeout: float = 2.0
+) -> Optional[Dict[str, int]]:
+    """The firmware's loss counters right now, or None when it could not be asked.
+
+    Three outcomes, and the difference between them is the whole point:
+    ``None`` means *unknown* (no config port, port busy, no reply), ``{}``
+    means the firmware answered but reported no loss line, and a populated
+    dict is the only one that licenses a claim about the capture. Neither of
+    the first two is zero.
+    """
+    status = read_status(shell_port, timeout=timeout)
+    return None if status is None else dict(status.counters)

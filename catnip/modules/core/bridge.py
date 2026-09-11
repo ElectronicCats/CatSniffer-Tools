@@ -30,6 +30,7 @@ from protocol.common import (
     get_global_header,
 )
 
+from ..firmware.fw_status import read_loss_counters
 from ..utils._version import __version__
 
 # External
@@ -404,6 +405,127 @@ def select_rf_band(shell_port: str, command: str, label: str) -> bool:
         return _send_config_steps(shell, [(f"RF switch ({label})", command)])
     finally:
         shell.disconnect()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Capture integrity: what the firmware knows it dropped
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# The firmware counts two ways the CC1352 stream can lose bytes before they
+# ever reach this host (``cc1352_uart_interrupt_handler`` in the firmware's
+# ``main.c``): a hardware UART FIFO overrun, and bytes that did not fit in the
+# ``rb_cc1352_to_usb`` ring. ``status`` has always reported both and this tool
+# never read them, so a capture came with no evidence of its own completeness
+# — and at 921600 baud a busy Zigbee/Thread channel does overflow that ring.
+#
+# Scope is exactly the captures that read from ``bridge_port``: the TI sniffer,
+# Sniffle, the AirTag scanner. A LoRa/FSK capture arrives on the SX1262's own
+# CDC and never touches that ring, so these counters would sit at zero there
+# for the wrong reason — a counter that stayed at zero because nothing flowed
+# through it is not evidence that anything was complete, and reporting it as
+# such would be the exact false assurance this is meant to remove.
+
+_LOSS_RESET_CMD = "loss_reset"
+
+# Each counter in its own unit, because they are not the same kind of number:
+# ring_dropped is bytes actually counted, uart_overrun is FIFO events whose
+# byte cost is unknown, and dma_regress (v2 only) is a driver-level anomaly.
+_LOSS_UNITS = {
+    "ring_dropped": "{value} byte(s) dropped from the bridge ring buffer",
+    "uart_overrun": "{value} UART FIFO overrun(s), of unknown size each",
+    "dma_regress": "{value} DMA progress regression(s)",
+}
+
+
+def reset_loss_counters(shell_port: str) -> bool:
+    """Zero the firmware's loss counters so this capture starts from a known 0.
+
+    Returns True when the firmware acknowledged. False is never fatal: the
+    capture runs either way, it only means the closing report will say the
+    integrity of this capture is unknown instead of claiming zero loss.
+    """
+    if not shell_port:
+        return False
+
+    shell = ShellConnection(shell_port)
+    try:
+        if not shell.connect():
+            return False
+        reply = _shell_reply(
+            shell.send_command(_LOSS_RESET_CMD, timeout=2.0), _LOSS_RESET_CMD
+        )
+        # An empty reply is a command that went unanswered, and an error line
+        # is a firmware build without ``loss_reset``. Both mean the counters
+        # may still hold whatever a previous capture left in them.
+        return bool(reply) and not _shell_error(reply)
+    except Exception:
+        return False
+    finally:
+        try:
+            shell.disconnect()
+        except Exception:
+            pass
+
+
+def describe_loss(counters: dict) -> tuple:
+    """``(clean, message)`` for a set of loss counters.
+
+    ``clean`` is True only when every counter the firmware reported is zero —
+    the one case in which "nothing was lost" is a statement about evidence
+    rather than about the absence of it.
+    """
+    if not counters:
+        return False, "the firmware reported no loss counters"
+
+    lost = {name: value for name, value in counters.items() if value}
+    if not lost:
+        readings = ", ".join(f"{name}={value}" for name, value in counters.items())
+        return True, f"0 bytes lost ({readings})"
+
+    detail = "; ".join(
+        _LOSS_UNITS.get(name, "{value} " + name).format(value=value)
+        for name, value in lost.items()
+    )
+    return False, detail
+
+
+def report_capture_loss(shell_port: str, armed: bool) -> None:
+    """Close a capture by saying, in the firmware's own numbers, what it lost.
+
+    ``armed`` is what :func:`reset_loss_counters` returned at the start: without
+    that reset the counters may carry another session's losses, so the honest
+    answer is that this capture was not measured, not that it was clean.
+    """
+    if not armed:
+        print_dim(
+            "Capture integrity: not measured "
+            "(the loss counters could not be reset when the capture started)"
+        )
+        return
+
+    try:
+        counters = read_loss_counters(shell_port)
+    except KeyboardInterrupt:
+        # A second Ctrl+C during the closing query: stop, do not claim a result.
+        print_dim("Capture integrity: check interrupted")
+        return
+
+    if counters is None:
+        print_warning(
+            "Capture integrity unknown — the board did not answer `status` "
+            "at the end of the capture"
+        )
+        return
+
+    clean, detail = describe_loss(counters)
+    if clean:
+        print_success(f"Capture integrity: {detail}")
+    else:
+        print_warning(f"Capture integrity: {detail}")
+        print_dim(
+            "Treat this capture as incomplete: data was dropped before it "
+            "reached this host, so packets may be missing or truncated."
+        )
 
 
 def _configure_lora(
@@ -998,6 +1120,11 @@ def run_bridge(
     # would listen through the LoRa leg unless it asks for its own band.
     select_rf_band(device.shell_port, cc1352_band_command(), "2.4 GHz")
 
+    # From here on the firmware counts what it drops on the way to this host,
+    # and the closing report reads it back. Done after the band selection so
+    # the two config-port sessions do not overlap.
+    loss_armed = reset_loss_counters(device.shell_port)
+
     serial_worker = Catnip(port=device.bridge_port)
     serial_worker.connect()
 
@@ -1078,6 +1205,9 @@ def run_bridge(
     finally:
         log_writer.close()
         pcap_writer.close()
+        # Every exit path — Ctrl+C, a closed port, a serial error — ends with
+        # the same statement about how much of the stream survived.
+        report_capture_loss(device.shell_port, loss_armed)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
