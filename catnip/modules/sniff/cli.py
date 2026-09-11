@@ -10,7 +10,8 @@ import tempfile
 import time
 
 # Internal
-from ..core.bridge import run_bridge, run_fsk_bridge, run_sx_bridge
+from ..core.bridge import run_bridge, run_fsk_bridge, run_sx_bridge, select_rf_band
+from protocol.sniffer_ti import cc1352_band_command
 from ..core.catnip import SniffingBaseFirmware, SniffingFirmware
 from ..core.device_session import device_session
 from ..core.device_utils import get_device_or_exit
@@ -200,6 +201,12 @@ def sniff_ble(device, wireshark, channel, mode):
         flasher=Flasher(),
         verify_retries=2,
     ) as dev:
+        # Sniffle listens on 2.4 GHz, and the antenna switch keeps whatever
+        # position the last capture left it in — `sniff lora` parks it on the
+        # SX1262 leg, where a BLE capture sees almost nothing and reports no
+        # error about it.
+        select_rf_band(dev.shell_port, cc1352_band_command(), "2.4 GHz")
+
         if wireshark:
             # Always use the direct method when --wireshark is specified
             success = run_extcap_directly(dev.bridge_port, channel, mode)
@@ -871,6 +878,10 @@ def sniff_airtag_scanner(device, putty):
         flasher=Flasher(),
         verify_retries=0,
     ) as dev:
+        # The AirTag scanner is a BLE firmware: same 2.4 GHz leg, same risk of
+        # inheriting the switch position from a previous LoRa capture.
+        select_rf_band(dev.shell_port, cc1352_band_command(), "2.4 GHz")
+
         if putty:
             putty_path = find_putty_path()
             if not putty_path:

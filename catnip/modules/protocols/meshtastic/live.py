@@ -37,7 +37,7 @@ from modules.utils.output import (
     print_separator,
     print_raw,
 )
-from protocol.sniffer_sx import SnifferSx
+from protocol.sniffer_sx import SnifferSx, modulation_command, sx1262_band_command
 
 
 def print_packet_info(fields, decrypted, key_index=None):
@@ -106,6 +106,15 @@ class MeshtasticLiveDecoder:
 
             # Send configuration commands for new firmware
             commands = [
+                # The antenna switch boots undriven and keeps its position across
+                # sessions, so without this the modem is configured perfectly and
+                # then listens through the CC1352's 2.4GHz leg.  `modulation lora`
+                # follows for the same reason bridge.py sends it: after a `sniff
+                # fsk` the firmware cleared lora_initialized, and the bare
+                # `lora_apply` below would be refused as "LoRa not initialized" —
+                # a capture that comes up silent with no error to show for it.
+                sx1262_band_command(),
+                modulation_command("lora"),
                 f"lora_freq {frequency}",
                 f"lora_sf {preset_config['sf']}",
                 f"lora_bw {preset_config['bw']}",

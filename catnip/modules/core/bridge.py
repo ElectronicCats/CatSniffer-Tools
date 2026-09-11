@@ -20,7 +20,7 @@ from protocol.sniffer_sx import (
     modulation_command,
     sx1262_band_command,
 )
-from protocol.sniffer_ti import SnifferTI, PacketCategory
+from protocol.sniffer_ti import SnifferTI, PacketCategory, cc1352_band_command
 from protocol.common import (
     START_OF_FRAME,
     END_OF_FRAME,
@@ -375,6 +375,35 @@ def _send_config_steps(shell: ShellConnection, steps: list) -> bool:
         time.sleep(_SHELL_CMD_DELAY)
 
     return all_ok
+
+
+def select_rf_band(shell_port: str, command: str, label: str) -> bool:
+    """Point the shared antenna switch at the radio this capture will use.
+
+    For the captures that never otherwise talk to Cat-Shell — the TI sniffer
+    drives ``bridge_port``, Sniffle is driven by its own extcap plugin — so the
+    config port is opened for this one command and closed again.
+
+    Never fatal.  A capture on the wrong antenna path still runs, it just sees
+    fewer and weaker packets, which is precisely the silent failure this call
+    exists to prevent; refusing to capture at all would be the worse trade.
+    Returns True when the firmware acknowledged the band.
+    """
+    if not shell_port:
+        print_warning(f"No config port — cannot select the {label} antenna path")
+        return False
+
+    shell = ShellConnection(shell_port)
+    if not shell.connect():
+        print_warning(
+            f"Could not open the config port — cannot select the {label} antenna path"
+        )
+        return False
+
+    try:
+        return _send_config_steps(shell, [(f"RF switch ({label})", command)])
+    finally:
+        shell.disconnect()
 
 
 def _configure_lora(
@@ -963,6 +992,11 @@ def run_bridge(
         Wireshark(profile=profile).start()
 
     opening_worker.start()
+
+    # The antenna switch is shared with the SX1262 and keeps its position
+    # across sessions, so a Zigbee/Thread capture started after `sniff lora`
+    # would listen through the LoRa leg unless it asks for its own band.
+    select_rf_band(device.shell_port, cc1352_band_command(), "2.4 GHz")
 
     serial_worker = Catnip(port=device.bridge_port)
     serial_worker.connect()
