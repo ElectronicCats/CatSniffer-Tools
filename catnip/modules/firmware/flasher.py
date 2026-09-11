@@ -772,17 +772,30 @@ class Flasher:
 
         Releases are tagged per generation (v2.X.Y.Z for SAMD21 boards,
         v3.X.Y.Z for RP2040 boards). Returns the GitHub release dict or None.
+
+        The highest version wins, not the first one listed: GitHub orders the
+        list by creation date, so a patch backported to an older line after a
+        newer release (v3.0.1.1 published after v3.1.0.0) would otherwise be
+        handed back as "the latest" and downgrade every board that asked.
         """
+        from .fw_update import parse_fw_version
+
+        best, best_version = None, None
         try:
             resp = requests.get(GITHUB_RELEASES_LIST_URL, timeout=3)
             resp.raise_for_status()
             for rel in resp.json():
                 tag = rel.get("tag_name", "")
-                if tag.startswith(board.tag_prefix) and not rel.get("draft"):
-                    return rel
+                if not tag.startswith(board.tag_prefix) or rel.get("draft"):
+                    continue
+                version = parse_fw_version(tag)
+                if version is None:  # a tag that does not name vA.X.Y.Z
+                    continue
+                if best_version is None or version > best_version:
+                    best, best_version = rel, version
         except Exception as e:
             logger.warning(f"[!] Could not list releases: {e}")
-        return None
+        return best
 
     def fetch_board_uf2(self, board) -> Optional[str]:
         """

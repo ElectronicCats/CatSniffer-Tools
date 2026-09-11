@@ -58,6 +58,19 @@ class BoardInfo:
     def label(self) -> str:
         return f"{self.generation} ({self.mcu} + {self.cc_chip})"
 
+    @property
+    def firmware_series(self) -> int:
+        """The ``A`` of a ``vA.X.Y.Z`` firmware version, for this board.
+
+        Firmware is versioned ``vA.X.Y.Z`` where ``A`` names the board the
+        image is built for, and releases are tagged per generation, so ``A``
+        *is* the generation number (a v3 board runs v3.X.Y.Z images). Deriving
+        it from ``tag_prefix`` keeps this the only place the two numbering
+        schemes meet, so no caller needs a generation literal to check a
+        firmware version against the hardware in front of it.
+        """
+        return int(self.tag_prefix.strip("v."))
+
 
 BOARD_V2 = BoardInfo(
     generation="v2",
