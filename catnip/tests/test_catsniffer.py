@@ -1260,6 +1260,189 @@ class TestRunSxBridge:
         mock_pipe.open.assert_not_called()
 
 
+class TestSxSessionReport:
+    """The SX1262 path has no ring buffer to ask about loss (see
+    report_capture_loss), but it does compute its own numbers — this checks
+    that ``_run_sx_capture`` actually hands them to the closing report."""
+
+    def test_describe_quality_with_no_values(self):
+        from modules.core.bridge import _describe_quality
+
+        assert "n/a" in _describe_quality("RSSI", [], " dBm")
+
+    def test_describe_quality_reports_min_median_max(self):
+        from modules.core.bridge import _describe_quality
+
+        text = _describe_quality("RSSI", [-90.0, -80.0, -60.0], " dBm")
+        assert "min=-90.0 dBm" in text
+        assert "median=-80.0 dBm" in text
+        assert "max=-60.0 dBm" in text
+
+    def test_the_report_counts_packets_errors_and_signal_quality(self, fake_device):
+        """One good packet, one parse error, two lines that are neither a
+        packet nor a known banner, and one line that hit the readline bound
+        without a '\\n' — every field the report claims should trace back to
+        exactly one of these."""
+        from modules.core.bridge import run_sx_bridge, DEFAULT_READLINE_MAX_BYTES
+
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = "STREAM mode"
+        mock_lora = MagicMock()
+        mock_lora.connect.return_value = True
+        mock_lora.connection = MagicMock()
+        mock_lora.connection.readline.side_effect = [
+            b"garbage line\r\n",  # unrecognized: no RX:, no ignore prefix
+            b"LoRa Control Port\r\n",  # ignored banner: not unrecognized
+            b"RX: aabbcc | RSSI: -42 | SNR: 9\r\n",  # good packet
+            b"RX: badhex | RSSI: -1 | SNR: 0\r\n",  # parse error
+            b"x" * DEFAULT_READLINE_MAX_BYTES,  # truncated: no trailing \n
+            KeyboardInterrupt(),
+        ]
+        mock_pipe = MagicMock()
+        fake_packet = MagicMock(
+            pcap=b"LORA-RECORD",
+            payload=b"\xaa\xbb\xcc",
+            rssi=-42.0,
+            snr=9.0,
+            is_fsk=False,
+            length=3,
+        )
+
+        with patch(
+            "modules.core.bridge.ShellConnection", return_value=mock_shell
+        ), patch("modules.core.bridge.LoRaConnection", return_value=mock_lora), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch(
+            "platform.system", return_value="Linux"
+        ), patch(
+            "modules.core.bridge._configure_lora", return_value=True
+        ), patch(
+            "modules.core.bridge.snifferSx"
+        ) as mock_sniffer, patch(
+            "modules.core.bridge.print_sx_session_report"
+        ) as report:
+            mock_sniffer.Packet.side_effect = [
+                fake_packet,
+                ValueError("bad hex"),
+            ]
+            run_sx_bridge(
+                fake_device,
+                frequency=915_000_000,
+                bandwidth=125,
+                spread_factor=7,
+                coding_rate=5,
+                tx_power=20,
+            )
+
+        report.assert_called_once()
+        args = report.call_args.args
+        (
+            modulation,
+            packet_count,
+            error_count,
+            unrecognized_count,
+            truncated_count,
+            duration_s,
+            rssi_values,
+            snr_values,
+        ) = args
+        assert modulation == "LoRa"
+        assert packet_count == 1
+        assert error_count == 1
+        assert unrecognized_count == 2
+        assert truncated_count == 1
+        assert duration_s >= 0
+        assert rssi_values == [-42.0]
+        assert snr_values == [9.0]
+
+    def test_the_report_still_runs_when_a_serial_error_ends_the_capture(
+        self, fake_device
+    ):
+        """A capture killed by a disconnected device is exactly when a
+        session report is most useful — it must not be Ctrl+C-only."""
+        import serial
+        from modules.core.bridge import run_sx_bridge
+
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = "STREAM mode"
+        mock_lora = MagicMock()
+        mock_lora.connect.return_value = True
+        mock_lora.connection = MagicMock()
+        mock_lora.connection.readline.side_effect = serial.SerialException("gone")
+        mock_pipe = MagicMock()
+
+        with patch(
+            "modules.core.bridge.ShellConnection", return_value=mock_shell
+        ), patch("modules.core.bridge.LoRaConnection", return_value=mock_lora), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch(
+            "platform.system", return_value="Linux"
+        ), patch(
+            "modules.core.bridge._configure_lora", return_value=True
+        ), patch(
+            "modules.core.bridge.print_sx_session_report"
+        ) as report:
+            run_sx_bridge(
+                fake_device,
+                frequency=915_000_000,
+                bandwidth=125,
+                spread_factor=7,
+                coding_rate=5,
+                tx_power=20,
+            )
+
+        report.assert_called_once()
+
+    def test_fsk_frames_are_excluded_from_snr(self, fake_device):
+        """FSK has no SNR — a report that averaged in zeros would misreport
+        signal quality for the modulation that actually has none."""
+        from modules.core.bridge import run_fsk_bridge
+
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = "STREAM mode"
+        mock_lora = MagicMock()
+        mock_lora.connect.return_value = True
+        mock_lora.connection = MagicMock()
+        mock_lora.connection.readline.side_effect = [
+            b"RX: aabbcc | RSSI: -55 | Len: 3\r\n",
+            KeyboardInterrupt(),
+        ]
+        mock_pipe = MagicMock()
+        fake_packet = MagicMock(
+            pcap=b"FSK-RECORD",
+            payload=b"\xaa\xbb\xcc",
+            rssi=-55.0,
+            snr=0.0,
+            is_fsk=True,
+            length=3,
+        )
+
+        with patch(
+            "modules.core.bridge.ShellConnection", return_value=mock_shell
+        ), patch("modules.core.bridge.LoRaConnection", return_value=mock_lora), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch(
+            "platform.system", return_value="Linux"
+        ), patch(
+            "modules.core.bridge._configure_fsk", return_value=True
+        ), patch(
+            "modules.core.bridge.snifferSx"
+        ) as mock_sniffer, patch(
+            "modules.core.bridge.print_sx_session_report"
+        ) as report:
+            mock_sniffer.Packet.return_value = fake_packet
+            run_fsk_bridge(fake_device, frequency=915_000_000)
+
+        args = report.call_args.args
+        assert args[0] == "FSK"
+        rssi_values, snr_values = args[6], args[7]
+        assert rssi_values == [-55.0]
+        assert snr_values == []
+
+
 class TestRunBridge:
     """Tests for run_bridge (TI sniffer)."""
 
