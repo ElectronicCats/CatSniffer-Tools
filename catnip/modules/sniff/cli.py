@@ -40,9 +40,13 @@ from ..radio.profiles import (
 from protocol.sniffer_sx import (
     FSK_BANDWIDTHS,
     FSK_FALLBACK_BANDWIDTH,
+    LORA_AIRTIME_WARN_THRESHOLD_S,
+    LORA_MAX_PAYLOAD_BYTES,
     LORAWAN_SYNCWORD,
+    frequency_in_known_ism_band,
     fsk_bandwidth_is_wide_enough,
     lora_decode_as_args,
+    lora_time_on_air_s,
     lora_wireshark_display_args,
     normalize_fsk_syncword,
     normalize_syncword,
@@ -548,6 +552,23 @@ def sniff_lora(
         )
         print_info(f"No --write given — saving the capture to {pcap_file}")
 
+    _warn_frequency_outside_ism_band(frequency)
+    if not profile:
+        # A named profile is a known-good combination by construction — SF11/
+        # SF12 presets like LongFast are deliberately slow for range, so the
+        # same airtime that would flag a hand-picked SF/BW as a mistake is
+        # just the profile doing its job.
+        _warn_absurd_lora_airtime(spread_factor, bandwidth, coding_rate, preamble)
+    if profile:
+        resolved_profile = resolve_profile(profile, "lora")
+        _warn_syncword_diverges_from_profile(
+            profile,
+            resolved_profile.get("sync_word"),
+            sync_word,
+            lambda v: normalize_syncword(v)[1],
+            "LoRa",
+        )
+
     # Wireshark keys the payload dissector off the sync word in the LoRaTap
     # header; catnip overrides that for 0x34 so plain LoRa is not shown as
     # malformed LoRaWAN, without the user having to know any of it.
@@ -645,6 +666,89 @@ def _validate_fsk_sync_word(ctx, param, value):
         return normalize_fsk_syncword(value)
     except ValueError as exc:
         raise click.BadParameter(str(exc))
+
+
+def _warn_frequency_outside_ism_band(frequency_hz: int) -> None:
+    """Flag a frequency far from every common LoRa/FSK sub-GHz window.
+
+    ``band3``/``sx1262_band_command`` only points the RF switch at the
+    SX1262's own antenna leg — it says nothing about which sub-GHz window
+    that leg's matching network was built for, and that choice is fixed in
+    hardware at manufacture, not selectable here. A frequency nowhere near
+    433/470/868/915 MHz is nonetheless the classic stray-digit typo in
+    --frequency that produces zero packets with nothing in the firmware to
+    blame.
+    """
+    if frequency_in_known_ism_band(frequency_hz):
+        return
+
+    print_warning(
+        f"{frequency_hz / 1e6:.3f} MHz is outside every common LoRa/FSK ISM "
+        "window (433/470/868/915 MHz) — a mismatch between --frequency and "
+        "this board's antenna/matching network is a likely cause of zero packets"
+    )
+    print_dim(
+        "  Double check --frequency, or confirm this hardware actually covers this band"
+    )
+
+
+def _warn_syncword_diverges_from_profile(
+    profile: str, expected_syncword, actual_syncword, normalize, label: str
+) -> None:
+    """Say out loud that --sync-word no longer matches the chosen --profile.
+
+    A profile only seeds Click's defaults (see ``_apply_profile_defaults``),
+    so an explicit --sync-word silently wins over the profile's own — useful
+    for tweaking one field, but indistinguishable from having forgotten which
+    sync word the preset actually needs. Compares the normalised byte/hex
+    value rather than the raw strings, so 'private' vs '0x12' does not read
+    as a mismatch.
+    """
+    if expected_syncword is None:
+        return
+    if normalize(expected_syncword) == normalize(actual_syncword):
+        return
+
+    print_warning(
+        f"--sync-word {actual_syncword} does not match what profile "
+        f"{profile!r} expects ({expected_syncword}) — {label} traffic using "
+        "that preset will not use the sync word this capture is listening for"
+    )
+    print_dim(
+        f"  Drop --sync-word to use the profile's own ({expected_syncword}), "
+        "or confirm the override is intentional"
+    )
+
+
+def _warn_absurd_lora_airtime(
+    spreading_factor: int, bandwidth, coding_rate: int, preamble: int
+) -> None:
+    """Say out loud that this SF/BW/CR takes multi-second airtime per frame.
+
+    Computed for a full 255-byte frame — the worst case a sniffer could
+    actually see on air — via Semtech's own time-on-air formula. Not wrong on
+    its own (a deliberately slow, long-range link looks exactly like this),
+    but exactly what a copy-pasted SF/BW from a different link budget also
+    looks like, so it is worth a second look before capturing on it.
+    """
+    airtime = lora_time_on_air_s(
+        spreading_factor,
+        bandwidth,
+        coding_rate=coding_rate,
+        preamble_symbols=preamble,
+        payload_bytes=LORA_MAX_PAYLOAD_BYTES,
+    )
+    if airtime <= LORA_AIRTIME_WARN_THRESHOLD_S:
+        return
+
+    print_warning(
+        f"SF{spreading_factor}/BW{bandwidth} takes ~{airtime:.1f}s of airtime "
+        f"for a full {LORA_MAX_PAYLOAD_BYTES}-byte frame — packets this slow "
+        "are unusual outside a deliberately long-range link"
+    )
+    print_dim(
+        "  Double check this is the SF/BW you meant, not left over from a different profile"
+    )
 
 
 def _warn_narrow_fsk_bandwidth(bandwidth: str, bitrate: int, fdev: int) -> None:
@@ -846,6 +950,16 @@ def sniff_fsk(
         print_info(f"No --write given — saving the capture to {pcap_file}")
 
     _warn_narrow_fsk_bandwidth(bandwidth, bitrate, fdev)
+    _warn_frequency_outside_ism_band(frequency)
+    if profile:
+        resolved_profile = resolve_profile(profile, "fsk")
+        _warn_syncword_diverges_from_profile(
+            profile,
+            resolved_profile.get("sync_word"),
+            sync_word,
+            normalize_fsk_syncword,
+            "FSK",
+        )
 
     # No decode-as rule here: the LoRaTap sync word of an FSK frame is written
     # as 0, so Wireshark reaches for no payload dissector of its own.  The
