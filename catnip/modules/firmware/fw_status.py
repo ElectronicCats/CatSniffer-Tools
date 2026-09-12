@@ -158,6 +158,54 @@ def read_status(shell_port: Optional[str], timeout: float = 2.0):
                 pass
 
 
+def _clean_config_reply(response: Optional[str], command: str) -> Optional[str]:
+    """Strip the echoed command from a shell reply, or None if there was none."""
+    if not response:
+        return None
+    if response.startswith(command):
+        response = response[len(command) :]
+    response = response.lstrip("\r\n").strip()
+    return response or None
+
+
+def read_radio_configs(
+    shell_port: Optional[str], timeout: float = 2.0
+) -> Tuple[Optional[str], Optional[str]]:
+    """Ask a board for its cached ``lora_config`` and ``fsk_config`` replies.
+
+    Both are read regardless of which modulation is currently active on the
+    SX1262 — a capture that comes up silent is often just a previous session
+    of the *other* modulation that never switched back (see
+    analisis-bombercat-vs-catnip.md, section 7), so seeing both at once is
+    the point. Either element is None when that command got no reply.
+    """
+    if not shell_port:
+        return None, None
+    from ..core.usb_connection import ShellConnection
+    from protocol.sniffer_sx import LoRaShellCommands, FskShellCommands
+
+    shell = None
+    try:
+        shell = ShellConnection(port=shell_port, timeout=timeout)
+        if not shell.connect():
+            return None, None
+        lora_cmd = LoRaShellCommands.get_config()
+        fsk_cmd = FskShellCommands.get_config()
+        lora = _clean_config_reply(
+            shell.send_command(lora_cmd, timeout=timeout), lora_cmd
+        )
+        fsk = _clean_config_reply(shell.send_command(fsk_cmd, timeout=timeout), fsk_cmd)
+        return lora, fsk
+    except Exception:
+        return None, None
+    finally:
+        if shell is not None:
+            try:
+                shell.disconnect()
+            except Exception:
+                pass
+
+
 def read_loss_counters(
     shell_port: Optional[str], timeout: float = 2.0
 ) -> Optional[Dict[str, int]]:

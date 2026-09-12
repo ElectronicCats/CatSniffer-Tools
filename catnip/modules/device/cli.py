@@ -12,7 +12,7 @@ from ..core.firmware_registry import get_firmware, next_steps_for
 from ..core.firmware_verifier import FirmwareVerifier
 from ..core.usb_connection import ShellConnection, CATSNIFFER_VID, CATSNIFFER_PID
 from ..firmware.board import capability_rows, detect_board
-from ..firmware.fw_status import read_status
+from ..firmware.fw_status import read_status, read_radio_configs
 
 # External
 import click
@@ -192,6 +192,21 @@ def _diagnostics_table(shell_status) -> Table:
     return table
 
 
+def _radio_config_table(lora_config, fsk_config) -> Table:
+    """The SX1262's cached LoRa and FSK parameters, straight from the firmware.
+
+    Shown side by side regardless of which modulation is currently active:
+    a capture that comes up silent is often just a previous session of the
+    *other* modulation that never switched back.
+    """
+    table = Table(title="Radio configuration (SX1262)", box=box.ROUNDED)
+    table.add_column("Modulation", style=STYLES["device"], justify="left")
+    table.add_column("Cached config", justify="left")
+    table.add_row("LoRa", lora_config or "[yellow]no response[/yellow]")
+    table.add_row("FSK", fsk_config or "[yellow]no response[/yellow]")
+    return table
+
+
 @click.command()
 @device_option()
 @click.option(
@@ -281,6 +296,11 @@ def status(device, diagnostics) -> None:
                 print_info(line)
         elif shell_status.has_diagnostics:
             print_info("Run with --diagnostics for the per-thread stack report.")
+
+    lora_config, fsk_config = read_radio_configs(dev.shell_port)
+    if lora_config or fsk_config:
+        print_empty_line()
+        console.print(_radio_config_table(lora_config, fsk_config))
 
     print_next_steps(
         next_steps_for(entry) if entry is not None else ["catnip flash --list"]
