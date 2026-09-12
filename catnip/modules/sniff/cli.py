@@ -426,6 +426,17 @@ def _validate_sync_word(ctx, param, value):
     ),
 )
 @click.option("-v", "--verbose", is_flag=True, help="Show verbose output in terminal")
+@click.option(
+    "--live",
+    "-l",
+    "live",
+    is_flag=True,
+    help=(
+        "Show a live panel while capturing — packets/s, last and best link "
+        "quality, an RSSI histogram and the last frames — instead of the "
+        "scrolling packet dump"
+    ),
+)
 @profile_option("lora")
 @click.option(
     "--frequency",
@@ -503,6 +514,7 @@ def sniff_lora(
     ws,
     open_capture,
     verbose,
+    live,
     profile,
     frequency,
     bandwidth,
@@ -525,6 +537,7 @@ def sniff_lora(
         catnip sniff lora                          # defaults: 915MHz, SF7, BW125
         catnip sniff lora -freq 868000000 -sf 9
         catnip sniff lora -ws                      # live Wireshark while sniffing
+        catnip sniff lora -l                       # live panel instead of hex
         catnip sniff lora -oc                      # sniff, then open Wireshark
         catnip sniff lora -w capture.pcapng        # save it, offer to open it
         catnip sniff lora -sw public               # LoRaWAN sync word (0x34)
@@ -616,6 +629,7 @@ def sniff_lora(
         pcap_file,
         force,
         wireshark_args=wireshark_args,
+        live=live,
     )
 
     _offer_wireshark_after_capture(
@@ -793,6 +807,17 @@ def _warn_narrow_fsk_bandwidth(bandwidth: str, bitrate: int, fdev: int) -> None:
     ),
 )
 @click.option("-v", "--verbose", is_flag=True, help="Show verbose output in terminal")
+@click.option(
+    "--live",
+    "-l",
+    "live",
+    is_flag=True,
+    help=(
+        "Show a live panel while capturing — packets/s, last and best link "
+        "quality, an RSSI histogram and the last frames — instead of the "
+        "scrolling packet dump"
+    ),
+)
 @profile_option("fsk")
 @click.option(
     "--frequency",
@@ -893,6 +918,7 @@ def sniff_fsk(
     ws,
     open_capture,
     verbose,
+    live,
     profile,
     frequency,
     bitrate,
@@ -926,6 +952,7 @@ def sniff_fsk(
         catnip sniff fsk -freq 868000000 -br 100000 -fd 50000
         catnip sniff fsk -sw 2DD4 --whitening        # 802.15.4g-style framing
         catnip sniff fsk -ws                         # live Wireshark
+        catnip sniff fsk -l                          # live panel instead of hex
         catnip sniff fsk -w capture.pcapng           # save it, offer to open it
         catnip sniff fsk --bt off                    # plain FSK, no shaping
         catnip sniff fsk --profile home-meter-fsk    # user profile
@@ -1000,6 +1027,7 @@ def sniff_fsk(
         pcap_file,
         force,
         wireshark_args=wireshark_args,
+        live=live,
     )
 
     _offer_wireshark_after_capture(

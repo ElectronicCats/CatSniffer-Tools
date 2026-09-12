@@ -14,6 +14,7 @@ from .catnip import (
     LoRaConnection,
     DEFAULT_READLINE_MAX_BYTES,
 )
+from .live_panel import CaptureGraph
 from .pipes import UnixPipe, WindowsPipe, Wireshark
 from protocol.sniffer_sx import (
     SnifferSx,
@@ -719,6 +720,7 @@ def _run_sx_capture(
     modulation: str = "LoRa",
     wireshark: bool = False,
     verbose: bool = False,
+    live: bool = False,
     raw_file: str = None,
     ascii_file: str = None,
     pcap_file: str = None,
@@ -756,6 +758,8 @@ def _run_sx_capture(
         modulation:    Name used in the progress messages ("LoRa" / "FSK").
         wireshark:     Launch Wireshark when True.
         verbose:       Show packet output in terminal when True.
+        live:          Paint the live panel instead of printing packets; takes
+                       precedence over ``verbose``, which scrolls.
         raw_file:      Path to append packets as raw hex, or None to disable.
         ascii_file:    Path to append packets as decoded ASCII, or None to disable.
         pcap_file:     Path to write the capture as .pcap/.pcapng, or None to disable.
@@ -852,8 +856,17 @@ def _run_sx_capture(
     # Show output if verbose is True OR if wireshark is False (default behavior)
     show_output = verbose or not wireshark
 
-    if show_output:
+    if show_output or live:
         print_success("Capture running — press Ctrl+C to stop")
+
+    # A Live region and a scrolling packet dump cannot share a terminal, and
+    # --live asked for the panel — so it wins over the printing.  The warning
+    # lines go with it, counted in the panel instead: a parse error on every
+    # frame would push the panel off the screen it is meant to stay on.
+    graph = CaptureGraph(modulation, summary) if live else None
+    if graph:
+        show_output = False
+        threading.Thread(target=graph.create_live, args=(console,), daemon=True).start()
 
     # ── Open log files (append) if requested ──────────────────────────────────
     log_writer = PacketLogWriter(raw_file, ascii_file)
@@ -900,7 +913,12 @@ def _run_sx_capture(
                 continue
             if _LORA_LINE_PREFIX not in stripped:
                 if not any(stripped.startswith(p) for p in _IGNORE_PREFIXES):
-                    print_dim(f"(device) {stripped.decode('ascii', errors='replace')}")
+                    if graph:
+                        graph.note_noise()
+                    else:
+                        print_dim(
+                            f"(device) {stripped.decode('ascii', errors='replace')}"
+                        )
                     unrecognized_count += 1
                 continue
 
@@ -928,6 +946,13 @@ def _run_sx_capture(
                     meta += f" | SNR: {int(packet.snr)}"
                 log_writer.write(packet.payload, meta=meta)
 
+                if graph:
+                    graph.record(
+                        packet.rssi,
+                        None if packet.is_fsk else packet.snr,
+                        packet.payload,
+                    )
+
                 if show_output:
                     ascii_str = "".join(
                         chr(b) if 32 <= b < 127 else "." for b in packet.payload
@@ -946,14 +971,27 @@ def _run_sx_capture(
 
             except ValueError as exc:
                 error_count += 1
-                print_warning(f"Parse error #{error_count}: {exc} — raw: {raw[:80]!r}")
+                if graph:
+                    graph.note_error()
+                else:
+                    print_warning(
+                        f"Parse error #{error_count}: {exc} — raw: {raw[:80]!r}"
+                    )
             except Exception as exc:
                 error_count += 1
-                print_warning(f"Unexpected error #{error_count}: {exc}")
+                if graph:
+                    graph.note_error()
+                else:
+                    print_warning(f"Unexpected error #{error_count}: {exc}")
 
     except KeyboardInterrupt:
         print_info("Capture stopped")
     finally:
+        if graph:
+            graph.stop()
+            # Let the panel paint its final frame before anything is printed
+            # under it, or the session report lands inside the last table.
+            time.sleep(0.5)
         log_writer.close()
         pcap_writer.close()
         _stop_lora_capture(shell, lora, pipe)
@@ -990,6 +1028,7 @@ def run_sx_bridge(
     pcap_file: str = None,
     force: bool = False,
     wireshark_args: list = None,
+    live: bool = False,
 ):
     """Run the LoRa sniffer bridge for the unified RP2040 firmware.
 
@@ -1002,6 +1041,8 @@ def run_sx_bridge(
         tx_power:      dBm.
         wireshark:     Launch Wireshark when True.
         verbose:       Show packet output in terminal when True.
+        live:          Replace the scrolling packet output with the live panel
+                       (rate, link quality, RSSI histogram, last frames).
         sync_word:     "private", "public" or a raw byte such as "0x2B".
         preamble:      Preamble length in symbols (6-65535).
         iq:            "normal" or "inverted" (LoRaWAN downlinks use inverted).
@@ -1050,6 +1091,7 @@ def run_sx_bridge(
         modulation="LoRa",
         wireshark=wireshark,
         verbose=verbose,
+        live=live,
         raw_file=raw_file,
         ascii_file=ascii_file,
         pcap_file=pcap_file,
@@ -1079,6 +1121,7 @@ def run_fsk_bridge(
     pcap_file: str = None,
     force: bool = False,
     wireshark_args: list = None,
+    live: bool = False,
 ):
     """Run the (G)FSK sniffer bridge for the unified RP2040 firmware.
 
@@ -1145,6 +1188,7 @@ def run_fsk_bridge(
         modulation="FSK",
         wireshark=wireshark,
         verbose=verbose,
+        live=live,
         raw_file=raw_file,
         ascii_file=ascii_file,
         pcap_file=pcap_file,
