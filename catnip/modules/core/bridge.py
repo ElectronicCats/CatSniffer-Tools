@@ -2,6 +2,7 @@ import os
 import time
 import threading
 import platform
+import statistics
 import struct
 import serial
 
@@ -652,6 +653,60 @@ def _stop_lora_capture(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# SX1262 session report
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# The SX1262 stream never touches the CC1352 bridge ring buffer, so
+# report_capture_loss (above) does not apply to it — that is by design, not
+# an oversight. But ``_run_sx_capture`` already computes its own numbers
+# (packet/error counts, RSSI/SNR per packet) and used to discard all but the
+# error count, which was only ever printed on Ctrl+C. This closes every exit
+# path — Ctrl+C, a closed port, a serial error — with what was actually seen.
+
+
+def _describe_quality(label: str, values: list, unit: str) -> str:
+    """``"RSSI: min=-92.0 dBm  median=-80.0 dBm  max=-61.0 dBm"``, or a note
+    that nothing was captured to measure."""
+    if not values:
+        return f"{label}: n/a (no packets)"
+    return (
+        f"{label}: min={min(values):.1f}{unit}  "
+        f"median={statistics.median(values):.1f}{unit}  "
+        f"max={max(values):.1f}{unit}"
+    )
+
+
+def print_sx_session_report(
+    modulation: str,
+    packet_count: int,
+    error_count: int,
+    unrecognized_count: int,
+    truncated_count: int,
+    duration_s: float,
+    rssi_values: list,
+    snr_values: list,
+) -> None:
+    """Close an SX1262 (LoRa/FSK) capture with what this session measured.
+
+    Unlike ``report_capture_loss``, everything here comes from the host side
+    of the stream — the SX1262 has no ring buffer of its own to ask — so this
+    is a summary of what arrived, not a statement about what was lost.
+    """
+    minutes = duration_s / 60 if duration_s > 0 else 0
+    rate = packet_count / minutes if minutes > 0 else 0.0
+
+    print_success(f"{modulation} session report")
+    print_dim(f"Duration:            {duration_s:.1f}s")
+    print_dim(f"Packets:             {packet_count} ({rate:.1f} pkt/min)")
+    print_dim(f"Parse errors:        {error_count}")
+    print_dim(f"Unrecognized lines:  {unrecognized_count}")
+    print_dim(f"Truncated lines:     {truncated_count}")
+    print_dim(_describe_quality("RSSI", rssi_values, " dBm"))
+    if snr_values:
+        print_dim(_describe_quality("SNR", snr_values, " dB"))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # SX1262 bridge (LoRa and FSK)
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -806,6 +861,11 @@ def _run_sx_capture(
     header_written = False
     packet_count = 0
     error_count = 0
+    unrecognized_count = 0
+    truncated_count = 0
+    rssi_values = []
+    snr_values = []
+    start_time = time.monotonic()
 
     try:
         while True:
@@ -828,6 +888,12 @@ def _run_sx_capture(
             if not raw:
                 continue
 
+            # A line that hit the bound without ever finding '\n' — the
+            # firmware output ran longer than a real "RX: ..." line ever
+            # does, so this is corruption on the wire, not a slow write.
+            if len(raw) >= DEFAULT_READLINE_MAX_BYTES and not raw.endswith(b"\n"):
+                truncated_count += 1
+
             # Skip lines that are not packet data
             stripped = raw.strip()
             if not stripped:
@@ -835,6 +901,7 @@ def _run_sx_capture(
             if _LORA_LINE_PREFIX not in stripped:
                 if not any(stripped.startswith(p) for p in _IGNORE_PREFIXES):
                     print_dim(f"(device) {stripped.decode('ascii', errors='replace')}")
+                    unrecognized_count += 1
                 continue
 
             try:
@@ -848,6 +915,10 @@ def _run_sx_capture(
                 # Same record, second destination: the file survives the session.
                 pcap_writer.write_record(packet.pcap)
                 packet_count += 1
+
+                rssi_values.append(packet.rssi)
+                if not packet.is_fsk:
+                    snr_values.append(packet.snr)
 
                 # Persist only the relevant fields to the log file(s).
                 # LoRa carries both RSSI and SNR; an FSK frame is reported
@@ -881,13 +952,23 @@ def _run_sx_capture(
                 print_warning(f"Unexpected error #{error_count}: {exc}")
 
     except KeyboardInterrupt:
-        print_info(
-            f"Capture stopped — {packet_count} packet(s), {error_count} error(s)"
-        )
+        print_info("Capture stopped")
     finally:
         log_writer.close()
         pcap_writer.close()
         _stop_lora_capture(shell, lora, pipe)
+        # Every exit path — Ctrl+C, a closed port, a serial error — ends with
+        # the same statement about what this session actually captured.
+        print_sx_session_report(
+            modulation,
+            packet_count,
+            error_count,
+            unrecognized_count,
+            truncated_count,
+            time.monotonic() - start_time,
+            rssi_values,
+            snr_values,
+        )
 
     return packet_count
 
