@@ -1,3 +1,4 @@
+import math
 import re
 import struct
 import time
@@ -151,6 +152,36 @@ def normalize_syncword(syncword) -> tuple:
     return f"0x{byte:02X}", byte
 
 
+# Sub-GHz ISM windows a LoRa/FSK front-end is normally matched for (the ETSI/
+# FCC/SRRC allocations behind the LoRaWAN regional plans). The SX1262 chip
+# itself tunes anywhere from 137-1020 MHz, but the antenna and matching
+# network on a given board is built for one specific window at manufacture —
+# the SX1262MB2xAS reference shield this board's RF front-end follows has a
+# frequency-band resistor selector (R915/R868/R490/R434/Other) picked once
+# and soldered, which no command here can read back. A frequency nowhere near
+# any of these windows is nonetheless the classic "stray digit in --frequency"
+# mistake that produces zero packets with nothing in the firmware to blame.
+SUB_GHZ_ISM_BANDS_HZ = (
+    (433_050_000, 434_790_000),  # 433 MHz ISM
+    (470_000_000, 510_000_000),  # 470 MHz (China)
+    (863_000_000, 870_000_000),  # EU863-870
+    (902_000_000, 928_000_000),  # US902-928
+)
+
+
+def frequency_in_known_ism_band(frequency_hz) -> bool:
+    """Does this frequency fall in a commonly-used sub-GHz LoRa/FSK window?
+
+    Not a hardware check — this board's actual matching network covers only
+    one of these bands, and which one is fixed in hardware, not something
+    ``band3``/``sx1262_band_command`` (or any other command) selects. This
+    only flags a frequency far from every common window; it says nothing
+    about whether this particular board covers the one that matched.
+    """
+    frequency_hz = int(frequency_hz)
+    return any(lo <= frequency_hz <= hi for lo, hi in SUB_GHZ_ISM_BANDS_HZ)
+
+
 # The 21 RX bandwidths the SX1262 offers in (G)FSK mode, in kHz, spelled the way
 # ``cmd_fsk_bw`` echoes them back.  The firmware maps whatever value it is given
 # to an enum entry with a threshold ladder, so each of these strings round-trips
@@ -250,6 +281,79 @@ def sx1262_band_command() -> str:
     firmware's own ``lora_test.py`` sends as part of its setup sequence.
     """
     return "band3"
+
+
+# LoRa's max payload (variable-length header carries its own length byte),
+# used below as the worst case a sniffer could actually see on air.
+LORA_MAX_PAYLOAD_BYTES = 255
+
+# Above this many seconds of airtime for a full-size frame, an SF/BW pick
+# reads as a copy-paste from a different link budget rather than a deliberate
+# choice — worth a second look, not worth refusing.
+LORA_AIRTIME_WARN_THRESHOLD_S = 1.0
+
+
+def lora_symbol_time_s(spreading_factor: int, bandwidth_khz) -> float:
+    """Duration of one LoRa symbol, in seconds: ``2**SF / BW``."""
+    return (2 ** int(spreading_factor)) / (float(bandwidth_khz) * 1000)
+
+
+def lora_time_on_air_s(
+    spreading_factor: int,
+    bandwidth_khz,
+    coding_rate: int = 5,
+    preamble_symbols: int = 12,
+    payload_bytes: int = LORA_MAX_PAYLOAD_BYTES,
+    crc: bool = True,
+    explicit_header: bool = True,
+) -> float:
+    """Time to put one frame on air, per Semtech's own LoRa formula (AN1200.13,
+    also SX1262 datasheet section 6.1.4) — pure arithmetic on the same
+    SF/BW/CR/preamble a capture is configured with, no firmware involved.
+
+    Low data rate optimisation (``DE``) is inferred from the symbol time
+    itself rather than taken as a parameter: the SX1262 requires it once a
+    symbol exceeds 16 ms (SF11/SF12 at 125 kHz, SF12 at 250 kHz), the same
+    rule the datasheet uses, so a caller never has to get the two arguments
+    to agree by hand.
+    """
+    sf = int(spreading_factor)
+    symbol_time = lora_symbol_time_s(sf, bandwidth_khz)
+    low_data_rate_optimize = symbol_time > 0.016
+
+    preamble_time = (preamble_symbols + 4.25) * symbol_time
+
+    de = 1 if low_data_rate_optimize else 0
+    ih = 0 if explicit_header else 1
+    numerator = 8 * payload_bytes - 4 * sf + 28 + (16 if crc else 0) - 20 * ih
+    denominator = 4 * (sf - 2 * de)
+    # Semtech's formula multiplies by (CR+4) where CR is 1-4 for coding rates
+    # 4/5..4/8; this codebase's ``coding_rate`` is already that denominator
+    # (5-8, as in "CR4/5"), so it IS (CR+4) — no further offset needed.
+    payload_symbols = 8 + max(math.ceil(numerator / denominator) * int(coding_rate), 0)
+    payload_time = payload_symbols * symbol_time
+
+    return preamble_time + payload_time
+
+
+def lora_airtime_is_reasonable(
+    spreading_factor: int,
+    bandwidth_khz,
+    coding_rate: int = 5,
+    preamble_symbols: int = 12,
+) -> bool:
+    """Would a full-size (255 B) frame at this SF/BW/CR stay under the
+    'sane amount of airtime' threshold, or has the combination drifted into
+    multi-second-per-packet territory?
+    """
+    airtime = lora_time_on_air_s(
+        spreading_factor,
+        bandwidth_khz,
+        coding_rate=coding_rate,
+        preamble_symbols=preamble_symbols,
+        payload_bytes=LORA_MAX_PAYLOAD_BYTES,
+    )
+    return airtime <= LORA_AIRTIME_WARN_THRESHOLD_S
 
 
 class LoRaShellCommands:
