@@ -584,6 +584,16 @@ class SnifferSx:
             self.pcap = None
             self.raw_line = None
             self.is_fsk = False
+            # Whether the firmware cut this frame's hex dump to 40 bytes
+            # (lora_rx_cb/fsk_rx_cb in main.c) before it ever reached the
+            # host — bytes beyond that point never crossed the wire and
+            # cannot be recovered here. original_length is the true on-air
+            # size when the firmware happens to report it (FSK's "Len:"
+            # field); LoRa reports no such field, so it stays None even
+            # when truncated is True — known to be missing, not known by
+            # how much.
+            self.truncated = False
+            self.original_length = None
 
             # Accept bytes or str
             if isinstance(packet_input, (bytes, bytearray)):
@@ -627,6 +637,12 @@ class SnifferSx:
                 self.rssi = float(rssi_int)
                 self.snr = 0.0  # FSK no tiene SNR en este formato
 
+                # Unlike the hex dump, "Len:" is the frame's real size as the
+                # firmware received it — it is not clipped to 40 bytes, so it
+                # survives as evidence of what the hex cutoff dropped.
+                self.original_length = length
+                self.truncated = length > self.length
+
                 self._build_pcap()
                 return
 
@@ -637,7 +653,12 @@ class SnifferSx:
                 rssi_int = int(m.group(2))
                 snr_int = int(m.group(3))
 
-                if "..." in hex_str_raw:
+                # LoRa RX carries no "Len:" field, so — unlike FSK — the true
+                # size is lost the moment the firmware cuts the hex dump: the
+                # "..." marker is the only evidence left that this happened,
+                # and it says nothing about by how much.
+                self.truncated = "..." in hex_str_raw
+                if self.truncated:
                     hex_str_raw = hex_str_raw.split("...")[0]
                 hex_clean = "".join(
                     c for c in hex_str_raw if c.lower() in "0123456789abcdef"
@@ -702,5 +723,14 @@ class SnifferSx:
                 + struct.pack(">B", sync_word)
             )
 
-            pcap_record = Pcap(header + self.payload, time.time())
+            # The LoRaTap header itself is never truncated — only the payload
+            # the firmware handed over — so the true on-wire length, when
+            # known at all, is the header plus the firmware's own count.
+            original_length = None
+            if self.truncated and self.original_length is not None:
+                original_length = len(header) + self.original_length
+
+            pcap_record = Pcap(
+                header + self.payload, time.time(), original_length=original_length
+            )
             self.pcap = pcap_record.get_pcap()

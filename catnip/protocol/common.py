@@ -35,9 +35,22 @@ def get_global_header(interface=147):
 
 
 class Pcap:
-    def __init__(self, packet: bytes, timestamp_seconds: float):
+    def __init__(
+        self,
+        packet: bytes,
+        timestamp_seconds: float,
+        original_length: int = None,
+    ):
+        """``original_length`` is the true on-wire size when it differs from
+        ``len(packet)`` — a source (e.g. the SX1262 firmware's own hex-dump
+        cutoff) truncated the packet before it ever reached here. Defaults to
+        ``len(packet)``, i.e. "nothing was truncated before this."
+        """
         self.packet = packet
         self.timestamp_seconds = timestamp_seconds
+        self.original_length = (
+            len(packet) if original_length is None else original_length
+        )
         self.pcap_packet = self.pack()
 
     def pack(self):
@@ -48,8 +61,8 @@ class Pcap:
                 PCAP_PACKET_HEADER_FORMAT,  # Block Type
                 int_timestamp,  # timestamp_seconds,
                 timestamp_offset,  # timestamp_offset,
-                len(self.packet),  # Snapshot Length
-                len(self.packet),  # Packet Length
+                len(self.packet),  # Snapshot Length (captured)
+                self.original_length,  # Packet Length (on the wire)
             )
             + self.packet
         )
