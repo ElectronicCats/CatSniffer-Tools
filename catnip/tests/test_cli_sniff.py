@@ -18,6 +18,7 @@ visible signal rather than relaxed away.
 """
 
 import importlib
+import struct
 import sys
 from unittest.mock import MagicMock
 
@@ -431,6 +432,76 @@ class TestFskLoRaTapHeader:
         assert packet.pcap[16 + 8] == 2  # loratap bandwidth enum for 250 kHz
         assert packet.pcap[16 + 9] == 9  # SF9
         assert packet.pcap[16 + 14] == 0x34
+
+
+class TestFirmwareTruncation:
+    """The RP2040 firmware caps its hex dump at 40 bytes and appends "..."
+    (``lora_rx_cb``/``fsk_rx_cb`` in ``main.c``); bytes past that point never
+    cross the wire and cannot be recovered here. The parser must not discard
+    this silently — it should flag ``packet.truncated`` and, where the
+    firmware itself reports the true size (FSK's ``Len:`` field), carry that
+    size into the pcap record's original length rather than lying that the
+    frame measured exactly what was captured.
+    """
+
+    _CAPTURED_HEX = "AB" * 40  # the firmware's hard 40-byte hex-dump cap
+
+    @staticmethod
+    def _record_lengths(sniffer_sx, packet) -> tuple:
+        """``(captured, original)`` from the classic-pcap header the Packet
+        built, exactly as ``PcapFileWriter`` reads them back on disk."""
+        _, _, caplen, origlen = struct.unpack_from(
+            sniffer_sx.PCAP_PACKET_HEADER_FORMAT, packet.pcap
+        )
+        return caplen, origlen
+
+    def test_fsk_reports_the_firmware_s_true_length_when_truncated(self, sniffer_sx):
+        packet = sniffer_sx.SnifferSx.Packet(
+            f"FSK RX: {self._CAPTURED_HEX}... | RSSI: -42 | Len: 55\r\n",
+            context={"frequency": 868_000_000},
+        )
+        assert packet.is_fsk is True
+        assert len(packet.payload) == 40  # only what the firmware sent
+        assert packet.truncated is True
+        assert packet.original_length == 55
+
+        caplen, origlen = self._record_lengths(sniffer_sx, packet)
+        # The pcap record must not claim the frame measured only what was
+        # captured -- the firmware told us 55 bytes went over the air.
+        assert origlen - caplen == 15  # 55 - 40, the bytes the firmware dropped
+
+    def test_fsk_untruncated_frame_reports_equal_lengths(self, sniffer_sx):
+        packet = sniffer_sx.SnifferSx.Packet(
+            "FSK RX: AABBCC | RSSI: -42 | Len: 3\r\n",
+            context={"frequency": 868_000_000},
+        )
+        assert packet.truncated is False
+        assert packet.original_length == 3
+        caplen, origlen = self._record_lengths(sniffer_sx, packet)
+        assert caplen == origlen
+
+    def test_lora_is_flagged_truncated_with_no_invented_length(self, sniffer_sx):
+        """LoRa RX carries no length field at all, so the firmware gives no
+        way to know the true size once "..." appears -- the fix must say
+        "bytes are missing", never guess how many."""
+        packet = sniffer_sx.SnifferSx.Packet(
+            f"RX: {self._CAPTURED_HEX}... | RSSI: -30 | SNR: 9\r\n",
+        )
+        assert len(packet.payload) == 40
+        assert packet.truncated is True
+        assert packet.original_length is None  # known missing, not known by how much
+
+        caplen, origlen = self._record_lengths(sniffer_sx, packet)
+        # No exact original size is available, so the record must not
+        # fabricate one -- honest silence beats a confident guess.
+        assert caplen == origlen
+
+    def test_lora_untruncated_frame_is_not_flagged(self, sniffer_sx):
+        packet = sniffer_sx.SnifferSx.Packet("RX: AABB | RSSI: -30 | SNR: 9\r\n")
+        assert packet.truncated is False
+        assert packet.original_length is None
+        caplen, origlen = self._record_lengths(sniffer_sx, packet)
+        assert caplen == origlen
 
 
 @pytest.mark.slow

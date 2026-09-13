@@ -1307,6 +1307,7 @@ class TestSxSessionReport:
             snr=9.0,
             is_fsk=False,
             length=3,
+            truncated=False,
         )
 
         with patch(
@@ -1343,6 +1344,7 @@ class TestSxSessionReport:
             error_count,
             unrecognized_count,
             truncated_count,
+            firmware_truncated_count,
             duration_s,
             rssi_values,
             snr_values,
@@ -1352,6 +1354,7 @@ class TestSxSessionReport:
         assert error_count == 1
         assert unrecognized_count == 2
         assert truncated_count == 1
+        assert firmware_truncated_count == 0
         assert duration_s >= 0
         assert rssi_values == [-42.0]
         assert snr_values == [9.0]
@@ -1418,6 +1421,7 @@ class TestSxSessionReport:
             snr=0.0,
             is_fsk=True,
             length=3,
+            truncated=False,
         )
 
         with patch(
@@ -1438,7 +1442,7 @@ class TestSxSessionReport:
 
         args = report.call_args.args
         assert args[0] == "FSK"
-        rssi_values, snr_values = args[6], args[7]
+        rssi_values, snr_values = args[7], args[8]
         assert rssi_values == [-55.0]
         assert snr_values == []
 

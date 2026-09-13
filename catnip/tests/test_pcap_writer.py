@@ -221,6 +221,30 @@ class TestPcapng:
         PcapFileWriter(str(target), LORATAP_DLT).close()
         assert b"catnip" in target.read_bytes()
 
+    def test_a_truncated_record_carries_its_true_original_length(self, tmp_path):
+        """A source that already knows a record was truncated before it got
+        here (e.g. the SX1262 firmware's own 40-byte hex-dump cap) passes a
+        classic-PCAP record whose ``orig_len`` differs from its captured
+        length. The EPB this writer emits must preserve that gap rather than
+        collapsing it back to "nothing was truncated", which is exactly the
+        false claim ``_epb`` accepting the two separately exists to avoid."""
+        target = tmp_path / "capture.pcapng"
+        captured = b"\xaa" * 40
+        record = Pcap(captured, 1700000000.0, original_length=55).get_pcap()
+
+        writer = PcapFileWriter(str(target), LORATAP_DLT)
+        writer.write_record(record)
+        writer.close()
+
+        (block_type, body) = next(
+            (block_type, body)
+            for block_type, body in iter_blocks(target.read_bytes())
+            if block_type == _PCAPNG_EPB_TYPE
+        )
+        _, _, _, caplen, origlen = struct.unpack_from("<IIIII", body)
+        assert caplen == 40
+        assert origlen == 55
+
 
 @pytest.mark.unit
 class TestOverwriteGuard:
