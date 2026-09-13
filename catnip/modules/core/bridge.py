@@ -683,6 +683,7 @@ def print_sx_session_report(
     error_count: int,
     unrecognized_count: int,
     truncated_count: int,
+    firmware_truncated_count: int,
     duration_s: float,
     rssi_values: list,
     snr_values: list,
@@ -692,6 +693,12 @@ def print_sx_session_report(
     Unlike ``report_capture_loss``, everything here comes from the host side
     of the stream — the SX1262 has no ring buffer of its own to ask — so this
     is a summary of what arrived, not a statement about what was lost.
+
+    ``truncated_count`` is a serial-read artifact (a line that hit the
+    readline byte bound with no trailing newline); ``firmware_truncated_count``
+    is unrelated — it counts frames the RP2040 itself cut to 40 bytes before
+    ever sending them (see ``SnifferSx.Packet.truncated``), the one kind of
+    loss this capture can state without a firmware change.
     """
     minutes = duration_s / 60 if duration_s > 0 else 0
     rate = packet_count / minutes if minutes > 0 else 0.0
@@ -702,6 +709,10 @@ def print_sx_session_report(
     print_dim(f"Parse errors:        {error_count}")
     print_dim(f"Unrecognized lines:  {unrecognized_count}")
     print_dim(f"Truncated lines:     {truncated_count}")
+    print_dim(
+        f"FW truncated:        {firmware_truncated_count} of {packet_count} "
+        "packet(s) were cut to 40 bytes by the firmware"
+    )
     print_dim(_describe_quality("RSSI", rssi_values, " dBm"))
     if snr_values:
         print_dim(_describe_quality("SNR", snr_values, " dB"))
@@ -876,6 +887,7 @@ def _run_sx_capture(
     error_count = 0
     unrecognized_count = 0
     truncated_count = 0
+    firmware_truncated_count = 0
     rssi_values = []
     snr_values = []
     start_time = time.monotonic()
@@ -933,6 +945,8 @@ def _run_sx_capture(
                 # Same record, second destination: the file survives the session.
                 pcap_writer.write_record(packet.pcap)
                 packet_count += 1
+                if packet.truncated:
+                    firmware_truncated_count += 1
 
                 rssi_values.append(packet.rssi)
                 if not packet.is_fsk:
@@ -1003,6 +1017,7 @@ def _run_sx_capture(
             error_count,
             unrecognized_count,
             truncated_count,
+            firmware_truncated_count,
             time.monotonic() - start_time,
             rssi_values,
             snr_values,
