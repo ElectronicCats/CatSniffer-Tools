@@ -93,7 +93,9 @@ def force_option(help: str = FORCE_HELP, **kwargs):
     same link type, and a PCAPNG section header would land mid-file), so it is
     truncated instead — which means it has to be opt-in.
     """
-    return click.option("--force", "-f", is_flag=True, help=help, **kwargs)
+    return click.option(
+        "--force", "-f", is_flag=True, default=False, help=help, **kwargs
+    )
 
 
 BOARD_HELP = (
