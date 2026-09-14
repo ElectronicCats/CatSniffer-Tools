@@ -24,6 +24,7 @@ types on the command line still wins.
 """
 
 import os
+import re
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -202,6 +203,74 @@ def resolve_profile(
         )
 
     return profile
+
+
+_PROFILE_NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
+
+
+def _toml_scalar(value: object) -> str:
+    """Render one profile field as a TOML value.
+
+    Every field a profile actually carries is an int, a bool, or a plain
+    str (frequencies, SF/CR/bandwidth, sync words, flags) — this is not a
+    general TOML encoder, just enough to round-trip those.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str):
+        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    raise ProfileError(f"Cannot save field of type {type(value).__name__}: {value!r}")
+
+
+def _serialize_profiles_toml(profiles: Dict[str, dict]) -> str:
+    lines = []
+    for name in sorted(profiles):
+        lines.append(f"[profiles.{name}]")
+        for field, value in profiles[name].items():
+            lines.append(f"{field} = {_toml_scalar(value)}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def save_profile(
+    name: str,
+    command: str,
+    fields: Dict[str, object],
+    path: Optional[str] = None,
+) -> Path:
+    """Write ``fields`` as ``[profiles.<name>]`` into the user's profiles.toml.
+
+    profiles.toml is a plain, comment-free file by convention (nothing else
+    in catnip writes to it), so the simplest correct way to add one profile
+    is to load the existing ones with :func:`_load_user_profiles`, merge in
+    this one, and re-serialize the whole set — rather than patching TOML
+    text in place.
+    """
+    key = str(name).strip().lower()
+    if not _PROFILE_NAME_RE.fullmatch(key):
+        raise ProfileError(
+            f"Invalid profile name {name!r}: use lowercase letters, digits, "
+            "'-' or '_', starting with a letter or digit"
+        )
+    if command not in PROFILE_KEYS_BY_COMMAND:
+        raise ProfileError(f"command must be 'lora' or 'fsk', got {command!r}")
+
+    allowed = PROFILE_KEYS_BY_COMMAND[command]
+    unknown = set(fields) - allowed
+    if unknown:
+        raise ProfileError(
+            f"Field(s) not valid for {command}: {', '.join(sorted(unknown))}"
+        )
+
+    profiles_path = _profiles_path(path)
+    existing = _load_user_profiles(path)
+    existing[key] = {"command": command, **fields}
+
+    profiles_path.parent.mkdir(parents=True, exist_ok=True)
+    profiles_path.write_text(_serialize_profiles_toml(existing), encoding="utf-8")
+    return profiles_path
 
 
 def describe_profile(profile: Dict[str, object]) -> str:

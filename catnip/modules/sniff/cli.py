@@ -36,6 +36,7 @@ from ..radio.profiles import (
     available_profiles,
     describe_profile,
     resolve_profile,
+    save_profile as save_radio_profile,
 )
 from protocol.sniffer_sx import (
     FSK_BANDWIDTHS,
@@ -398,6 +399,39 @@ def profile_option(command_name):
     )
 
 
+def save_profile_option():
+    return click.option(
+        "--save-profile",
+        "save_profile_name",
+        default=None,
+        metavar="NAME",
+        help=(
+            "Save this command's radio settings (after --profile and any "
+            "explicit flags are merged) as NAME in ~/.config/catnip/"
+            "profiles.toml, for later use as --profile NAME."
+        ),
+    )
+
+
+def _save_resolved_profile(command_name: str, save_profile_name, fields: dict) -> None:
+    """Write ``fields`` under ``--save-profile NAME``, or do nothing if unset.
+
+    Runs before the device is touched, so ``--save-profile`` records the
+    settings even if the capture itself then fails or is aborted.
+    """
+    if not save_profile_name:
+        return
+    try:
+        saved_path = save_radio_profile(save_profile_name, command_name, fields)
+    except ProfileError as exc:
+        print_error(str(exc))
+        raise SystemExit(1)
+    print_success(f"Saved profile {save_profile_name!r} to {saved_path}")
+    print_dim(
+        f"  Reuse it with: catnip sniff {command_name} --profile {save_profile_name}"
+    )
+
+
 def _validate_sync_word(ctx, param, value):
     """Accept the firmware's own sync word spec: private|public|0xNN."""
     try:
@@ -438,6 +472,7 @@ def _validate_sync_word(ctx, param, value):
     ),
 )
 @profile_option("lora")
+@save_profile_option()
 @click.option(
     "--frequency",
     "-freq",
@@ -516,6 +551,7 @@ def sniff_lora(
     verbose,
     live,
     profile,
+    save_profile_name,
     frequency,
     bandwidth,
     spread_factor,
@@ -545,6 +581,7 @@ def sniff_lora(
         catnip sniff lora -sw public --iq inverted # LoRaWAN downlinks
         catnip sniff lora --profile eu868-meshtastic-longfast
         catnip sniff lora -P us915-meshtastic-shortfast -pw 10  # override tx_power only
+        catnip sniff lora -freq 868000000 -sf 9 --save-profile mi-perfil
     """
     if not _capture_file_is_writable(pcap_file, force):
         raise SystemExit(1)
@@ -588,6 +625,21 @@ def sniff_lora(
     wireshark_args = lora_decode_as_args(sync_word)
     wireshark_args += lora_wireshark_display_args()
     _explain_lorawan_dissection(ws or open_capture, sync_word)
+
+    _save_resolved_profile(
+        "lora",
+        save_profile_name,
+        {
+            "frequency": frequency,
+            "bandwidth": bandwidth,
+            "spread_factor": spread_factor,
+            "coding_rate": coding_rate,
+            "tx_power": tx_power,
+            "sync_word": sync_word,
+            "preamble": preamble,
+            "iq": iq,
+        },
+    )
 
     dev = get_device_or_exit(device)
 
@@ -819,6 +871,7 @@ def _warn_narrow_fsk_bandwidth(bandwidth: str, bitrate: int, fdev: int) -> None:
     ),
 )
 @profile_option("fsk")
+@save_profile_option()
 @click.option(
     "--frequency",
     "-freq",
@@ -920,6 +973,7 @@ def sniff_fsk(
     verbose,
     live,
     profile,
+    save_profile_name,
     frequency,
     bitrate,
     fdev,
@@ -956,6 +1010,7 @@ def sniff_fsk(
         catnip sniff fsk -w capture.pcapng           # save it, offer to open it
         catnip sniff fsk --bt off                    # plain FSK, no shaping
         catnip sniff fsk --profile home-meter-fsk    # user profile
+        catnip sniff fsk -freq 868000000 --save-profile mi-fsk
     """
     if not _capture_file_is_writable(pcap_file, force):
         raise SystemExit(1)
@@ -993,6 +1048,25 @@ def sniff_fsk(
     # column layout is still worth overriding, minus the SNR an FSK frame is
     # never reported with.
     wireshark_args = lora_wireshark_display_args(snr=False)
+
+    _save_resolved_profile(
+        "fsk",
+        save_profile_name,
+        {
+            "frequency": frequency,
+            "bitrate": bitrate,
+            "fdev": fdev,
+            "bandwidth": bandwidth,
+            "tx_power": tx_power,
+            "preamble": preamble,
+            "sync_word": sync_word,
+            "bt": bt,
+            "crc": crc,
+            "whitening": whitening,
+            "pktlen": pktlen,
+            "payload": payload,
+        },
+    )
 
     dev = get_device_or_exit(device)
 
