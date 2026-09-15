@@ -107,7 +107,7 @@ Contenido: `BoardInfo` (dataclass frozen), `BOARD_V2` / `BOARD_V3`, `BOARDS`,
 
 **Dependencia verificada:** `detect_board()` importa
 `from ..core.usb_connection import ShellConnection` → existe en mi rama en
-[modules/core/usb_connection.py](catnip/modules/core/usb_connection.py). ✅ Compatible.
+[modules/core/usb_connection.py](../../modules/core/usb_connection.py). ✅ Compatible.
 
 ---
 
@@ -128,9 +128,9 @@ alias `catnip_v2`, cambia firma a
 **Compatibilidad hacia atrás verificada:**
 - `from typing import ... List` ya está importado en ambas versiones. ✅
 - La firma nueva tiene default `"v3"` → llamadas existentes de 1 argumento siguen funcionando. ✅
-- [tests/test_fw_modules.py:202-211](catnip/tests/test_fw_modules.py#L202-L211) llama con
+- [tests/test_fw_modules.py:202-211](../../tests/test_fw_modules.py#L202-L211) llama con
   1 argumento y con `None`/`""` → `table.get(None)` devuelve `None`. ✅ Sigue pasando.
-- [tests/test_catsniffer.py:724](catnip/tests/test_catsniffer.py#L724) parchea la
+- [tests/test_catsniffer.py:724](../../tests/test_catsniffer.py#L724) parchea la
   función entera con `return_value` → indiferente a la firma. ✅
 
 ---
@@ -165,7 +165,7 @@ Firmas cambiadas: `flash_rp2040_uf2(uf2_path, mount_point=None)`,
 `_perform_rp2040_update(device, flasher, board=None, tag=None, force=False)`.
 
 **Dependencia verificada:** `parse_fw_version_response()` (mi rama,
-[modules/firmware/fw_update.py:192](catnip/modules/firmware/fw_update.py#L192)) parsea
+[modules/firmware/fw_update.py:192](../../modules/firmware/fw_update.py#L192)) parsea
 genéricamente `^(\w+):\s*(.+)$`, así que la línea `Board: v2 SAMD21 CC1352P1`
 produce `result["board"]` sin ningún cambio. El test
 `test_parse_fw_version_keeps_board` pasa tal cual. ✅
@@ -192,7 +192,7 @@ Cambios principales:
   `_leave_bootloader_after_failure()`.
 - Mirror de dos imágenes Sniffle (`GITHUB_SNIFFLE_HEXES`).
 
-**Beneficio colateral:** [modules/firmware/restore.py:497](catnip/modules/firmware/restore.py#L497)
+**Beneficio colateral:** [modules/firmware/restore.py:497](../../modules/firmware/restore.py#L497)
 llama a `flasher.find_flash_firmware(...)`, así que el comando `restore` de mi
 rama hereda el gate de seguridad automáticamente. No hay nada que portar ahí. ✅
 
@@ -208,7 +208,7 @@ deben re-apuntarse:
 | | |
 |---|---|
 | **Origen** | `core/cli.py`, función `devices()`, líneas ~1301-1316 |
-| **Destino** | [modules/device/cli.py:36-62](catnip/modules/device/cli.py#L36-L62), función `devices()` |
+| **Destino** | [modules/device/cli.py:36-62](../../modules/device/cli.py#L36-L62), función `devices()` |
 | **Estado** | ✅ completado |
 
 Aplicar sobre `modules/device/cli.py`:
@@ -233,7 +233,7 @@ Aplicar sobre `modules/device/cli.py`:
 | | |
 |---|---|
 | **Origen** | `core/cli.py`, función `update()`, línea ~2088 |
-| **Destino** | [modules/firmware/cli.py:401](catnip/modules/firmware/cli.py#L401) |
+| **Destino** | [modules/firmware/cli.py:401](../../modules/firmware/cli.py#L401) |
 | **Estado** | ✅ completado (aplicado literal, decisión del usuario) |
 
 Cambio literal: `check_and_update_rp2040(device=dev, flasher=flasher_inst)`
@@ -251,7 +251,7 @@ Cambio literal: `check_and_update_rp2040(device=dev, flasher=flasher_inst)`
 | **Estado** | ✅ completado — 34 tests pasan |
 
 **Riesgo identificado (bajo, pero verificar):** el test se escribió antes de que
-mi rama añadiera [tests/conftest.py](catnip/tests/conftest.py), que instala mocks
+mi rama añadiera [tests/conftest.py](../../tests/conftest.py), que instala mocks
 globales en `sys.modules` (`serial`, `rich.table`, `scapy`, `matplotlib`…).
 `test_board_support.py` hace su propio `sys.path.insert` y usa `patch` local, sin
 tocar `sys.modules`, así que **en principio son compatibles** — pero hay que

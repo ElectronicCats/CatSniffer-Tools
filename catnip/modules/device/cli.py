@@ -1,7 +1,6 @@
 """``catnip devices|identify`` - device discovery and identification.
 
-Registered one by one on the root group (they are not a Click group), see
-section 3.2 of ``CLI_REFACTOR_PLAN.md``.
+Registered one by one on the root group (they are not a Click group)
 """
 
 # Internal
@@ -252,7 +251,7 @@ def status(device, diagnostics) -> None:
         table.add_row("Firmware", "[yellow]unknown[/yellow]")
 
     # Why a feature is or is not available on this board, stated up front
-    # instead of only when a command refuses (see PLAN_SOPORTE_V2.md, T-08).
+    # instead of only when a command refuses
     rows = capability_rows(board)
     if rows:
         table.add_row(

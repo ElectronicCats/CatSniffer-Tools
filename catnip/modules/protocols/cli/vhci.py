@@ -98,8 +98,6 @@ def vhci_start(device, baud, verbose):
     if cat.check_firmware_by_metadata("sniffle", dev.shell_port):
         print_success("Sniffle firmware found!")
     else:
-        # See PLAN_SOPORTE_V2.md, T-06: the gate guards the flash, not the
-        # board — a board already running Sniffle needs nothing from us.
         require_firmware_for_board(
             detect_board(dev.shell_port), "sniffle", "catnip vhci"
         )

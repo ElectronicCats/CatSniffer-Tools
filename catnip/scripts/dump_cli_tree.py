@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Dump the full catnip command tree (every ``--help``) to stdout.
 
-Reference snapshot used by the CLI refactor (see ``CLI_REFACTOR_PLAN.md``):
+Reference snapshot used by the CLI refactor
+(see ``docs/internal/CLI_REFACTOR_PLAN.md``):
 each phase must leave this output byte-for-byte identical.
 
     python scripts/dump_cli_tree.py > /tmp/tree.txt

@@ -48,7 +48,7 @@ def cativity(device, channel, topology, protocol):
         print_success("Sniffer TI firmware found (via direct communication)!")
     else:
         # Nothing to flash on a board with no ti_sniffer image: refuse here,
-        # before touching the hardware (see PLAN_SOPORTE_V2.md, T-06).
+        # before touching the hardware
         require_firmware_for_board(
             detect_board(dev.shell_port), "ti_sniffer", "catnip cativity"
         )

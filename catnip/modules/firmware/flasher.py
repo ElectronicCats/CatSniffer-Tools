@@ -1090,8 +1090,7 @@ class Flasher:
                                 shell, firmware_name
                             )
                             # A board that answers "no storage" answers that
-                            # every time, so four more attempts buy nothing
-                            # (PLAN_SOPORTE_V2.md, T-11). Asked while the
+                            # every time, so four more attempts buy nothing. Asked while the
                             # shell is still open, and only when something
                             # went wrong.
                             no_storage = False

@@ -1,7 +1,6 @@
 """``catnip completion`` - shell tab-completion installer.
 
-Registered on the root group only on Linux/macOS, see section 3.2 of
-``CLI_REFACTOR_PLAN.md``.
+Registered on the root group only on Linux/macOS.
 """
 
 import os

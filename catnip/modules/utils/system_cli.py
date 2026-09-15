@@ -1,7 +1,6 @@
 """``catnip setup-env`` - udev rules and user group setup.
 
-Registered on the root group only on Linux, see section 3.2 of
-``CLI_REFACTOR_PLAN.md``.
+Registered on the root group only on Linux
 """
 
 import os

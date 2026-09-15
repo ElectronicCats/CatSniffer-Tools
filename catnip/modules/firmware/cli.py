@@ -1,7 +1,6 @@
 """``catnip flash|verify|update|restore`` - firmware commands.
 
-Registered one by one on the root group (they are not a Click group), see
-section 3.2 of ``CLI_REFACTOR_PLAN.md``.
+Registered one by one on the root group (they are not a Click group).
 """
 
 import os

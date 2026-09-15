@@ -103,15 +103,23 @@ Usage: catnip flash [OPTIONS] [FIRMWARE]
   Flash CC1352 Firmware or list available firmware images.
 
   Examples:
-      catnip flash --list               # see available firmware images/aliases
+      catnip flash --list               # images this board can take
+      catnip flash --list --all         # the whole catalogue
       catnip flash ble                  # flash Sniffle BLE firmware
       catnip flash zigbee --device 1    # flash TI sniffer to device #1
+      catnip flash ble --board v2       # name the board when its shell is dead
 
 Options:
   -d, --device INTEGER  Device ID (for multiple CatSniffers). If not specified,
                         first device will be selected.
   -l, --list            List available firmware images to flash
   --full                Show full descriptions without truncation in the list
+  --all                 With --list, show the whole catalogue instead of only
+                        the images that can be flashed on the connected board
+  --board [v2|v3]       Board generation override (v2 = SAMD21 + CC1352P1, v3 =
+                        RP2040 + CC1352P7). Only needed when the Cat-Shell port
+                        cannot answer; the wrong value disables the CC1352
+                        bootloader
   -h, --help            Show this message and exit.
 
 ==============================================================================
@@ -136,7 +144,47 @@ Options:
   -h, --help  Show this message and exit.
 
 Commands:
+  scan      Sweep SF/BW/frequency combinations and count packets on each.
   spectrum  Live Spectrum Scanner for SX1262 - Real-time frequency spectrum...
+
+==============================================================================
+$ catnip lora scan --help
+==============================================================================
+Usage: catnip lora scan [OPTIONS]
+
+  Sweep SF/BW/frequency combinations and count packets on each.
+
+  A LoRa receiver only demodulates a frame whose spreading factor, bandwidth,
+  frequency and sync word it already matches, so finding the settings of an
+  unknown transmitter means trying them.  This does the trying: the host retunes
+  the SX1262 between combinations while the firmware keeps streaming, and the
+  live table shows which combination is hearing anything.
+
+  Examples:
+      catnip lora scan                          # 915 MHz, every SF and BW
+      catnip lora scan --dwell 8                # slow traffic, longer look
+      catnip lora scan -f 868.1,868.3,868.5     # the EU channels
+      catnip lora scan --sf 7,9 --bw 125        # narrow the search
+      catnip lora scan -sw 0x2B -f 906.875      # look for Meshtastic
+      catnip lora scan --passes 0               # keep sweeping until Ctrl+C
+
+Options:
+  -d, --device INTEGER    Device ID (for multiple CatSniffers)
+  -f, --freq TEXT         Frequencies to sweep, comma separated, in MHz
+                          (868.1,915) or Hz (915000000). Default: 915
+  --sf TEXT               Spreading factors to sweep, comma separated (7-12).
+                          Default: all
+  --bw TEXT               Bandwidths to sweep in kHz, comma separated
+                          (125,250,500). Default: all
+  --dwell FLOAT RANGE     Seconds to listen on each combination (default: 3). A
+                          single SF12/BW125 frame is over a second on air — give
+                          the slow end more  [0.2<=x<=120]
+  --passes INTEGER RANGE  Number of full sweeps; 0 repeats until Ctrl+C
+                          (default: 1)  [0<=x<=1000]
+  -sw, --sync-word TEXT   LoRa sync word: 'private' (0x12), 'public' (0x34,
+                          LoRaWAN) or any raw byte as 0xNN (e.g. 0x2B for
+                          Meshtastic). Default: private.
+  -h, --help              Show this message and exit.
 
 ==============================================================================
 $ catnip lora spectrum --help
@@ -233,7 +281,9 @@ Usage: catnip restore [OPTIONS] [FIRMWARE]
   Restore CC1352 when bootloader is broken.
 
   Uses RP2040 as CMSIS-DAP JTAG programmer via OpenOCD to flash the CC1352
-  directly. Requires OpenOCD installed.
+  directly. Requires OpenOCD installed. Only v3 boards can do this: a v2
+  (SAMD21) has no RP2040 to load the probe onto and needs an external cJTAG
+  programmer instead.
 
   If no firmware is specified, uses the default CatSniffer firmware from the
   catnip release.
@@ -242,10 +292,15 @@ Usage: catnip restore [OPTIONS] [FIRMWARE]
       catnip restore                    # default CatSniffer firmware
       catnip restore firmware.hex       # custom firmware
       catnip restore firmware.hex -d 1  # specific device
+      catnip restore --board v3         # name the board when its shell is dead
 
 Options:
   -d, --device INTEGER  Device ID (for shell access to trigger BOOTSEL)
   --tapid TEXT          CC1352 JTAG TAPID (default: CC1352P7)
+  --board [v2|v3]       Board generation override (v2 = SAMD21 + CC1352P1, v3 =
+                        RP2040 + CC1352P7). Only needed when the Cat-Shell port
+                        cannot answer; the wrong value disables the CC1352
+                        bootloader
   -h, --help            Show this message and exit.
 
 ==============================================================================
@@ -276,7 +331,9 @@ Options:
 Commands:
   airtag_scanner  Sniffing Airtag Scanner firmware.
   ble             Sniffing BLE with Sniffle firmware.
+  fsk             Sniffing (G)FSK with Sniffer SX1262 firmware.
   lora            Sniffing LoRa with Sniffer SX1262 firmware.
+  profiles        List radio profiles available to --profile (built-in and...
   thread          Sniffing Thread with Sniffer TI firmware.
   zigbee          Sniffing Zigbee with Sniffer TI firmware.
 
@@ -287,13 +344,16 @@ Usage: catnip sniff airtag_scanner [OPTIONS]
 
   Sniffing Airtag Scanner firmware.
 
+  Prints each detected AirTag directly in this terminal, along with its RSSI and
+  an approximate distance estimate.
+
   Examples:
       catnip sniff airtag_scanner
-      catnip sniff airtag_scanner --putty    # auto-open PuTTY at 9600 baud
+      catnip sniff airtag_scanner --putty    # auto-open PuTTY at 9600 baud instead
 
 Options:
   -d, --device INTEGER  Device ID (for multiple CatSniffers)
-  --putty               Open PuTTY with serial configuration
+  --putty               Open PuTTY with serial configuration instead
   -h, --help            Show this message and exit.
 
 ==============================================================================
@@ -318,6 +378,90 @@ Options:
   -h, --help                      Show this message and exit.
 
 ==============================================================================
+$ catnip sniff fsk --help
+==============================================================================
+Usage: catnip sniff fsk [OPTIONS]
+
+  Sniffing (G)FSK with Sniffer SX1262 firmware.
+
+  Same radio and same ports as ``sniff lora``, with the SX1262 in FSK mode —
+  where it hears the sub-GHz traffic LoRa cannot: 802.15.4g/Wi-SUN, smart
+  meters, alarm and sensor links, and anything else on a plain (G)FSK ISM
+  channel.  Unlike LoRa, FSK only demodulates what matches the bitrate,
+  deviation and sync word it was told to expect, so those have to be right.
+
+  Examples:
+      catnip sniff fsk                             # defaults: 915MHz, 50kbps
+      catnip sniff fsk -freq 868000000 -br 100000 -fd 50000
+      catnip sniff fsk -sw 2DD4 --whitening        # 802.15.4g-style framing
+      catnip sniff fsk -ws                         # live Wireshark
+      catnip sniff fsk -l                          # live panel instead of hex
+      catnip sniff fsk -w capture.pcapng           # save it, offer to open it
+      catnip sniff fsk --bt off                    # plain FSK, no shaping
+      catnip sniff fsk --profile home-meter-fsk    # user profile
+      catnip sniff fsk -freq 868000000 --save-profile mi-fsk
+
+Options:
+  -ws, --wireshark                Open Wireshark live while the capture runs
+                                  (LoRaTap over a local pipe)
+  -oc, --open-capture             Open the capture in Wireshark when the sniffer
+                                  stops. Without --write the packets are saved
+                                  to a temporary .pcapng file first
+  -v, --verbose                   Show verbose output in terminal
+  -l, --live                      Show a live panel while capturing — packets/s,
+                                  last and best link quality, an RSSI histogram
+                                  and the last frames — instead of the scrolling
+                                  packet dump
+  -P, --profile TEXT              Fill in radio defaults from a named profile —
+                                  built-in region/protocol presets (see 'catnip
+                                  sniff profiles'), or your own in
+                                  ~/.config/catnip/profiles.toml. Flags you pass
+                                  explicitly still override it.
+  --save-profile NAME             Save this command's radio settings (after
+                                  --profile and any explicit flags are merged)
+                                  as NAME in ~/.config/catnip/profiles.toml, for
+                                  later use as --profile NAME.
+  -freq, --frequency INTEGER RANGE
+                                  Frequency in Hz, 137-1020 MHz (e.g., 915000000
+                                  for 915 MHz)  [137000000<=x<=1020000000]
+  -br, --bitrate INTEGER RANGE    Bitrate in bps (600-300000). Default: 50000.
+                                  [600<=x<=300000]
+  -fd, --fdev INTEGER RANGE       Frequency deviation in Hz (600-200000).
+                                  Default: 25000.  [600<=x<=200000]
+  -bw, --bandwidth [4.8|5.8|7.3|9.7|11.7|14.6|19.5|23.4|29.3|39.0|46.9|58.6|78.2|93.8|117.3|156.2|187.2|234.3|312.0|373.6|467.0]
+                                  RX bandwidth in kHz. Must cover bitrate + 2x
+                                  deviation or the firmware widens it to 187.2.
+                                  Default: 187.2.
+  -pw, --tx_power INTEGER RANGE   TX Power in dBm (-9 to 22, SX1262 hardware
+                                  range)  [-9<=x<=22]
+  -pre, --preamble INTEGER RANGE  Preamble length in bytes (FSK counts bytes,
+                                  not symbols). Default: 8.  [0<=x<=65535]
+  -sw, --sync-word TEXT           FSK sync word: 1-8 bytes of hex (e.g. 2DD4 for
+                                  802.15.4g/Meshtastic). Default: 12AD.
+  --bt [off|0.3|0.5|0.7|1.0]      Gaussian filter BT: 'off' is plain FSK, a
+                                  value is GFSK. Default: 0.5.
+  --crc / --no-crc                Let the modem verify the CRC and drop failing
+                                  frames. Default: --no-crc.
+  --whitening / --no-whitening    Undo the transmitter's data whitening.
+                                  Default: --no-whitening.
+  --pktlen [variable|fixed]       'variable' reads each frame's length from its
+                                  header, 'fixed' assumes --payload bytes.
+                                  Default: variable.
+  --payload INTEGER RANGE         Payload length for --pktlen fixed, maximum
+                                  length otherwise. Default: 255.  [1<=x<=255]
+  -d, --device INTEGER            Device ID (for multiple CatSniffers)
+  -r, --raw FILE                  Save captured packets as raw hex to FILE (RX:
+                                  <hex> | RSSI: <rssi>)
+  -ascii, --ascii FILE            Save captured packets as decoded ASCII to FILE
+                                  (RX: <ascii> | RSSI: <rssi>)
+  -w, --write FILE                Write the capture to FILE for offline analysis
+                                  (.pcap, or .pcapng if the name ends in
+                                  .pcapng). Works with or without --wireshark
+  -f, --force                     Overwrite the --write file if it already
+                                  exists
+  -h, --help                      Show this message and exit.
+
+==============================================================================
 $ catnip sniff lora --help
 ==============================================================================
 Usage: catnip sniff lora [OPTIONS]
@@ -327,11 +471,37 @@ Usage: catnip sniff lora [OPTIONS]
   Examples:
       catnip sniff lora                          # defaults: 915MHz, SF7, BW125
       catnip sniff lora -freq 868000000 -sf 9
-      catnip sniff lora -ws                      # open Wireshark
+      catnip sniff lora -ws                      # live Wireshark while sniffing
+      catnip sniff lora -l                       # live panel instead of hex
+      catnip sniff lora -oc                      # sniff, then open Wireshark
+      catnip sniff lora -w capture.pcapng        # save it, offer to open it
+      catnip sniff lora -sw public               # LoRaWAN sync word (0x34)
+      catnip sniff lora -sw 0x2B -pre 16         # Meshtastic sync word
+      catnip sniff lora -sw public --iq inverted # LoRaWAN downlinks
+      catnip sniff lora --profile eu868-meshtastic-longfast
+      catnip sniff lora -P us915-meshtastic-shortfast -pw 10  # override tx_power only
+      catnip sniff lora -freq 868000000 -sf 9 --save-profile mi-perfil
 
 Options:
-  -ws                             Open Wireshark
+  -ws, --wireshark                Open Wireshark live while the capture runs
+                                  (LoRaTap over a local pipe)
+  -oc, --open-capture             Open the capture in Wireshark when the sniffer
+                                  stops. Without --write the packets are saved
+                                  to a temporary .pcapng file first
   -v, --verbose                   Show verbose output in terminal
+  -l, --live                      Show a live panel while capturing — packets/s,
+                                  last and best link quality, an RSSI histogram
+                                  and the last frames — instead of the scrolling
+                                  packet dump
+  -P, --profile TEXT              Fill in radio defaults from a named profile —
+                                  built-in region/protocol presets (see 'catnip
+                                  sniff profiles'), or your own in
+                                  ~/.config/catnip/profiles.toml. Flags you pass
+                                  explicitly still override it.
+  --save-profile NAME             Save this command's radio settings (after
+                                  --profile and any explicit flags are merged)
+                                  as NAME in ~/.config/catnip/profiles.toml, for
+                                  later use as --profile NAME.
   -freq, --frequency INTEGER RANGE
                                   Frequency in Hz, 150-960 MHz (e.g., 915000000
                                   for 915 MHz)  [150000000<=x<=960000000]
@@ -343,14 +513,42 @@ Options:
   -pw, --tx_power INTEGER RANGE   TX Power in dBm (-9 to 22, SX1262 hardware
                                   range)  [-9<=x<=22]
   -d, --device INTEGER            Device ID (for multiple CatSniffers)
-  -sw, --sync-word [public|private]
-                                  LoRa sync word: 'public' (0x34, LoRaWAN) or
-                                  'private' (0x12). Default: private.
+  -sw, --sync-word TEXT           LoRa sync word: 'public' (0x34, LoRaWAN),
+                                  'private' (0x12) or any raw byte as 0xNN (e.g.
+                                  0x2B for Meshtastic). Default: private.
+  -pre, --preamble INTEGER RANGE  Preamble length in symbols (6-65535). Default:
+                                  12.  [6<=x<=65535]
+  --iq [normal|inverted]          IQ polarity. LoRaWAN downlinks need
+                                  'inverted'. Default: normal.
   -r, --raw FILE                  Save captured packets as raw hex to FILE (RX:
                                   <hex> | RSSI: <rssi> | SNR: <snr>)
   -ascii, --ascii FILE            Save captured packets as decoded ASCII to FILE
                                   (RX: <ascii> | RSSI: <rssi> | SNR: <snr>)
+  -w, --write FILE                Write the capture to FILE for offline analysis
+                                  (.pcap, or .pcapng if the name ends in
+                                  .pcapng). Works with or without --wireshark
+  -f, --force                     Overwrite the --write file if it already
+                                  exists
   -h, --help                      Show this message and exit.
+
+==============================================================================
+$ catnip sniff profiles --help
+==============================================================================
+Usage: catnip sniff profiles [OPTIONS]
+
+  List radio profiles available to --profile (built-in and user-defined).
+
+  User profiles come from ~/.config/catnip/profiles.toml (or
+  $CATNIP_PROFILES_FILE), as [profiles.NAME] tables; a name also used by a
+  built-in profile overrides it.
+
+  Examples:
+      catnip sniff profiles
+      catnip sniff profiles -c fsk
+
+Options:
+  -c, --command [lora|fsk]  Only list profiles for this radio mode
+  -h, --help                Show this message and exit.
 
 ==============================================================================
 $ catnip sniff thread --help
@@ -362,6 +560,7 @@ Usage: catnip sniff thread [OPTIONS]
   Examples:
       catnip sniff thread -c 15
       catnip sniff thread -c 15 -ws              # open Wireshark
+      catnip sniff thread -c 15 -w capture.pcap  # save a capture for tshark
 
 Options:
   -ws                          Open Wireshark
@@ -371,6 +570,10 @@ Options:
                                <hex> | RSSI: <rssi>)
   -ascii, --ascii FILE         Save captured packets as decoded ASCII to FILE
                                (RX: <ascii> | RSSI: <rssi>)
+  -w, --write FILE             Write the capture to FILE for offline analysis
+                               (.pcap, or .pcapng if the name ends in .pcapng).
+                               Works with or without --wireshark
+  -f, --force                  Overwrite the --write file if it already exists
   -h, --help                   Show this message and exit.
 
 ==============================================================================
@@ -384,6 +587,7 @@ Usage: catnip sniff zigbee [OPTIONS]
       catnip sniff zigbee -c 15
       catnip sniff zigbee -c 15 -ws              # open Wireshark
       catnip sniff zigbee -c 15 -r capture.raw   # save raw log to file
+      catnip sniff zigbee -c 15 -w capture.pcap  # save a capture for tshark
 
 Options:
   -ws                          Open Wireshark
@@ -393,6 +597,10 @@ Options:
                                <hex> | RSSI: <rssi>)
   -ascii, --ascii FILE         Save captured packets as decoded ASCII to FILE
                                (RX: <ascii> | RSSI: <rssi>)
+  -w, --write FILE             Write the capture to FILE for offline analysis
+                               (.pcap, or .pcapng if the name ends in .pcapng).
+                               Works with or without --wireshark
+  -f, --force                  Overwrite the --write file if it already exists
   -h, --help                   Show this message and exit.
 
 ==============================================================================
@@ -408,11 +616,14 @@ Usage: catnip status [OPTIONS]
   confirm on the device right now, and says "unknown" rather than guessing.
 
   Examples:
-      catnip status              # first connected device
-      catnip status --device 1   # a specific device by ID
+      catnip status                 # first connected device
+      catnip status --device 1      # a specific device by ID
+      catnip status --diagnostics   # add the v2 stack/thread dump
 
 Options:
   -d, --device INTEGER  Device ID (for multiple CatSniffers)
+  -D, --diagnostics     Also dump the per-thread stack report and the trace ring
+                        (only v2 boards report them)
   -h, --help            Show this message and exit.
 
 ==============================================================================
@@ -431,10 +642,15 @@ Usage: catnip update [OPTIONS]
   Examples:
       catnip update              # check and update if outdated
       catnip update --force      # reflash regardless of version
+      catnip update --board v2   # name the board when its shell is dead
 
 Options:
   -d, --device INTEGER  Device ID (for multiple CatSniffers)
   -f, --force           Force update even if firmware versions match
+  --board [v2|v3]       Board generation override (v2 = SAMD21 + CC1352P1, v3 =
+                        RP2040 + CC1352P7). Only needed when the Cat-Shell port
+                        cannot answer; the wrong value disables the CC1352
+                        bootloader
   -h, --help            Show this message and exit.
 
 ==============================================================================

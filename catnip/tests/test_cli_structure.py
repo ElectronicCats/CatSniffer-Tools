@@ -1,7 +1,7 @@
 """
 test_cli_structure.py
 =====================
-Safety net for the CLI refactor described in ``CLI_REFACTOR_PLAN.md``.
+Safety net for the CLI refactor described in ``docs/internal/CLI_REFACTOR_PLAN.md``.
 
 The refactor moves ~2 300 lines of Click commands out of ``modules/core/cli.py``
 into per-feature ``cli.py`` modules.  The one failure mode that a build would
@@ -345,7 +345,8 @@ def test_build_cli_is_idempotent():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Packaging invariants the refactor must not break (CLI_REFACTOR_PLAN.md §2)
+# Packaging invariants the refactor must not break
+# (docs/internal/CLI_REFACTOR_PLAN.md §2)
 # ─────────────────────────────────────────────────────────────────────────────
 
 _MODULES_DIR = Path(__file__).resolve().parent.parent / "modules"
