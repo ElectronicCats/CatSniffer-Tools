@@ -31,6 +31,7 @@ from typing import Optional
 
 import requests
 
+from .board import detect_board, require_capability
 from .fw_update import (
     find_rp2040_mount_point,
     enter_boot_mode,
@@ -329,6 +330,7 @@ def restore_cc1352(
     device=None,
     flasher=None,
     tapid: str = TAPID_CC1352P7,
+    board=None,
 ) -> bool:
     """
     Full CC1352 restore procedure.
@@ -338,11 +340,34 @@ def restore_cc1352(
         device: CatSnifferDevice (optional, for shell access to RP2040)
         flasher: Flasher instance (optional, for finding bridge UF2)
         tapid: JTAG TAPID for the CC1352 variant
+        board: BoardInfo override for when detection cannot name the board
 
     Returns:
         True if CC1352 was successfully restored
+
+    Raises:
+        UnsupportedOnBoardError: the board has no host MCU that can act as a
+            CMSIS-DAP probe (a v2 SAMD21 board). The whole flow below runs on
+            the RP2040; there is nothing to port, only a clear refusal to give.
     """
     print_section("CatSniffer CC1352 Restore via JTAG")
+
+    # --- Board gate ---
+    # This flow turns the *host* MCU into the JTAG programmer, so it only
+    # exists on boards that can be one. An unknown board is not refused: a
+    # board whose shell is dead is precisely the one being recovered, and
+    # nothing here can brick it (a v2 has no RPI-RP2 volume to load free_dap
+    # onto, so it stops on its own).
+    if board is None and device is not None and getattr(device, "shell_port", None):
+        board = detect_board(device.shell_port)
+    if board is not None:
+        require_capability(board, "can_self_program_cc1352", "catnip restore")
+        print_info(f"Board: {board.label}")
+    else:
+        print_warning(
+            "Board generation unknown; assuming an RP2040 board. Pass --board v3 "
+            "to confirm, or --board v2 to see why this cannot work there."
+        )
 
     # --- Prerequisites ---
     openocd = check_openocd()

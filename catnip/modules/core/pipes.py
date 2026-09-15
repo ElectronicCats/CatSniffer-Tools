@@ -216,7 +216,15 @@ class WindowsPipe:
 
 
 class Wireshark(threading.Thread):
-    def __init__(self, pipe_name=None, profile=None):
+    """Launch Wireshark on a named pipe and wait for the window to close.
+
+    ``extra_args`` is appended verbatim to the command line, which is how the
+    sniffers steer dissection: ``sniff lora`` passes a ``-d`` decode-as rule so
+    that a payload carried on the LoRaWAN sync word is not force-fed to the
+    LoRaWAN dissector (see ``lora_decode_as_args``).
+    """
+
+    def __init__(self, pipe_name=None, profile=None, extra_args=None):
         super().__init__(daemon=True)
         self.system = platform.system()
         if pipe_name is None:
@@ -226,6 +234,7 @@ class Wireshark(threading.Thread):
         else:
             self.pipe_name = pipe_name
         self.profile = profile
+        self.extra_args = list(extra_args) if extra_args else []
         self.running = True
         self.wireshark_process: subprocess.Popen | None = None
 
@@ -253,7 +262,8 @@ class Wireshark(threading.Thread):
         fifo_path = self.get_wireshark_pipepath()
         cmd = [str(exe_path), "-k", "-i", fifo_path]
         if self.profile:
-            cmd = [str(exe_path), "-k", "-i", fifo_path, "-C", self.profile]
+            cmd += ["-C", self.profile]
+        cmd += self.extra_args
         return cmd
 
     def run(self):

@@ -30,6 +30,18 @@ logger = logging.getLogger("rich")
 from .fw_aliases import get_official_id
 
 
+def _storage_missing(response: Optional[str]) -> bool:
+    """True when the board says it cannot keep a CC1352 firmware ID.
+
+    Two firmwares answer that, for the same practical reason: a SAMD21 board
+    has no NVS at all ("ERR not supported on this board"), and an RP2040 whose
+    NVS failed to mount says "ERR storage unavailable". Neither will ever
+    accept the ID, so both are a reason to skip, not to retry.
+    """
+    lowered = (response or "").lower()
+    return "not supported" in lowered or "storage unavailable" in lowered
+
+
 class FirmwareMetadata:
     """
     Client to interact with the firmware metadata system.
@@ -82,6 +94,22 @@ class FirmwareMetadata:
             logger.debug(f"Error in get_firmware_id: {e}")
             return None
 
+    def keeps_firmware_id(self) -> bool:
+        """
+        Whether this board can store a CC1352 firmware ID at all.
+
+        False only when the board says so outright ("not supported on this
+        board", "storage unavailable"). A silent or broken port answers True,
+        because "we could not ask" is not "it cannot": only an explicit
+        refusal is a reason to stop retrying.
+        """
+        try:
+            response = self.shell.send_command("cc1352_fw_id get", timeout=2.0)
+        except Exception as e:
+            logger.debug(f"Error asking whether the board keeps a firmware id: {e}")
+            return True
+        return not _storage_missing(response)
+
     def set_firmware_id(self, fw_id: str) -> bool:
         """
         Sets the CC1352 firmware ID in the RP2040 flash.
@@ -118,8 +146,7 @@ class FirmwareMetadata:
 
             logger.debug(f"Set response: {response[:100]}")
 
-            if "not supported" in response.lower():
-                # SAMD21 (v1/v2) boards have no storage for the ID
+            if _storage_missing(response):
                 logger.info("This board does not store a CC1352 firmware ID; skipping")
                 return False
 

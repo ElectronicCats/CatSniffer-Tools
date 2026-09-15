@@ -79,6 +79,7 @@ class CCLoader:
         Args:
             firmware: Path to firmware file
             device: CatSnifferDevice with bridge_port and shell_port
+            board: BoardInfo override for when detection cannot name the board
         """
         self.cmd = CommandInterface()
         self.firmware = FirmwareFile(firmware)
@@ -618,16 +619,29 @@ class Flasher:
             logger.error(f"[X] Error saving firmware {name}: {e}")
             return ""
 
-    def compare_checksum(self, name, local_digest, remote_digest):
+    def compare_checksum(self, name, local_digest, remote_digest) -> Optional[bool]:
+        """Compare the SHA256 of a just-downloaded asset against the digest
+        GitHub reports for it.
+
+        Returns True if verified, False if it does not match (the download
+        is corrupted or was tampered with in transit), None if there is
+        nothing to compare against (some release assets carry no `digest`).
+        A False result is a real problem, not a note: the caller must not
+        let that file be flashed.
+        """
         if not local_digest or not remote_digest:
             logger.warning(f"[!] {name} Checksum verification skipped (missing digest)")
-            return
+            return None
 
         remote_checksum = remote_digest.replace("sha256:", "") if remote_digest else ""
         if local_digest == remote_checksum:
             logger.info(f"[*] {name} Checksum SHA256 verified")
-        else:
-            logger.warning(f"[X] {name} Checksum SHA256 Failed")
+            return True
+
+        logger.error(
+            f"[X] {name} Checksum SHA256 mismatch - discarding corrupted download"
+        )
+        return False
 
     def check_new_remote_version(self) -> bool:
         try:
@@ -661,7 +675,20 @@ class Flasher:
 
                     logger.info(f"[*] Firmware [bold white]{fname}[/bold white] done.")
 
-                    self.compare_checksum(fname, local_checksum, asset.get("digest"))
+                    if (
+                        self.compare_checksum(
+                            fname, local_checksum, asset.get("digest")
+                        )
+                        is False
+                    ):
+                        # Never leave a corrupted/tampered image where
+                        # find_flash_firmware() could pick it up later.
+                        bad_path = os.path.join(self.__create_release_path(), fname)
+                        try:
+                            os.remove(bad_path)
+                        except OSError:
+                            pass
+                        continue
                     time.sleep(0.5)
                 except requests.exceptions.ConnectionError as e:
                     logger.error("[X] Error: No internet connection.")
@@ -745,17 +772,30 @@ class Flasher:
 
         Releases are tagged per generation (v2.X.Y.Z for SAMD21 boards,
         v3.X.Y.Z for RP2040 boards). Returns the GitHub release dict or None.
+
+        The highest version wins, not the first one listed: GitHub orders the
+        list by creation date, so a patch backported to an older line after a
+        newer release (v3.0.1.1 published after v3.1.0.0) would otherwise be
+        handed back as "the latest" and downgrade every board that asked.
         """
+        from .fw_update import parse_fw_version
+
+        best, best_version = None, None
         try:
             resp = requests.get(GITHUB_RELEASES_LIST_URL, timeout=3)
             resp.raise_for_status()
             for rel in resp.json():
                 tag = rel.get("tag_name", "")
-                if tag.startswith(board.tag_prefix) and not rel.get("draft"):
-                    return rel
+                if not tag.startswith(board.tag_prefix) or rel.get("draft"):
+                    continue
+                version = parse_fw_version(tag)
+                if version is None:  # a tag that does not name vA.X.Y.Z
+                    continue
+                if best_version is None or version > best_version:
+                    best, best_version = rel, version
         except Exception as e:
             logger.warning(f"[!] Could not list releases: {e}")
-        return None
+        return best
 
     def fetch_board_uf2(self, board) -> Optional[str]:
         """
@@ -795,20 +835,23 @@ class Flasher:
             logger.error(f"[X] Error checking local releases: {e}")
         return False
 
-    def find_flash_firmware(self, firmware_str, device: CatSnifferDevice = None):
+    def find_flash_firmware(
+        self, firmware_str, device: CatSnifferDevice = None, board=None
+    ):
         """
         Find and flash firmware.
 
         Args:
             firmware_str: Firmware name, path, or alias
             device: CatSnifferDevice (optional, will auto-detect if not provided)
+            board: BoardInfo override for when detection cannot name the board
         """
         # Check if it's a direct file path (moved to top to avoid dependency on releases)
         if os.path.exists(firmware_str):
             # Get device if not provided
             if device is None:
                 device = catnip_get_device()
-            return self.flash_firmware(firmware_str, device)
+            return self.flash_firmware(firmware_str, device, board=board)
 
         firmwares = self.get_local_firmware()
 
@@ -820,25 +863,30 @@ class Flasher:
         from .board import detect_board
 
         # The board generation decides which image set is allowed
-        board = detect_board(device.shell_port) if device else None
-        generation = board.generation if board else "v3"
-        if board:
-            console.print(f"[dim]Board: {board.label}[/dim]")
-        else:
+        if board is None:
+            board = detect_board(device.shell_port) if device else None
+        if board is None:
             console.print(
-                "[yellow][!] Could not read the board generation; assuming v3 "
-                "images. The chip check before erase still applies.[/yellow]"
+                "[red][X] Could not determine the board generation; nothing was "
+                "flashed.[/red]"
             )
+            console.print(
+                "[dim]A CC1352P7 image on a CC1352P1 disables the serial "
+                "bootloader, so the image set cannot be guessed. Connect the "
+                "Cat-Shell port, or pass --board v2 / --board v3.[/dim]"
+            )
+            return False
+        console.print(f"[dim]Board: {board.label}[/dim]")
 
         # Resolve firmware string to official ID
         official_id = get_official_id(firmware_str)
         if official_id:
             # Try to find a file matching the preferred pattern for this ID
-            pattern = get_filename_pattern(official_id, generation)
-            if pattern is None and generation != "v3":
+            pattern = get_filename_pattern(official_id, board.generation)
+            if pattern is None and not board.accepts_unnamed_images:
                 console.print(
                     f"[red][X] '{firmware_str}' ({official_id}) has no image for a "
-                    f"{generation} board ({board.cc_chip}). Not flashing.[/red]"
+                    f"{board.generation} board ({board.cc_chip}). Not flashing.[/red]"
                 )
                 return False
             if pattern and not any(pattern.lower() in f.lower() for f in firmwares):
@@ -846,10 +894,11 @@ class Flasher:
                 fetched = self.fetch_asset_by_pattern(pattern)
                 if fetched:
                     firmwares = self.get_local_firmware()
-                elif generation != "v3":
+                elif not board.accepts_unnamed_images:
                     console.print(
-                        f"[red][X] Image '{pattern}' for the {generation} board is not "
-                        "available locally and could not be downloaded. Not flashing.[/red]"
+                        f"[red][X] Image '{pattern}' for the {board.generation} board is "
+                        "not available locally and could not be downloaded. Not "
+                        "flashing.[/red]"
                     )
                     return False
             if pattern:
@@ -859,7 +908,7 @@ class Flasher:
                         print_dim(
                             f"Resolved '{firmware_str}' to {official_id} -> {firm}"
                         )
-                        return self.flash_firmware(path, device)
+                        return self.flash_firmware(path, device, board=board)
 
             # If no pattern or pattern not found, try searching by official ID directly
             from .board import image_allowed_for_board
@@ -871,7 +920,7 @@ class Flasher:
                 ):
                     path = os.path.join(self.get_releases_path(), firm)
                     print_dim(f"Resolved '{firmware_str}' to {official_id} -> {firm}")
-                    return self.flash_firmware(path, device)
+                    return self.flash_firmware(path, device, board=board)
 
         from .board import image_allowed_for_board
 
@@ -885,7 +934,7 @@ class Flasher:
         for firm in firmwares:
             if firm == firmware_str and _allowed(firm):
                 path = os.path.join(self.get_releases_path(), firm)
-                return self.flash_firmware(path, device)
+                return self.flash_firmware(path, device, board=board)
 
         # Try match without extension
         firmware_no_ext = os.path.splitext(firmware_str)[0]
@@ -893,7 +942,7 @@ class Flasher:
             firm_no_ext = os.path.splitext(firm)[0]
             if firm_no_ext == firmware_no_ext and _allowed(firm):
                 path = os.path.join(self.get_releases_path(), firm)
-                return self.flash_firmware(path, device)
+                return self.flash_firmware(path, device, board=board)
 
         # Try partial match (case insensitive)
         firmware_lower = firmware_str.lower()
@@ -906,7 +955,7 @@ class Flasher:
         if len(matches) == 1:
             # Single match found
             path = os.path.join(self.get_releases_path(), matches[0])
-            return self.flash_firmware(path, device)
+            return self.flash_firmware(path, device, board=board)
         elif len(matches) > 1:
             # Multiple matches - show options
             print_warning(f"Multiple firmwares match '{firmware_str}':")
@@ -920,7 +969,9 @@ class Flasher:
         print_dim(f"Available firmwares: {', '.join(firmwares[:5])}...")
         return False
 
-    def flash_firmware(self, firmware, device: CatSnifferDevice = None) -> bool:
+    def flash_firmware(
+        self, firmware, device: CatSnifferDevice = None, board=None
+    ) -> bool:
         """
         Flash firmware to CC1352.
 
@@ -954,7 +1005,9 @@ class Flasher:
             )
 
             chip_size = getattr(chip_device, "size", 0) or 0
-            board = board_for_chip_size(chip_size)
+            # What the chip itself reports outranks both the shell and the
+            # --board override: it is measured, not claimed.
+            board = board_for_chip_size(chip_size) or board
             if board is None and device is not None:
                 board = detect_board(device.shell_port)
             allowed, reason = image_allowed_for_board(os.path.basename(firmware), board)
@@ -981,7 +1034,7 @@ class Flasher:
                 device
                 and device.shell_port
                 and board is not None
-                and board.generation != "v3"
+                and not board.has_fw_id_storage
             ):
                 console.print(
                     f"[dim][*] {board.label} keeps no CC1352 firmware ID; skipping metadata update[/dim]"
@@ -999,6 +1052,7 @@ class Flasher:
 
                     # CONNECTION AND COMMAND RETRIES
                     success = False
+                    no_storage = False
                     last_error = None
 
                     for attempt in range(5):  # 5 attempts
@@ -1035,10 +1089,27 @@ class Flasher:
                             success = update_firmware_metadata_after_flash(
                                 shell, firmware_name
                             )
+                            # A board that answers "no storage" answers that
+                            # every time, so four more attempts buy nothing. Asked while the
+                            # shell is still open, and only when something
+                            # went wrong.
+                            no_storage = False
+                            if not success:
+                                from .fw_metadata import FirmwareMetadata
+
+                                no_storage = not FirmwareMetadata(
+                                    shell
+                                ).keeps_firmware_id()
                             shell.disconnect()
 
                             if success:
                                 print_dim("  └─ Metadata updated successfully")
+                                break
+                            elif no_storage:
+                                print_dim(
+                                    "  └─ This board keeps no CC1352 firmware ID; "
+                                    "not retrying"
+                                )
                                 break
                             else:
                                 print_dim("  └─ Metadata update command failed")
@@ -1056,6 +1127,11 @@ class Flasher:
 
                     if success:
                         print_success("Firmware metadata updated successfully")
+                    elif no_storage:
+                        # Not a failure: this board never had anywhere to put it.
+                        print_dim(
+                            "[*] Board keeps no CC1352 firmware ID; metadata skipped"
+                        )
                     else:
                         print_warning(
                             "Could not update firmware metadata after 5 attempts"

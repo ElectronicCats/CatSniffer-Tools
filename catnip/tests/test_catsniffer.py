@@ -4,8 +4,9 @@ test_catnip.py
 Test suite for the CatSniffer CLI.
 
 Covers:
-  - CLI (catnip.py): flash, sniff, devices, verify, cativity commands
-  - modules/cli.py: helpers, find_wireshark_path, find_putty_path
+  - modules/protocols/meshtastic: decoding and live decoder
+  - modules/core/extcap.py: find_putty_path
+  - modules/core/device_utils.py: get_device_or_exit
   - modules/flasher.py: CCLoader, Flasher.find_flash_firmware
   - modules/bridge.py: _configure_lora, run_sx_bridge, run_bridge
   - modules/verify.py: VerificationDevice, find_verification_devices,
@@ -17,6 +18,9 @@ Run with:
 
 Note: No physical hardware required. All serial/USB/network access
       is replaced with mocks.
+
+The CLI commands themselves are tested per module in tests/test_cli_*.py;
+see BOMBERCAT_PARITY.md section 4.
 """
 
 import io
@@ -40,15 +44,25 @@ sys.path.insert(0, PROJECT_ROOT)
 
 def make_fake_modules():
     """Registers minimal stubs in sys.modules so imports don't fail."""
-    # protocol.*
-    for mod in [
-        "protocol",
-        "protocol.sniffer_sx",
-        "protocol.sniffer_ti",
-        "protocol.common",
-    ]:
-        if mod not in sys.modules:
-            sys.modules[mod] = MagicMock()
+    # protocol.* — imported for real when it can be: these modules are pure
+    # Python with no hardware or third-party dependencies, and a MagicMock left
+    # in sys.modules is visible to *every* later test module.  It used to be:
+    # ``modules/sniff/cli.py`` builds a click.Choice out of
+    # ``protocol.sniffer_sx.FSK_BANDWIDTHS``, and a MagicMock iterates as empty,
+    # so ``sniff fsk`` was collected with no bandwidths and failed a test in
+    # another file depending on which order the two ran in.
+    try:
+        import protocol.sniffer_sx  # noqa: F401
+        import protocol.sniffer_ti  # noqa: F401
+    except ImportError:
+        for mod in [
+            "protocol",
+            "protocol.sniffer_sx",
+            "protocol.sniffer_ti",
+            "protocol.common",
+        ]:
+            if mod not in sys.modules:
+                sys.modules[mod] = MagicMock()
 
     # usb
     for mod in ["usb", "usb.core", "usb.util"]:
@@ -340,6 +354,57 @@ def fake_serial():
     ser.__enter__ = lambda s: s
     ser.__exit__ = MagicMock(return_value=False)
     return ser
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  0.  modules/core/usb_connection.py — centralized timing defaults
+#      (analisis-bombercat-vs-catnip.md, section 4)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestUsbConnectionTimingDefaults:
+    def test_open_serial_port_passes_write_timeout(self):
+        from modules.core.usb_connection import (
+            open_serial_port,
+            DEFAULT_WRITE_TIMEOUT,
+        )
+
+        with patch("modules.core.usb_connection.serial.Serial") as mock_serial:
+            open_serial_port("/dev/ttyACM0")
+            _, kwargs = mock_serial.call_args
+            assert kwargs["write_timeout"] == DEFAULT_WRITE_TIMEOUT
+
+    def test_serial_base_open_passes_write_timeout(self):
+        from modules.core.usb_connection import _SerialBase, DEFAULT_WRITE_TIMEOUT
+
+        conn = _SerialBase(port="/dev/ttyACM0")
+        with patch("modules.core.usb_connection.serial.Serial") as mock_serial:
+            conn._open()
+            _, kwargs = mock_serial.call_args
+            assert kwargs["write_timeout"] == DEFAULT_WRITE_TIMEOUT
+
+    def test_custom_write_timeout_propagates(self):
+        from modules.core.usb_connection import _SerialBase
+
+        conn = _SerialBase(port="/dev/ttyACM0", write_timeout=5.0)
+        with patch("modules.core.usb_connection.serial.Serial") as mock_serial:
+            conn._open()
+            _, kwargs = mock_serial.call_args
+            assert kwargs["write_timeout"] == 5.0
+
+    def test_readline_is_bounded(self):
+        from modules.core.usb_connection import _SerialBase, DEFAULT_READLINE_MAX_BYTES
+
+        conn = _SerialBase(port="/dev/ttyACM0")
+        conn.connection = MagicMock()
+        conn.readline()
+        conn.connection.readline.assert_called_once_with(DEFAULT_READLINE_MAX_BYTES)
+
+    def test_readline_without_connection_returns_empty(self):
+        from modules.core.usb_connection import _SerialBase
+
+        conn = _SerialBase(port="/dev/ttyACM0")
+        assert conn.readline() == b""
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -700,7 +765,7 @@ class TestFlasherFindFlash:
         flasher = self._flasher()
         with patch.object(flasher, "flash_firmware", return_value=True) as mock_flash:
             result = flasher.find_flash_firmware(str(fw), fake_device)
-        mock_flash.assert_called_once_with(str(fw), fake_device)
+        mock_flash.assert_called_once_with(str(fw), fake_device, board=None)
         assert result is True
 
     def test_nonexistent_path_returns_false(self, fake_device):
@@ -713,8 +778,12 @@ class TestFlasherFindFlash:
 
     def test_alias_resolved(self, fake_device):
         flasher = self._flasher()
+        # The board has to be known before an image is chosen: catalogs are
+        # per generation. Detection is mocked so the test needs no hardware.
+        from modules.firmware.board import BOARD_V3
+
         # FIX: Patch the correct module (fw_aliases) instead of flasher
-        with patch(
+        with patch("modules.firmware.board.detect_board", return_value=BOARD_V3), patch(
             "modules.firmware.fw_aliases.get_official_id", return_value="sniffle_ble"
         ), patch(
             "modules.firmware.fw_aliases.get_filename_pattern", return_value="sniffle"
@@ -761,6 +830,63 @@ class TestFlasherFindFlash:
         assert result is False
 
 
+class TestFlasherChecksumVerification:
+    """compare_checksum()/download_remote_firmware(): a SHA256 mismatch must
+    discard the corrupted download, not just warn and let it be flashed
+    later (see analisis-bombercat-vs-catnip.md, section 6)."""
+
+    def _flasher(self):
+        from modules.firmware.flasher import Flasher
+
+        with patch(
+            "modules.firmware.flasher.catnip_get_port", return_value="/dev/ttyACM0"
+        ), patch("os.path.exists", return_value=True):
+            return Flasher()
+
+    def test_matching_digest_returns_true(self):
+        flasher = self._flasher()
+        digest = flasher.calculate_checksum(b"firmware bytes")
+        assert flasher.compare_checksum("fw.uf2", digest, f"sha256:{digest}") is True
+
+    def test_mismatched_digest_returns_false(self):
+        flasher = self._flasher()
+        digest = flasher.calculate_checksum(b"firmware bytes")
+        assert (
+            flasher.compare_checksum("fw.uf2", digest, "sha256:deadbeef" * 4) is False
+        )
+
+    def test_missing_digest_returns_none(self):
+        flasher = self._flasher()
+        assert flasher.compare_checksum("fw.uf2", "somedigest", None) is None
+        assert flasher.compare_checksum("fw.uf2", None, "sha256:abc") is None
+
+    def test_corrupted_download_is_deleted_not_flashed(self, tmp_path):
+        flasher = self._flasher()
+        release_path = tmp_path / "release"
+        release_path.mkdir()
+        bad_file = release_path / "fw.uf2"
+        bad_file.write_bytes(b"corrupted content")
+
+        flasher.release_assets = [
+            {
+                "name": "fw.uf2",
+                "browser_download_url": "https://example.invalid/fw.uf2",
+                "digest": "sha256:" + "0" * 64,  # will never match real content
+            }
+        ]
+
+        fake_response = MagicMock()
+        fake_response.content = b"corrupted content"
+        fake_response.raise_for_status = MagicMock()
+
+        with patch.object(
+            flasher, "_Flasher__create_release_path", return_value=str(release_path)
+        ), patch("requests.get", return_value=fake_response), patch("time.sleep"):
+            flasher.download_remote_firmware()
+
+        assert not bad_file.exists()
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 #  3.  modules/bridge.py
 # ═════════════════════════════════════════════════════════════════════════════
@@ -776,14 +902,15 @@ class TestConfigureLora:
         shell.send_command.return_value = "OK response"
         result = _configure_lora(shell, 915_000_000, 125, 7, 5, 20)
         assert result is True
-        assert shell.send_command.call_count == 7  # 6 params + apply
+        # RF switch + modulation + 8 params + apply
+        assert shell.send_command.call_count == 11
 
     def test_one_command_no_response(self):
         from modules.core.bridge import _configure_lora
 
         shell = MagicMock()
         # First command returns None, the others "OK"
-        shell.send_command.side_effect = [None, "OK", "OK", "OK", "OK", "OK", "OK"]
+        shell.send_command.side_effect = [None] + ["OK"] * 10
         result = _configure_lora(shell, 915_000_000, 125, 7, 5, 20)
         assert result is False
 
@@ -794,6 +921,198 @@ class TestConfigureLora:
         shell.send_command.return_value = None
         result = _configure_lora(shell, 868_000_000, 250, 12, 8, 14)
         assert result is False
+
+
+class TestConfigureFsk:
+    """Tests for _configure_fsk (internal function)."""
+
+    def _sent(self, shell):
+        return [c.args[0] for c in shell.send_command.call_args_list]
+
+    def _configure(self, shell):
+        from modules.core.bridge import _configure_fsk
+
+        return _configure_fsk(
+            shell,
+            915_000_000,
+            50000,
+            25000,
+            "187.2",
+            14,
+            8,
+            "12AD",
+            False,
+            False,
+            "variable",
+            255,
+            "0.5",
+        )
+
+    def test_all_commands_succeed(self):
+        shell = MagicMock()
+        shell.send_command.return_value = "OK response"
+        assert self._configure(shell) is True
+        # RF switch + 12 params + the modulation switch that applies them
+        assert shell.send_command.call_count == 14
+
+    def test_one_command_no_response(self):
+        shell = MagicMock()
+        shell.send_command.side_effect = [None] + ["OK"] * 13
+        assert self._configure(shell) is False
+
+    def test_the_radio_is_switched_last_so_the_settings_are_there_to_apply(self):
+        """``modulation fsk`` is what applies the configuration.
+
+        ``fsk_apply`` would do it too, but only when the firmware thinks
+        something is pending — and it leaves the modulation alone, so a session
+        that followed ``sniff lora`` would configure FSK and then listen in
+        LoRa.
+        """
+        shell = MagicMock()
+        shell.send_command.return_value = "OK"
+        self._configure(shell)
+        assert self._sent(shell)[-1] == "modulation fsk"
+
+    def test_lora_selects_its_modulation_first(self):
+        """After an FSK session the firmware refuses a bare ``lora_apply``.
+
+        ``apply_fsk_config`` clears ``lora_initialized``, and
+        ``apply_lora_config`` answers "LoRa not initialized" in that state — so
+        the LoRa capture would come up configured but silent.
+        """
+        from modules.core.bridge import _configure_lora
+
+        shell = MagicMock()
+        shell.send_command.return_value = "OK"
+        _configure_lora(shell, 915_000_000, 125, 7, 5, 20)
+        sent = self._sent(shell)
+        assert sent.index("modulation lora") < sent.index("lora_freq 915000000")
+        assert sent[-1] == "lora_apply"
+
+    def test_both_modulations_switch_the_antenna_to_the_sx1262(self):
+        """The RF switch boots on the CC1352's 2.4GHz port.
+
+        Nothing in a capture session moves it, so without ``band3`` the SX1262
+        is configured correctly and then listens through the wrong antenna
+        path — poor sensitivity or an empty capture.
+        """
+        from modules.core.bridge import _configure_lora
+
+        shell = MagicMock()
+        shell.send_command.return_value = "OK"
+        self._configure(shell)
+        assert self._sent(shell)[0] == "band3"
+
+        shell = MagicMock()
+        shell.send_command.return_value = "OK"
+        _configure_lora(shell, 915_000_000, 125, 7, 5, 20)
+        assert self._sent(shell)[0] == "band3"
+
+
+class TestShellReplyParsing:
+    """The Cat-Shell port echoes back everything the host writes to it.
+
+    ``cdc2_interrupt_handler`` puts every received byte straight back on the
+    config port, so a reply always arrives with its own command in front of it.
+    Read as-is, that echo answers every question asked of the reply: "STREAM"
+    is present in the echo of ``lora_mode stream`` whether the firmware took
+    the mode or refused it, and a rejected setting reads as an accepted one.
+    """
+
+    def test_the_echoed_command_is_not_part_of_the_reply(self):
+        from modules.core.bridge import _shell_reply
+
+        reply = _shell_reply(
+            "lora_mode stream\r\nLoRa mode set to STREAM (slow blink)",
+            "lora_mode stream",
+        )
+        assert reply == "LoRa mode set to STREAM (slow blink)"
+
+    def test_an_echo_with_nothing_behind_it_is_no_answer(self):
+        from modules.core.bridge import _shell_reply
+
+        assert _shell_reply("fsk_bw 58.6", "fsk_bw 58.6") == ""
+        assert _shell_reply(None, "fsk_bw 58.6") == ""
+
+    def test_a_reply_that_was_not_echoed_is_left_alone(self):
+        """A firmware build that does not echo has to be read just as well."""
+        from modules.core.bridge import _shell_reply
+
+        assert (
+            _shell_reply("FSK Bitrate set to 50000 bps", "fsk_bitrate 50000")
+            == "FSK Bitrate set to 50000 bps"
+        )
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "Error: Bitrate must be 600-300000 bps",
+            "ERROR: FSK lora_config failed (-22)",
+            "Usage: fsk_bw <bandwidth>",
+            "Unknown command. Type 'help'",
+        ],
+    )
+    def test_every_shape_of_refusal_the_firmware_writes_is_recognised(self, line):
+        from modules.core.bridge import _shell_error
+
+        assert _shell_error(line) == line
+
+    def test_a_failure_below_the_first_line_is_still_found(self):
+        """Applying a configuration answers with several lines, not one."""
+        from modules.core.bridge import _shell_error
+
+        reply = (
+            "Applying FSK configuration...\r\n" "ERROR: FSK lora_config failed (-22)"
+        )
+        assert _shell_error(reply) == "ERROR: FSK lora_config failed (-22)"
+
+    def test_a_warning_is_not_a_failure(self):
+        """A bandwidth the firmware widened on its own still applied."""
+        from modules.core.bridge import _shell_error
+
+        reply = (
+            "Applying FSK configuration...\r\n"
+            "WARN: FSK BW too narrow (58000 Hz < 100000 Hz), forcing "
+            "FSK_BW_187_KHZ\r\n"
+            "FSK configuration applied successfully"
+        )
+        assert _shell_error(reply) == ""
+
+    def test_a_refused_setting_fails_the_configuration(self):
+        """Before the echo was stripped this passed: the reply held the command.
+
+        The remaining commands are still sent — one setting the firmware would
+        not take is not a reason to leave the radio half-configured — but the
+        caller is told, instead of reading "Stream mode active" over a radio
+        that was never given the deviation it was asked for.
+        """
+        from modules.core.bridge import _configure_fsk
+
+        shell = MagicMock()
+        shell.send_command.side_effect = lambda cmd, **kwargs: (
+            f"{cmd}\r\nError: Freq deviation must be 600-200000 Hz"
+            if cmd.startswith("fsk_fdev")
+            else f"{cmd}\r\nOK"
+        )
+
+        result = _configure_fsk(
+            shell,
+            915_000_000,
+            50000,
+            25000,
+            "187.2",
+            14,
+            8,
+            "12AD",
+            False,
+            False,
+            "variable",
+            255,
+            "0.5",
+        )
+
+        assert result is False
+        assert shell.send_command.call_count == 14
 
 
 class TestRunSxBridge:
@@ -876,9 +1195,308 @@ class TestRunSxBridge:
             self._run(fake_device)
         mock_pipe.remove.assert_called()
 
+    def test_packets_reach_the_capture_file_and_the_pipe(self, fake_device):
+        """``-w`` is a second sink, not a replacement: both get the same record.
+
+        The record itself is covered by ``tests/test_pcap_writer.py``; what is
+        pinned here is the wiring, so a future edit cannot feed the file a
+        different (or no) record than the live Wireshark view.
+        """
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = "STREAM mode"
+        mock_lora = MagicMock()
+        mock_lora.connect.return_value = True
+        mock_lora.connection = MagicMock()
+        mock_lora.connection.readline.side_effect = [
+            b"RX: aabbcc | RSSI: -42 | SNR: 9\r\n",
+            KeyboardInterrupt(),
+        ]
+        mock_pipe = MagicMock()
+        mock_writer = MagicMock()
+        fake_packet = MagicMock(
+            pcap=b"LORA-RECORD", payload=b"\xaa\xbb\xcc", rssi=-42.0, snr=9.0, length=3
+        )
+
+        with patch(
+            "modules.core.bridge.ShellConnection", return_value=mock_shell
+        ), patch("modules.core.bridge.LoRaConnection", return_value=mock_lora), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch(
+            "platform.system", return_value="Linux"
+        ), patch(
+            "modules.core.bridge._configure_lora", return_value=True
+        ), patch(
+            "modules.core.bridge.PcapFileWriter", return_value=mock_writer
+        ) as mock_writer_cls, patch(
+            "modules.core.bridge.snifferSx"
+        ) as mock_sniffer:
+            mock_sniffer.Packet.return_value = fake_packet
+            self._run(fake_device, pcap_file="capture.pcap")
+
+        from modules.core.bridge import LORATAP_DLT
+
+        mock_writer_cls.assert_called_once_with("capture.pcap", LORATAP_DLT, False)
+        mock_writer.write_record.assert_called_once_with(b"LORA-RECORD")
+        assert call(b"LORA-RECORD") in mock_pipe.write_packet.call_args_list
+        mock_writer.close.assert_called()
+
+    def test_a_refused_capture_file_aborts_before_the_ports_are_opened(
+        self, fake_device
+    ):
+        """An existing file must not cost the user their radio configuration."""
+        mock_shell = MagicMock()
+        mock_pipe = MagicMock()
+        with patch(
+            "modules.core.bridge.ShellConnection", return_value=mock_shell
+        ), patch("modules.core.bridge.UnixPipe", return_value=mock_pipe), patch(
+            "platform.system", return_value="Linux"
+        ), patch(
+            "modules.core.bridge.PcapFileWriter", side_effect=FileExistsError("taken")
+        ):
+            self._run(fake_device, pcap_file="taken.pcap")
+
+        mock_shell.connect.assert_not_called()
+        mock_pipe.open.assert_not_called()
+
+
+class TestSxSessionReport:
+    """The SX1262 path has no ring buffer to ask about loss (see
+    report_capture_loss), but it does compute its own numbers — this checks
+    that ``_run_sx_capture`` actually hands them to the closing report."""
+
+    def test_describe_quality_with_no_values(self):
+        from modules.core.bridge import _describe_quality
+
+        assert "n/a" in _describe_quality("RSSI", [], " dBm")
+
+    def test_describe_quality_reports_min_median_max(self):
+        from modules.core.bridge import _describe_quality
+
+        text = _describe_quality("RSSI", [-90.0, -80.0, -60.0], " dBm")
+        assert "min=-90.0 dBm" in text
+        assert "median=-80.0 dBm" in text
+        assert "max=-60.0 dBm" in text
+
+    def test_the_report_counts_packets_errors_and_signal_quality(self, fake_device):
+        """One good packet, one parse error, two lines that are neither a
+        packet nor a known banner, and one line that hit the readline bound
+        without a '\\n' — every field the report claims should trace back to
+        exactly one of these."""
+        from modules.core.bridge import run_sx_bridge, DEFAULT_READLINE_MAX_BYTES
+
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = "STREAM mode"
+        mock_lora = MagicMock()
+        mock_lora.connect.return_value = True
+        mock_lora.connection = MagicMock()
+        mock_lora.connection.readline.side_effect = [
+            b"garbage line\r\n",  # unrecognized: no RX:, no ignore prefix
+            b"LoRa Control Port\r\n",  # ignored banner: not unrecognized
+            b"RX: aabbcc | RSSI: -42 | SNR: 9\r\n",  # good packet
+            b"RX: badhex | RSSI: -1 | SNR: 0\r\n",  # parse error
+            b"x" * DEFAULT_READLINE_MAX_BYTES,  # truncated: no trailing \n
+            KeyboardInterrupt(),
+        ]
+        mock_pipe = MagicMock()
+        fake_packet = MagicMock(
+            pcap=b"LORA-RECORD",
+            payload=b"\xaa\xbb\xcc",
+            rssi=-42.0,
+            snr=9.0,
+            is_fsk=False,
+            length=3,
+            truncated=False,
+        )
+
+        with patch(
+            "modules.core.bridge.ShellConnection", return_value=mock_shell
+        ), patch("modules.core.bridge.LoRaConnection", return_value=mock_lora), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch(
+            "platform.system", return_value="Linux"
+        ), patch(
+            "modules.core.bridge._configure_lora", return_value=True
+        ), patch(
+            "modules.core.bridge.snifferSx"
+        ) as mock_sniffer, patch(
+            "modules.core.bridge.print_sx_session_report"
+        ) as report:
+            mock_sniffer.Packet.side_effect = [
+                fake_packet,
+                ValueError("bad hex"),
+            ]
+            run_sx_bridge(
+                fake_device,
+                frequency=915_000_000,
+                bandwidth=125,
+                spread_factor=7,
+                coding_rate=5,
+                tx_power=20,
+            )
+
+        report.assert_called_once()
+        args = report.call_args.args
+        (
+            modulation,
+            packet_count,
+            error_count,
+            unrecognized_count,
+            truncated_count,
+            firmware_truncated_count,
+            duration_s,
+            rssi_values,
+            snr_values,
+        ) = args
+        assert modulation == "LoRa"
+        assert packet_count == 1
+        assert error_count == 1
+        assert unrecognized_count == 2
+        assert truncated_count == 1
+        assert firmware_truncated_count == 0
+        assert duration_s >= 0
+        assert rssi_values == [-42.0]
+        assert snr_values == [9.0]
+
+    def test_the_report_still_runs_when_a_serial_error_ends_the_capture(
+        self, fake_device
+    ):
+        """A capture killed by a disconnected device is exactly when a
+        session report is most useful — it must not be Ctrl+C-only."""
+        import serial
+        from modules.core.bridge import run_sx_bridge
+
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = "STREAM mode"
+        mock_lora = MagicMock()
+        mock_lora.connect.return_value = True
+        mock_lora.connection = MagicMock()
+        mock_lora.connection.readline.side_effect = serial.SerialException("gone")
+        mock_pipe = MagicMock()
+
+        with patch(
+            "modules.core.bridge.ShellConnection", return_value=mock_shell
+        ), patch("modules.core.bridge.LoRaConnection", return_value=mock_lora), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch(
+            "platform.system", return_value="Linux"
+        ), patch(
+            "modules.core.bridge._configure_lora", return_value=True
+        ), patch(
+            "modules.core.bridge.print_sx_session_report"
+        ) as report:
+            run_sx_bridge(
+                fake_device,
+                frequency=915_000_000,
+                bandwidth=125,
+                spread_factor=7,
+                coding_rate=5,
+                tx_power=20,
+            )
+
+        report.assert_called_once()
+
+    def test_fsk_frames_are_excluded_from_snr(self, fake_device):
+        """FSK has no SNR — a report that averaged in zeros would misreport
+        signal quality for the modulation that actually has none."""
+        from modules.core.bridge import run_fsk_bridge
+
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = "STREAM mode"
+        mock_lora = MagicMock()
+        mock_lora.connect.return_value = True
+        mock_lora.connection = MagicMock()
+        mock_lora.connection.readline.side_effect = [
+            b"RX: aabbcc | RSSI: -55 | Len: 3\r\n",
+            KeyboardInterrupt(),
+        ]
+        mock_pipe = MagicMock()
+        fake_packet = MagicMock(
+            pcap=b"FSK-RECORD",
+            payload=b"\xaa\xbb\xcc",
+            rssi=-55.0,
+            snr=0.0,
+            is_fsk=True,
+            length=3,
+            truncated=False,
+        )
+
+        with patch(
+            "modules.core.bridge.ShellConnection", return_value=mock_shell
+        ), patch("modules.core.bridge.LoRaConnection", return_value=mock_lora), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch(
+            "platform.system", return_value="Linux"
+        ), patch(
+            "modules.core.bridge._configure_fsk", return_value=True
+        ), patch(
+            "modules.core.bridge.snifferSx"
+        ) as mock_sniffer, patch(
+            "modules.core.bridge.print_sx_session_report"
+        ) as report:
+            mock_sniffer.Packet.return_value = fake_packet
+            run_fsk_bridge(fake_device, frequency=915_000_000)
+
+        args = report.call_args.args
+        assert args[0] == "FSK"
+        rssi_values, snr_values = args[7], args[8]
+        assert rssi_values == [-55.0]
+        assert snr_values == []
+
 
 class TestRunBridge:
     """Tests for run_bridge (TI sniffer)."""
+
+    @pytest.fixture(autouse=True)
+    def shell(self):
+        """Every TI capture now opens the config port to claim the RF band.
+
+        Patched for the whole class so that no test reaches for a real serial
+        port just because that call was added to the path it exercises.
+        """
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = "2.4GHz Band"
+        with patch("modules.core.bridge.ShellConnection", return_value=mock_shell):
+            yield mock_shell
+
+    def test_the_antenna_is_claimed_before_the_sniffer_is_configured(
+        self, fake_device, shell
+    ):
+        """The switch keeps whatever position the previous capture left it in.
+
+        ``sniff lora`` parks it on the SX1262 leg and nothing resets it — not
+        even a reboot, since the firmware's own ``change_band(GIG)`` at startup
+        hits an early return and never drives a pin.  A TI capture therefore
+        has to ask for 2.4 GHz itself, and ask for it *first*: configuring the
+        sniffer through the LoRa antenna path costs sensitivity and reports no
+        error at all.
+        """
+        from modules.core.bridge import run_bridge
+
+        order = []
+        shell.send_command.side_effect = (
+            lambda cmd, **kw: order.append(f"shell:{cmd}") or "2.4GHz Band"
+        )
+        mock_serial = MagicMock()
+        mock_serial.write.side_effect = lambda *a, **kw: order.append("ti-config")
+        mock_serial.read_until.side_effect = KeyboardInterrupt()
+        mock_pipe = MagicMock()
+        with patch("modules.core.bridge.Catnip", return_value=mock_serial), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch("platform.system", return_value="Linux"):
+            run_bridge(fake_device, channel=11, wireshark=False)
+
+        assert order[0] == "shell:band1"
+        assert "ti-config" in order
+        # The loss counters are zeroed after the band and before the sniffer
+        # is configured, so what they hold at the end belongs to this capture.
+        assert order.index("shell:loss_reset") < order.index("ti-config")
+        # One session for the band, one for the counters — both closed.
+        assert shell.disconnect.call_count == shell.connect.call_count
 
     def test_keyboard_interrupt_stops(self, fake_device):
         from modules.core.bridge import run_bridge
@@ -906,59 +1524,272 @@ class TestRunBridge:
         ), patch("platform.system", return_value="Linux"):
             run_bridge(fake_device, channel=99, wireshark=False)
 
+    def test_packets_reach_the_capture_file_and_the_pipe(self, fake_device):
+        """Same wiring check as the LoRa bridge, on the TI side."""
+        from modules.core.bridge import run_bridge
+
+        streaming = object()  # stands in for the stubbed PacketCategory member
+        fake_packet = MagicMock(
+            category=streaming, pcap=b"TI-RECORD", payload=b"\x01\x02", rssi=210
+        )
+        mock_serial = MagicMock()
+        mock_serial.read_until.side_effect = [b"frame", KeyboardInterrupt()]
+        mock_pipe = MagicMock()
+        mock_writer = MagicMock()
+
+        with patch("modules.core.bridge.Catnip", return_value=mock_serial), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch("platform.system", return_value="Linux"), patch(
+            "modules.core.bridge.PcapFileWriter", return_value=mock_writer
+        ) as mock_writer_cls, patch(
+            "modules.core.bridge.sniffer"
+        ) as mock_sniffer, patch(
+            "modules.core.bridge.PacketCategory"
+        ) as mock_category:
+            mock_sniffer.Packet.return_value = fake_packet
+            mock_category.DATA_STREAMING_AND_ERROR.value = streaming
+            run_bridge(fake_device, channel=11, wireshark=False, pcap_file="ti.pcap")
+
+        mock_writer_cls.assert_called_once_with("ti.pcap", force=False)
+        mock_writer.write_record.assert_called_once_with(b"TI-RECORD")
+        assert call(b"TI-RECORD") in mock_pipe.write_packet.call_args_list
+        mock_writer.close.assert_called()
+
+    def test_a_refused_capture_file_aborts_before_the_port_is_opened(self, fake_device):
+        from modules.core.bridge import run_bridge
+
+        mock_serial = MagicMock()
+        mock_pipe = MagicMock()
+        with patch("modules.core.bridge.Catnip", return_value=mock_serial), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch("platform.system", return_value="Linux"), patch(
+            "modules.core.bridge.PcapFileWriter", side_effect=FileExistsError("taken")
+        ):
+            run_bridge(fake_device, channel=11, wireshark=False, pcap_file="taken.pcap")
+
+        mock_serial.connect.assert_not_called()
+        mock_pipe.open.assert_not_called()
+
+
+class TestRunBridgeReportsItsLosses:
+    """The closing report is part of the capture, not of the happy path."""
+
+    def _run_until(self, read_side_effect):
+        from modules.core import bridge
+
+        mock_serial = MagicMock()
+        mock_serial.read_until.side_effect = read_side_effect
+        mock_pipe = MagicMock()
+        device = MagicMock()
+        device.bridge_port = "/dev/ttyACM0"
+        device.shell_port = "/dev/ttyACM2"
+
+        with patch("modules.core.bridge.Catnip", return_value=mock_serial), patch(
+            "modules.core.bridge.UnixPipe", return_value=mock_pipe
+        ), patch("platform.system", return_value="Linux"), patch(
+            "modules.core.bridge.select_rf_band"
+        ), patch(
+            "modules.core.bridge.reset_loss_counters", return_value=True
+        ) as reset, patch(
+            "modules.core.bridge.report_capture_loss"
+        ) as report:
+            bridge.run_bridge(device, channel=11, wireshark=False)
+        return reset, report
+
+    def test_a_capture_stopped_with_ctrl_c_still_reports(self):
+        reset, report = self._run_until(KeyboardInterrupt())
+        reset.assert_called_once_with("/dev/ttyACM2")
+        report.assert_called_once_with("/dev/ttyACM2", True)
+
+    def test_a_capture_killed_by_a_serial_error_still_reports(self):
+        """A device unplugged mid-capture is exactly when the user most needs
+        to know how much of the stream made it."""
+        import serial
+
+        reset, report = self._run_until(serial.SerialException("gone"))
+        report.assert_called_once_with("/dev/ttyACM2", True)
+
+
+class TestSelectRfBand:
+    """Tests for select_rf_band (shared antenna-switch helper)."""
+
+    def test_a_board_without_a_config_port_does_not_stop_the_capture(self):
+        """A wrong antenna path costs sensitivity; refusing to capture costs
+        all of it."""
+        from modules.core.bridge import select_rf_band
+
+        assert select_rf_band(None, "band1", "2.4 GHz") is False
+
+    def test_a_config_port_that_will_not_open_does_not_stop_the_capture(self):
+        from modules.core.bridge import select_rf_band
+
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = False
+        with patch("modules.core.bridge.ShellConnection", return_value=mock_shell):
+            assert select_rf_band("/dev/ttyACM2", "band1", "2.4 GHz") is False
+        mock_shell.send_command.assert_not_called()
+
+    def test_the_port_is_closed_even_when_the_firmware_refuses(self):
+        """The config port is borrowed for one command; a refusal must not keep it."""
+        from modules.core.bridge import select_rf_band
+
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = "ERROR: unknown command"
+        with patch("modules.core.bridge.ShellConnection", return_value=mock_shell):
+            assert select_rf_band("/dev/ttyACM2", "band1", "2.4 GHz") is False
+        mock_shell.disconnect.assert_called_once()
+
+
+class TestCaptureLossCounters:
+    """Tests for the capture-integrity counters (reset → capture → report).
+
+    The firmware has always counted what it drops between the CC1352 and this
+    host; the point of these is that the tool now says so, and — just as
+    important — that it never says "nothing was lost" when what it actually
+    has is no measurement.
+    """
+
+    def _shell(self, reply="CC1352 loss counters reset"):
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = reply
+        return mock_shell
+
+    # ── reset ────────────────────────────────────────────────────────────────
+
+    def test_an_acknowledged_reset_arms_the_report(self):
+        from modules.core.bridge import reset_loss_counters
+
+        shell = self._shell()
+        with patch("modules.core.bridge.ShellConnection", return_value=shell):
+            assert reset_loss_counters("/dev/ttyACM2") is True
+        shell.disconnect.assert_called_once()
+
+    def test_a_firmware_without_loss_reset_is_not_armed(self):
+        """An older build answers "Unknown command"; the counters then still
+        hold whatever the previous capture left in them."""
+        from modules.core.bridge import reset_loss_counters
+
+        shell = self._shell(reply="Unknown command: loss_reset")
+        with patch("modules.core.bridge.ShellConnection", return_value=shell):
+            assert reset_loss_counters("/dev/ttyACM2") is False
+        shell.disconnect.assert_called_once()
+
+    def test_a_silent_reset_is_not_armed(self):
+        from modules.core.bridge import reset_loss_counters
+
+        shell = self._shell(reply=None)
+        with patch("modules.core.bridge.ShellConnection", return_value=shell):
+            assert reset_loss_counters("/dev/ttyACM2") is False
+
+    def test_no_config_port_is_not_armed(self):
+        from modules.core.bridge import reset_loss_counters
+
+        assert reset_loss_counters(None) is False
+
+    # ── describe ─────────────────────────────────────────────────────────────
+
+    def test_all_zero_counters_are_the_only_clean_reading(self):
+        from modules.core.bridge import describe_loss
+
+        clean, message = describe_loss({"uart_overrun": 0, "ring_dropped": 0})
+        assert clean is True
+        assert "0 bytes lost" in message
+
+    def test_dropped_bytes_are_reported_in_bytes(self):
+        from modules.core.bridge import describe_loss
+
+        clean, message = describe_loss({"uart_overrun": 0, "ring_dropped": 1536})
+        assert clean is False
+        assert "1536 byte(s)" in message
+
+    def test_a_fifo_overrun_alone_is_never_reported_as_zero_loss(self):
+        """uart_overrun counts events, not bytes: each one lost an unknown
+        amount, so a capture with overruns cannot claim zero loss."""
+        from modules.core.bridge import describe_loss
+
+        clean, message = describe_loss({"uart_overrun": 7, "ring_dropped": 0})
+        assert clean is False
+        assert "7 UART FIFO overrun(s)" in message
+        assert "0 bytes lost" not in message
+
+    def test_a_counter_this_version_does_not_know_is_still_reported(self):
+        from modules.core.bridge import describe_loss
+
+        clean, message = describe_loss({"dma_regress": 3, "some_new_counter": 9})
+        assert clean is False
+        assert "3 DMA progress regression(s)" in message
+        assert "9 some_new_counter" in message
+
+    def test_no_counters_at_all_is_not_clean(self):
+        from modules.core.bridge import describe_loss
+
+        assert describe_loss({})[0] is False
+
+    # ── report ───────────────────────────────────────────────────────────────
+
+    def _report(self, armed, counters):
+        from modules.core import bridge
+
+        with patch.object(bridge, "read_loss_counters", return_value=counters), patch(
+            "modules.core.bridge.print_success"
+        ) as ok, patch("modules.core.bridge.print_warning") as warn, patch(
+            "modules.core.bridge.print_dim"
+        ) as dim:
+            bridge.report_capture_loss("/dev/ttyACM2", armed)
+        said = {
+            name: " ".join(str(call.args[0]) for call in printer.call_args_list)
+            for name, printer in (("ok", ok), ("warn", warn), ("dim", dim))
+        }
+        return said
+
+    def test_a_clean_capture_closes_with_zero_bytes_lost(self):
+        said = self._report(True, {"uart_overrun": 0, "ring_dropped": 0})
+        assert "0 bytes lost" in said["ok"]
+        assert said["warn"] == ""
+
+    def test_a_lossy_capture_closes_with_an_explicit_warning(self):
+        said = self._report(True, {"uart_overrun": 2, "ring_dropped": 4096})
+        assert "4096 byte(s)" in said["warn"]
+        assert "incomplete" in said["dim"]
+        assert said["ok"] == ""
+
+    def test_an_unread_counter_is_unknown_not_zero(self):
+        said = self._report(True, None)
+        assert "unknown" in said["warn"]
+        assert said["ok"] == ""
+
+    def test_a_capture_that_was_never_armed_claims_nothing(self):
+        said = self._report(False, {"uart_overrun": 0, "ring_dropped": 0})
+        assert "not measured" in said["dim"]
+        assert said["ok"] == ""
+        assert said["warn"] == ""
+
+    def test_a_second_ctrl_c_during_the_check_does_not_escape(self):
+        """Ctrl+C is how a capture ends; pressing it again while the closing
+        query runs must not replace the summary with a traceback."""
+        from modules.core import bridge
+
+        with patch.object(
+            bridge, "read_loss_counters", side_effect=KeyboardInterrupt
+        ), patch("modules.core.bridge.print_dim") as dim:
+            bridge.report_capture_loss("/dev/ttyACM2", True)
+        assert "interrupted" in " ".join(
+            str(call.args[0]) for call in dim.call_args_list
+        )
+
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  4.  modules/cli.py  — helpers
+#  4.  modules/core/extcap.py, modules/core/device_utils.py  — helpers
 # ═════════════════════════════════════════════════════════════════════════════
-
-
-class TestFindWiresharkPath:
-    """Tests for find_wireshark_path."""
-
-    def _call(self):
-        from modules.core.cli import find_wireshark_path
-
-        return find_wireshark_path()
-
-    def test_linux_found(self):
-        with patch("platform.system", return_value="Linux"), patch(
-            "pathlib.Path.exists", return_value=True
-        ):
-            result = self._call()
-        assert result is not None
-
-    def test_windows_found(self):
-        with patch("platform.system", return_value="Windows"), patch(
-            "pathlib.Path.exists", return_value=True
-        ):
-            result = self._call()
-        assert result is not None
-
-    def test_darwin_found(self):
-        with patch("platform.system", return_value="Darwin"), patch(
-            "pathlib.Path.exists", return_value=True
-        ):
-            result = self._call()
-        assert result is not None
-
-    def test_not_found_returns_none(self):
-        with patch("platform.system", return_value="Linux"), patch(
-            "pathlib.Path.exists", return_value=False
-        ):
-            result = self._call()
-        assert result is None
-
-    def test_unknown_os_returns_none(self):
-        with patch("platform.system", return_value="AmigaOS"):
-            result = self._call()
-        assert result is None
 
 
 class TestFindPuttyPath:
     """Tests for find_putty_path."""
 
     def _call(self):
-        from modules.core.cli import find_putty_path
+        from modules.core.extcap import find_putty_path
 
         return find_putty_path()
 
@@ -993,110 +1824,31 @@ class TestGetDeviceOrExit:
     """Tests for get_device_or_exit."""
 
     def test_device_found_returns_device(self, fake_device):
-        from modules.core.cli import get_device_or_exit
+        from modules.core.device_utils import get_device_or_exit
 
-        with patch("modules.core.cli.catnip_get_device", return_value=fake_device):
+        with patch(
+            "modules.core.device_utils.catnip_get_device", return_value=fake_device
+        ):
             dev = get_device_or_exit(device_id=1)
         assert dev is fake_device
 
     def test_no_device_exits(self):
-        from modules.core.cli import get_device_or_exit
+        from modules.core.device_utils import get_device_or_exit
 
         with patch(
-            "modules.core.cli.catnip_get_device", return_value=None
+            "modules.core.device_utils.catnip_get_device", return_value=None
         ), pytest.raises(SystemExit):
             get_device_or_exit(device_id=1)
 
     def test_incomplete_device_warns_but_returns(self, fake_device):
         fake_device.is_valid.return_value = False
-        from modules.core.cli import get_device_or_exit
+        from modules.core.device_utils import get_device_or_exit
 
-        with patch("modules.core.cli.catnip_get_device", return_value=fake_device):
+        with patch(
+            "modules.core.device_utils.catnip_get_device", return_value=fake_device
+        ):
             dev = get_device_or_exit(device_id=1)
         assert dev is fake_device
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  5.  High-level CLI: catnip.py (subprocess invocation)
-# ═════════════════════════════════════════════════════════════════════════════
-
-
-class TestCLISubprocess:
-    """
-    Verifies CLI behavior by running it as an external process.
-    Only checks exit codes and basic messages; no hardware required.
-    """
-
-    def _run(self, *args, timeout=10):
-        import subprocess
-
-        cmd = [sys.executable, os.path.join(PROJECT_ROOT, "catnip.py")] + list(args)
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=PROJECT_ROOT,
-        )
-        return result
-
-    def test_help_exits_zero(self):
-        result = self._run("--help")
-        assert result.returncode == 0
-        assert "Usage" in result.stdout or "usage" in result.stdout.lower()
-
-    def test_flash_help(self):
-        result = self._run("flash", "--help")
-        assert result.returncode == 0
-
-    def test_flash_no_firmware_exits_nonzero(self):
-        result = self._run("flash")
-        # Without firmware should exit with error
-        assert result.returncode != 0 or "No firmware" in result.stdout + result.stderr
-
-    def test_flash_list_no_device_needed(self):
-        """--list only reads local files, no hardware needed."""
-        result = self._run("flash", "--list")
-        # May fail if no releases, but shouldn't crash with traceback
-        assert "Traceback" not in result.stderr or result.returncode == 0
-
-    def test_devices_no_devices_connected(self):
-        result = self._run("devices")
-        # Without hardware should indicate no devices
-        assert (
-            result.returncode == 0 or "No CatSniffer" in result.stdout + result.stderr
-        )
-
-    def test_verify_no_device(self):
-        result = self._run("verify", "--device", "99")
-        # Check if command either:
-        # 1. Returns non-zero exit code, OR
-        # 2. Returns zero exit code but shows "No device found" message
-        assert (
-            result.returncode != 0
-            or "No CatSniffer device found!" in result.stdout + result.stderr
-            or "not found" in result.stdout + result.stderr
-        )
-
-    def test_sniff_missing_required_args(self):
-        result = self._run("sniff")
-        # Should ask for arguments or show error
-        assert result.returncode != 0 or "Error" in result.stdout + result.stderr
-
-    def test_unknown_command(self):
-        result = self._run("nope_command")
-        assert result.returncode != 0
-
-    def test_flash_invalid_device_id(self):
-        result = self._run("flash", "--device", "9999", "ble")
-        assert result.returncode != 0 or "not found" in result.stdout + result.stderr
-
-    def test_verify_device_flag(self):
-        result = self._run("verify", "--device", "99")
-        assert (
-            result.returncode != 0
-            or "No CatSniffer device(s) found" in result.stdout + result.stderr
-        )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1179,26 +1931,13 @@ class TestRobustness:
         ):
             run_sx_bridge(fake_device, 915_000_000, 125, 7, 5)
 
-    # -- cli.py --------------------------------------------------------------
-
-    def test_find_wireshark_exception_handled(self):
-        from modules.core.cli import find_wireshark_path
-
-        with patch("platform.system", return_value="Linux"), patch(
-            "pathlib.Path.exists", side_effect=OSError("perm")
-        ):
-            # Should return None without raising exception
-            try:
-                result = find_wireshark_path()
-                assert result is None or isinstance(result, str)
-            except OSError:
-                pass  # Acceptable if the implementation doesn't catch this
+    # -- device_utils.py -----------------------------------------------------
 
     def test_get_device_or_exit_device_id_zero(self):
-        from modules.core.cli import get_device_or_exit
+        from modules.core.device_utils import get_device_or_exit
 
         with patch(
-            "modules.core.cli.catnip_get_device", return_value=None
+            "modules.core.device_utils.catnip_get_device", return_value=None
         ), pytest.raises(SystemExit):
             get_device_or_exit(device_id=0)
 
@@ -1233,11 +1972,15 @@ class TestMeshtasticCoreConstants:
                 pytest.fail(f"Invalid key in DEFAULT_KEYS: {key}")
 
     def test_sync_word_meshtastic(self):
-        """Verify SYNC_WORD_MESHTASTIC is correct."""
+        """Verify SYNC_WORD_MESHTASTIC is correct.
+
+        Now sourced from modules.radio.profiles, in the "0xNN" shape
+        normalize_syncword() expects rather than a bare int.
+        """
         from modules.protocols.meshtastic.core import SYNC_WORD_MESHTASTIC
 
-        assert SYNC_WORD_MESHTASTIC == 0x2B
-        assert isinstance(SYNC_WORD_MESHTASTIC, int)
+        assert SYNC_WORD_MESHTASTIC == "0x2B"
+        assert isinstance(SYNC_WORD_MESHTASTIC, str)
 
     def test_channels_preset_defined(self):
         """Verify CHANNELS_PRESET is defined."""
@@ -1250,14 +1993,19 @@ class TestMeshtasticCoreConstants:
         assert "LongSlow" in CHANNELS_PRESET
 
     def test_channels_preset_structure(self):
-        """Verify the structure of presets."""
+        """Verify the structure of presets.
+
+        "pl" was renamed "preamble" when these moved to
+        modules.radio.profiles, to match the ``sniff lora`` flag name a
+        radio profile now feeds it through Click's default_map.
+        """
         from modules.protocols.meshtastic.core import CHANNELS_PRESET
 
         for preset_name, preset_config in CHANNELS_PRESET.items():
             assert "sf" in preset_config, f"Missing 'sf' in {preset_name}"
             assert "bw" in preset_config, f"Missing 'bw' in {preset_name}"
             assert "cr" in preset_config, f"Missing 'cr' in {preset_name}"
-            assert "pl" in preset_config, f"Missing 'pl' in {preset_name}"
+            assert "preamble" in preset_config, f"Missing 'preamble' in {preset_name}"
 
 
 class TestMeshtasticCoreFunctions:
@@ -1361,6 +2109,30 @@ class TestMeshtasticCoreFunctions:
         except Exception:
             # Expected if payload is not valid for decryption
             pass
+
+
+class TestConfigureMeshtasticRadio:
+    """Tests for configure_meshtastic_radio (used by `catnip meshtastic dashboard`)."""
+
+    def _run(self, mock_shell):
+        from modules.protocols.meshtastic.core import configure_meshtastic_radio
+
+        # The function imports ShellConnection from modules.core.catnip at call
+        # time, so that is where it has to be patched.
+        with patch("modules.core.catnip.ShellConnection", return_value=mock_shell):
+            return configure_meshtastic_radio("/dev/ttyACM2", 906875000, "LongFast")
+
+    def test_it_claims_the_antenna_and_the_modulation_first(self):
+        """Same sequence as the live decoder, for the same reasons."""
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = "OK"
+
+        assert self._run(mock_shell) is True
+
+        sent = [c.args[0] for c in mock_shell.send_command.call_args_list]
+        assert sent[:2] == ["band3", "modulation lora"]
+        assert sent.index("modulation lora") < sent.index("lora_apply")
 
 
 class TestMeshtasticDecoder:
@@ -1480,6 +2252,31 @@ class TestMeshtasticLiveDecoder:
         assert result is True
         mock_shell.connect.assert_called_once()
         mock_shell.disconnect.assert_called_once()
+
+    def test_configure_radio_claims_the_antenna_and_the_modulation_first(self):
+        """`meshtastic live` drives the SX1262 through Cat-Shell like the LoRa
+        bridge does, so it needs the same two commands ahead of the settings.
+
+        ``band3`` because the antenna switch is shared and keeps its position
+        across sessions; ``modulation lora`` because an earlier ``sniff fsk``
+        left ``lora_initialized`` false, and the ``lora_apply`` at the end of
+        this sequence is refused in that state — a capture that comes up
+        silent with nothing in the log to explain it.
+        """
+        decoder = self._make_decoder()
+
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        mock_shell.send_command.return_value = "OK"
+
+        with patch(
+            "modules.protocols.meshtastic.live.ShellConnection", return_value=mock_shell
+        ):
+            decoder.configure_radio(906875000, "LongFast", shell_port="/dev/ttyACM2")
+
+        sent = [c.args[0] for c in mock_shell.send_command.call_args_list]
+        assert sent[:2] == ["band3", "modulation lora"]
+        assert sent.index("modulation lora") < sent.index("lora_apply")
 
     def test_configure_radio_invalid_preset(self):
         """Test configuration with invalid preset."""
