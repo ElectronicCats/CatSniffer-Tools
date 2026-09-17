@@ -82,7 +82,7 @@ BOARD_V2 = BoardInfo(
     uf2_pattern="catsniffer-v2",
     has_fw_id_storage=False,  # prj.conf has no CONFIG_NVS: 16 KB of SRAM
     can_self_program_cc1352=False,  # no RP2040 to load free_dap onto
-    ships_cc1352_hex_assets=False,  # tools/get_hex_files.py only emits board_v3
+    ships_cc1352_hex_assets=True,  # v2.1.0.0 ships airtag_*/justworks CC1352P1 .hex
     accepts_unnamed_images=False,  # unnamed images are historically P7 builds
     bridge_ring_bytes=256,
 )

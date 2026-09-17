@@ -60,7 +60,14 @@ OFFICIAL_ID_TO_FILENAME = {
 OFFICIAL_ID_TO_FILENAME_BY_BOARD = {
     "v3": OFFICIAL_ID_TO_FILENAME,
     "v2": {
+        # Sniffle is mirrored from the nccgroup release, which builds both
+        # variants; the rest come from the CatSniffer-Firmware v2.X.Y.Z
+        # releases, whose CC1352P1 images spell the variant "CC1352P1"
+        # (the v3 bundle spells the same field "CC1352P_7").
         "sniffle": "sniffle_cc1352p1_cc2652p1_1M",
+        "airtag_scanner_cc1352p7": "airtag_scanner_CC1352P1",
+        "airtag_spoofer_cc1352p7": "airtag_spoofer_CC1352P1",
+        "justworks_scanner_cc1352p7": "justworks_scanner_CC1352P1",
         "catnip_v2": "catsniffer-v2",
     },
 }

@@ -735,33 +735,69 @@ class Flasher:
             logger.error(f"[X] Error fetching remote firmware: {e}")
             exit(1)
 
-    def fetch_asset_by_pattern(self, pattern: str) -> Optional[str]:
+    def _hex_assets_for_board(self, board) -> list:
+        """The .hex assets of ``board``'s own latest release (empty if none).
+
+        ``GITHUB_RELEASE_URL`` is /releases/latest, which is the newest release
+        of the *repository*, not of a generation: the v3 line publishes more
+        often, so "latest" is a v3.X.Y.Z tag and the v2.X.Y.Z assets are never
+        in it. A v2 board has to be pointed at its own release or its images
+        are invisible no matter how the filename table is spelled.
         """
-        Download a firmware asset whose name contains pattern from the known
-        release sources (CatSniffer-Firmware latest, then Sniffle latest) into
-        the local release folder. Returns the path or None.
+        if board is None:
+            return []
+        try:
+            rel = self.get_release_for_board(board)
+        except Exception as e:
+            logger.warning(f"[!] Could not list {board.generation} releases: {e}")
+            return []
+        return (rel or {}).get("assets", [])
+
+    def fetch_asset_by_pattern(self, pattern: str, board=None) -> Optional[str]:
         """
+        Download a firmware asset whose name contains pattern into the local
+        release folder. Returns the path or None.
+
+        Sources, in order: the board's own CatSniffer-Firmware release (when
+        the board is known), the repository's latest release, then the Sniffle
+        release the P1/P7 images are mirrored from.
+        """
+        board_assets = self._hex_assets_for_board(board)
         sources = (GITHUB_RELEASE_URL, GITHUB_RELEASE_URL_SNIFFLE)
+
+        def _download(asset) -> Optional[str]:
+            name = asset.get("name", "")
+            target_dir = self.get_releases_path()
+            os.makedirs(target_dir, exist_ok=True)
+            path = os.path.join(target_dir, name)
+            console.print(f"[*] Downloading {name}...")
+            content = requests.get(asset.get("browser_download_url"), timeout=15)
+            content.raise_for_status()
+            with open(path, "wb") as f:
+                f.write(content.content)
+            return path
+
+        def _matches(asset) -> bool:
+            name = asset.get("name", "").lower()
+            return pattern.lower() in name and name.endswith(".hex")
+
+        for asset in board_assets:
+            if _matches(asset):
+                try:
+                    return _download(asset)
+                except Exception as e:
+                    logger.warning(
+                        f"[!] Could not fetch '{pattern}' from the "
+                        f"{board.generation} release: {e}"
+                    )
+
         for url in sources:
             try:
                 resp = requests.get(url, timeout=3)
                 resp.raise_for_status()
                 for asset in resp.json().get("assets", []):
-                    name = asset.get("name", "")
-                    if pattern.lower() in name.lower() and name.lower().endswith(
-                        ".hex"
-                    ):
-                        target_dir = self.get_releases_path()
-                        os.makedirs(target_dir, exist_ok=True)
-                        path = os.path.join(target_dir, name)
-                        console.print(f"[*] Downloading {name}...")
-                        content = requests.get(
-                            asset.get("browser_download_url"), timeout=15
-                        )
-                        content.raise_for_status()
-                        with open(path, "wb") as f:
-                            f.write(content.content)
-                        return path
+                    if _matches(asset):
+                        return _download(asset)
             except Exception as e:
                 logger.warning(f"[!] Could not fetch '{pattern}' from {url}: {e}")
         return None
@@ -891,7 +927,7 @@ class Flasher:
                 return False
             if pattern and not any(pattern.lower() in f.lower() for f in firmwares):
                 # The board's image is not in the local bundle: fetch it
-                fetched = self.fetch_asset_by_pattern(pattern)
+                fetched = self.fetch_asset_by_pattern(pattern, board=board)
                 if fetched:
                     firmwares = self.get_local_firmware()
                 elif not board.accepts_unnamed_images:
