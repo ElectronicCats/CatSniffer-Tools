@@ -109,6 +109,100 @@ def complete_firmware(ctx, param, incomplete):
     return matches or [CompletionItem(incomplete, type="file")]
 
 
+# (alias shown, official ID it resolves to, description). The ID is what
+# decides whether the alias is worth recommending on a given board.
+_ALIAS_RECOMMENDATIONS = (
+    (
+        "BLE:",
+        (
+            ("ble / sniffle", "sniffle", "Sniffle BLE sniffer"),
+            ("airtag-scanner", "airtag_scanner_cc1352p7", "Apple Airtag Scanner"),
+            ("airtag-spoofer", "airtag_spoofer_cc1352p7", "Apple Airtag Spoofer"),
+            ("justworks", "justworks_scanner_cc1352p7", "JustWorks scanner"),
+        ),
+    ),
+    (
+        "Zigbee/Thread/15.4 (TI Sniffer):",
+        (
+            ("zigbee", "ti_sniffer", "Texas Instruments multiprotocol sniffer"),
+            ("thread", "ti_sniffer", "(same as zigbee - supports both)"),
+            ("15.4", "ti_sniffer", "(same as zigbee - supports 802.15.4)"),
+            ("ti", "ti_sniffer", "Texas Instruments sniffer"),
+            ("multiprotocol", "ti_sniffer", "TI multiprotocol firmware"),
+        ),
+    ),
+)
+
+
+def _usable_aliases(board):
+    """(alias, description) pairs from the table, limited to ``board``."""
+    from .fw_aliases import official_ids_for_board
+
+    available = None if board is None else set(official_ids_for_board(board.generation))
+    return [
+        (alias, description)
+        for _heading, items in _ALIAS_RECOMMENDATIONS
+        for alias, official_id, description in items
+        if available is None or official_id in available
+    ]
+
+
+def _print_usage_examples(board) -> None:
+    """Print 'catnip flash <alias>' examples this board can actually run."""
+    usable = _usable_aliases(board)
+    if not usable:
+        return
+
+    print_title("Usage Examples:")
+    seen = set()
+    shown = 0
+    for alias, description in usable:
+        probe = alias.split("/")[0].strip()
+        if probe in seen:
+            continue
+        seen.add(probe)
+        print_example(f"catnip.py flash {probe}", f"({description})")
+        shown += 1
+        if shown == 4:
+            break
+    first = next(iter(seen))
+    print_example(f"catnip.py flash --device 1 {first}")
+
+
+def _print_alias_recommendations(board) -> None:
+    """Print the alias cheat-sheet, limited to what ``board`` can run.
+
+    ``board`` of None means "do not filter" (unknown board, or --all).
+    """
+    from .fw_aliases import official_ids_for_board
+
+    available = None if board is None else set(official_ids_for_board(board.generation))
+
+    sections = [
+        (
+            heading,
+            [item for item in items if available is None or item[1] in available],
+        )
+        for heading, items in _ALIAS_RECOMMENDATIONS
+    ]
+    sections = [(heading, items) for heading, items in sections if items]
+    if not sections:
+        return
+
+    print_title("Recommended Aliases by Protocol:")
+    for heading, items in sections:
+        print_subtitle(heading)
+        for alias, _official_id, description in items:
+            print_alias_item(alias, description, pad=18)
+
+    if board is not None:
+        print_empty_line()
+        print_dim(
+            f"Only aliases with a {board.cc_chip} image are listed; "
+            "'catnip flash --list --all' shows the whole catalogue."
+        )
+
+
 @click.command()
 @click.argument("firmware", required=False, shell_complete=complete_firmware)
 @device_option(
@@ -145,7 +239,7 @@ def flash(firmware, device, list, full, show_all, board_override) -> None:
         catnip flash ble --board v2       # name the board when its shell is dead
     """
 
-    from .fw_aliases import get_official_id
+    from .fw_aliases import get_official_id, get_display_alias
 
     # Initialize Flasher to manage firmware operations
     flasher = Flasher()
@@ -229,8 +323,12 @@ def flash(firmware, device, list, full, show_all, board_override) -> None:
                 fw_name_without_ext = os.path.splitext(fw)[0]
 
                 # Check if it matches any centralized alias or official ID
-                alias = get_official_id(fw_name_without_ext)
-                if alias:
+                official_id = get_official_id(fw_name_without_ext)
+                if official_id:
+                    # The column is a command a user can type, so it shows the
+                    # alias, not the internal ID (which names a CC1352 variant
+                    # that is not necessarily this file's).
+                    alias = get_display_alias(official_id)
                     firmware_to_alias[fw] = alias
                     alias_usage_count[alias] = alias_usage_count.get(alias, 0) + 1
                     continue
@@ -326,34 +424,15 @@ def flash(firmware, device, list, full, show_all, board_override) -> None:
 
             console.print(table)
 
-            # Show most useful aliases
-            print_title("Recommended Aliases by Protocol:")
+            # Show most useful aliases. Filtered by board for the same reason
+            # the table above is: recommending 'catnip flash zigbee' to a v2
+            # user advertises a command that can only ever be refused, since
+            # ti_sniffer has no CC1352P1 build.
+            _print_alias_recommendations(list_board if not show_all else None)
 
-            print_subtitle("BLE:")
-            print_alias_item("ble / sniffle", "Sniffle BLE sniffer", pad=18)
-            print_alias_item("airtag-scanner", "Apple Airtag Scanner", pad=18)
-            print_alias_item("airtag-spoofer", "Apple Airtag Spoofer", pad=18)
-            print_alias_item("justworks", "JustWorks scanner", pad=18)
-
-            print_subtitle("Zigbee/Thread/15.4 (TI Sniffer):")
-            print_alias_item(
-                "zigbee", "Texas Instruments multiprotocol sniffer", pad=18
-            )
-            print_alias_item("thread", "(same as zigbee - supports both)", pad=18)
-            print_alias_item("15.4", "(same as zigbee - supports 802.15.4)", pad=18)
-            print_alias_item("ti", "Texas Instruments sniffer", pad=18)
-            print_alias_item("multiprotocol", "TI multiprotocol firmware", pad=18)
-
-            # Use Information
-            print_title("Usage Examples:")
-            print_example(
-                "catnip.py flash zigbee", "         (TI multiprotocol sniffer)"
-            )
-            print_example("catnip.py flash thread", "        (same TI firmware)")
-            print_example("catnip.py flash ble", "           (Sniffle BLE)")
-            print_example("catnip.py flash lora-sniffer", "  (LoRa Sniffer)")
-            print_example("catnip.py flash airtag-scanner", "(Apple Airtag)")
-            print_example("catnip.py flash --device 1 zigbee")
+            # Use Information. Built from the same table as the block above,
+            # so an example is never a command this board cannot run.
+            _print_usage_examples(list_board if not show_all else None)
 
             return
 

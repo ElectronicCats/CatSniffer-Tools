@@ -712,6 +712,13 @@ class Flasher:
             self.release_description = data.get("body", "")
             self.release_assets = data.get("assets", [])
 
+            # /releases/latest is the newest release of the *repository*, not
+            # of a generation: the v3 line publishes more often, so "latest"
+            # is a v3.X.Y.Z tag and no v2.X.Y.Z asset is ever in it. Without
+            # this the catalogue a v2 board sees is whatever happens to be
+            # variant-agnostic, and 'flash --list' shows it one image.
+            self._append_other_generation_assets()
+
             # Fetch Sniffle release
             try:
                 fetch_releases = requests.get(GITHUB_RELEASE_URL_SNIFFLE, timeout=1)
@@ -752,6 +759,35 @@ class Flasher:
             logger.warning(f"[!] Could not list {board.generation} releases: {e}")
             return []
         return (rel or {}).get("assets", [])
+
+    def _append_other_generation_assets(self) -> None:
+        """Add the assets of every generation not covered by /releases/latest.
+
+        The release folder is one flat catalogue shared by both generations
+        (the Sniffle CC1352P1 image has always lived there next to the P7
+        one); ``file_available_for_board`` is what decides per board which of
+        them may be shown or flashed, so downloading both is safe and is the
+        only way a v2 board finds its images without asking for them by name.
+        """
+        from .board import BOARDS
+
+        seen = {a.get("name", "") for a in self.release_assets}
+        tag = self.release_tag or ""
+        for board in BOARDS.values():
+            if tag.startswith(board.tag_prefix):
+                continue  # this generation is what /releases/latest returned
+            rel = self.get_release_for_board(board)
+            if not rel:
+                logger.warning(
+                    f"[!] No {board.generation} release found "
+                    f"(tags {board.tag_prefix}X.Y.Z)"
+                )
+                continue
+            for asset in rel.get("assets", []):
+                name = asset.get("name", "")
+                if name and name not in seen:
+                    seen.add(name)
+                    self.release_assets.append(asset)
 
     def fetch_asset_by_pattern(self, pattern: str, board=None) -> Optional[str]:
         """
