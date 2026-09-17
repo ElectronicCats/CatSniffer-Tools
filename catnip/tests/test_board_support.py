@@ -200,16 +200,30 @@ class TestBoardCatalog:
         )
 
     def test_v2_has_no_p7_only_images(self):
-        for fw_id in (
-            "ti_sniffer",
-            "airtag_scanner_cc1352p7",
-            "airtag_spoofer_cc1352p7",
-            "justworks_scanner_cc1352p7",
-        ):
-            assert fw_aliases.get_filename_pattern(fw_id, "v2") is None
+        # ti_sniffer is the only ID with no CC1352P1 build; the airtag and
+        # justworks images do ship as P1 .hex assets in the v2.X.Y.Z releases.
+        assert fw_aliases.get_filename_pattern("ti_sniffer", "v2") is None
+
+    @pytest.mark.parametrize(
+        "fw_id,expected",
+        [
+            ("airtag_scanner_cc1352p7", "airtag_scanner_CC1352P1"),
+            ("airtag_spoofer_cc1352p7", "airtag_spoofer_CC1352P1"),
+            ("justworks_scanner_cc1352p7", "justworks_scanner_CC1352P1"),
+        ],
+    )
+    def test_v2_maps_shared_ids_to_p1_images(self, fw_id, expected):
+        # The official ID keeps its historical _cc1352p7 spelling (it must
+        # match RP2040/src/fw_metadata.c); only the file it resolves to is
+        # per-board. The P1 name must still read as a P1 image.
+        assert fw_aliases.get_filename_pattern(fw_id, "v2") == expected
+        assert board_mod.image_variant(expected + ".hex") == "CC1352P1"
+        assert board_mod.image_allowed_for_board(expected + ".hex", BOARD_V2)[0]
+        assert not board_mod.image_allowed_for_board(expected + ".hex", BOARD_V3)[0]
 
     def test_official_ids_for_board(self):
         assert "sniffle" in fw_aliases.official_ids_for_board("v2")
+        assert "airtag_scanner_cc1352p7" in fw_aliases.official_ids_for_board("v2")
         assert "ti_sniffer" not in fw_aliases.official_ids_for_board("v2")
         assert "ti_sniffer" in fw_aliases.official_ids_for_board("v3")
 
@@ -344,11 +358,11 @@ class TestBoardCapabilities:
             assert board.bridge_ring_bytes > 0
 
     def test_v2_lacks_what_it_physically_lacks(self):
-        # No CONFIG_NVS (16 KB of SRAM), no RP2040 to run free_dap on, and its
-        # release workflow publishes no CC1352 .hex assets.
+        # No CONFIG_NVS (16 KB of SRAM) and no RP2040 to run free_dap on.
+        # It *does* publish CC1352P1 .hex assets since the v2.1.0.0 release.
         assert BOARD_V2.has_fw_id_storage is False
         assert BOARD_V2.can_self_program_cc1352 is False
-        assert BOARD_V2.ships_cc1352_hex_assets is False
+        assert BOARD_V2.ships_cc1352_hex_assets is True
         assert BOARD_V2.accepts_unnamed_images is False
         assert BOARD_V2.bridge_ring_bytes < BOARD_V3.bridge_ring_bytes
 
@@ -705,7 +719,7 @@ class TestRequireCapability:
 
     @pytest.mark.parametrize(
         "capability",
-        ("has_fw_id_storage", "can_self_program_cc1352", "ships_cc1352_hex_assets"),
+        ("has_fw_id_storage", "can_self_program_cc1352", "accepts_unnamed_images"),
     )
     def test_every_capability_the_v2_lacks_has_a_written_reason(self, capability):
         from modules.core.exceptions import UnsupportedOnBoardError
@@ -745,6 +759,16 @@ class TestRequireFirmwareForBoard:
     def test_sniffle_is_fine_on_v2(self):
         assert (
             board_mod.require_firmware_for_board(BOARD_V2, "sniffle", "catnip vhci")
+            is None
+        )
+
+    def test_airtag_scanner_is_fine_on_v2(self):
+        # Regression: 'catnip flash airtag_scanner' on a v2 used to be refused
+        # although airtag_scanner_CC1352P1.hex ships in the v2.1.0.0 release.
+        assert (
+            board_mod.require_firmware_for_board(
+                BOARD_V2, "airtag_scanner_cc1352p7", "catnip flash airtag_scanner"
+            )
             is None
         )
 
@@ -1139,7 +1163,20 @@ class TestStatusCommandShowsBoardTruth:
         assert result.exit_code == 0
         assert "Board can" in rendered
         assert "Stores the CC1352 firmware id" in rendered
-        assert "yes" not in rendered.split("Board can")[1]
+        rows = rendered.split("Board can")[1]
+        # Every capability the v2 really lacks is listed, and shipping CC1352
+        # .hex assets is no longer one of them (the v2.1.0.0 release ships
+        # airtag_scanner/airtag_spoofer/justworks_scanner CC1352P1 images).
+        supported = dict(board_mod.capability_rows(BOARD_V2))
+        assert supported["Stores the CC1352 firmware id"] is False
+        assert supported["Can self-program the CC1352 (catnip restore)"] is False
+        assert supported["Its releases ship CC1352 .hex assets"] is True
+        for label, is_supported in supported.items():
+            assert label in rows
+            assert (
+                f"{'yes' if is_supported else 'no '}[/{'green' if is_supported else 'yellow'}]  {label}"
+                in rendered
+            )
 
     def test_v3_capabilities_are_listed_as_supported(self):
         _, rendered, _ = self._run(BOARD_V3, self._status(V3_STATUS))
