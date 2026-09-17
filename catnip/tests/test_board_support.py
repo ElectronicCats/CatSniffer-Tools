@@ -221,6 +221,24 @@ class TestBoardCatalog:
         assert board_mod.image_allowed_for_board(expected + ".hex", BOARD_V2)[0]
         assert not board_mod.image_allowed_for_board(expected + ".hex", BOARD_V3)[0]
 
+    @pytest.mark.parametrize(
+        "filename,expected",
+        [
+            ("justworks_scanner_CC1352P1.hex", "justworks_scanner_cc1352p7"),
+            ("justworks_scanner_CC1352P7_1.hex", "justworks_scanner_cc1352p7"),
+            ("airtag_scanner_CC1352P1.hex", "airtag_scanner_cc1352p7"),
+            ("airtag_spoofer_CC1352P1.hex", "airtag_spoofer_cc1352p7"),
+        ],
+    )
+    def test_release_filenames_resolve_to_an_official_id(self, filename, expected):
+        # Every .hex the release folder can hold must map back to an ID, or
+        # 'flash --list' shows it with a made-up alias and the registry cannot
+        # describe it. justworks_scanner_* matched no rule at all.
+        import os
+
+        stem = os.path.splitext(filename)[0]
+        assert fw_aliases.get_official_id(stem) == expected
+
     def test_official_ids_for_board(self):
         assert "sniffle" in fw_aliases.official_ids_for_board("v2")
         assert "airtag_scanner_cc1352p7" in fw_aliases.official_ids_for_board("v2")
@@ -1479,3 +1497,175 @@ class TestReleaseForBoardPicksTheHighest:
         ]
         with patch("modules.firmware.flasher.requests.get", return_value=resp):
             assert flasher.get_release_for_board(BOARD_V3)["tag_name"] == "v3.1.0.0"
+
+
+class TestBootstrapCoversBothGenerations:
+    """The release folder must hold both generations' images.
+
+    /releases/latest names one generation only (the v3 line publishes more
+    often), so a v2 board used to find a single flashable image in a freshly
+    downloaded bundle: the Sniffle CC1352P1 mirror.
+    """
+
+    def _flasher(self, latest_tag, latest_assets, releases):
+        from unittest import mock
+        from modules.firmware import flasher as flasher_mod
+
+        f = flasher_mod.Flasher.__new__(flasher_mod.Flasher)
+        f.release_tag = latest_tag
+        f.release_assets = [{"name": n} for n in latest_assets]
+        f.get_release_for_board = lambda board: next(
+            (r for r in releases if r["tag_name"].startswith(board.tag_prefix)),
+            None,
+        )
+        return f
+
+    def test_v2_assets_are_added_to_a_v3_latest(self):
+        f = self._flasher(
+            "v3.1.0.1",
+            ["airtag_scanner_CC1352P_7.hex", "catsniffer-v3.1.0.1.uf2"],
+            [
+                {
+                    "tag_name": "v2.1.0.0",
+                    "assets": [
+                        {"name": "airtag_scanner_CC1352P1.hex"},
+                        {"name": "justworks_scanner_CC1352P1.hex"},
+                        {"name": "catsniffer-v2.1.0.0.uf2"},
+                    ],
+                }
+            ],
+        )
+        f._append_other_generation_assets()
+        names = [a["name"] for a in f.release_assets]
+        assert "airtag_scanner_CC1352P1.hex" in names
+        assert "justworks_scanner_CC1352P1.hex" in names
+        assert "catsniffer-v2.1.0.0.uf2" in names
+        # and the v3 ones are untouched
+        assert "airtag_scanner_CC1352P_7.hex" in names
+
+    def test_the_latest_generation_is_not_fetched_twice(self):
+        f = self._flasher(
+            "v3.1.0.1",
+            ["airtag_scanner_CC1352P_7.hex"],
+            [
+                {
+                    "tag_name": "v3.1.0.1",
+                    "assets": [{"name": "airtag_scanner_CC1352P_7.hex"}],
+                },
+                {"tag_name": "v2.1.0.0", "assets": []},
+            ],
+        )
+        f._append_other_generation_assets()
+        names = [a["name"] for a in f.release_assets]
+        assert names.count("airtag_scanner_CC1352P_7.hex") == 1
+
+    def test_a_v2_sees_more_than_the_sniffle_mirror(self):
+        bundle = [
+            "airtag_scanner_CC1352P_7.hex",
+            "airtag_spoofer_CC1352P_7.hex",
+            "catsniffer-v3.1.0.1.uf2",
+            "sniffer_fw_Catsniffer_v3.x.hex",
+            "sniffle_cc1352p7_1M.hex",
+            "sniffle_cc1352p1_cc2652p1_1M.hex",
+            "airtag_scanner_CC1352P1.hex",
+            "airtag_spoofer_CC1352P1.hex",
+            "justworks_scanner_CC1352P1.hex",
+            "catsniffer-v2.1.0.0.uf2",
+        ]
+        visible = [f for f in bundle if board_mod.file_available_for_board(f, BOARD_V2)]
+        assert sorted(visible) == [
+            "airtag_scanner_CC1352P1.hex",
+            "airtag_spoofer_CC1352P1.hex",
+            "catsniffer-v2.1.0.0.uf2",
+            "justworks_scanner_CC1352P1.hex",
+            "sniffle_cc1352p1_cc2652p1_1M.hex",
+        ]
+        # no CC1352P7 image leaks into a v2 listing
+        assert not any("P_7" in f or "p7" in f for f in visible)
+
+
+class TestAliasRecommendationsAreBoardAware:
+    def test_v2_is_not_told_to_flash_zigbee(self):
+        from modules.firmware import cli as fw_cli
+
+        available = set(fw_aliases.official_ids_for_board(BOARD_V2.generation))
+        shown = [
+            alias
+            for _heading, items in fw_cli._ALIAS_RECOMMENDATIONS
+            for alias, official_id, _desc in items
+            if official_id in available
+        ]
+        assert "zigbee" not in shown
+        assert "multiprotocol" not in shown
+        assert "airtag-scanner" in shown
+        assert "justworks" in shown
+        assert "ble / sniffle" in shown
+
+    def test_v3_still_sees_the_ti_aliases(self):
+        from modules.firmware import cli as fw_cli
+
+        available = set(fw_aliases.official_ids_for_board(BOARD_V3.generation))
+        shown = [
+            alias
+            for _heading, items in fw_cli._ALIAS_RECOMMENDATIONS
+            for alias, official_id, _desc in items
+            if official_id in available
+        ]
+        assert "zigbee" in shown
+        assert "airtag-scanner" in shown
+
+    def test_every_recommended_alias_resolves_to_its_stated_id(self):
+        from modules.firmware import cli as fw_cli
+
+        for _heading, items in fw_cli._ALIAS_RECOMMENDATIONS:
+            for alias, official_id, _desc in items:
+                probe = alias.split("/")[0].strip()
+                assert fw_aliases.get_official_id(probe) == official_id, alias
+
+
+class TestDisplayAlias:
+    """The Alias column must be a command, not an internal ID."""
+
+    def test_ids_map_to_typeable_aliases(self):
+        for official_id, alias in fw_aliases.OFFICIAL_ID_TO_DISPLAY_ALIAS.items():
+            assert fw_aliases.get_official_id(alias) == official_id, alias
+
+    def test_a_v2_image_is_not_labelled_cc1352p7(self):
+        # 'airtag_scanner_CC1352P1.hex' used to be listed under the alias
+        # 'airtag_scanner_cc1352p7' -- the ID of the image, naming the wrong
+        # chip for the board the file is for.
+        official_id = fw_aliases.get_official_id("airtag_scanner_CC1352P1")
+        alias = fw_aliases.get_display_alias(official_id)
+        assert "cc1352p7" not in alias.lower()
+        assert alias == "airtag-scanner"
+
+    def test_unknown_ids_fall_back_to_themselves(self):
+        assert fw_aliases.get_display_alias("rp2040_boot") == "rp2040_boot"
+
+
+class TestDisplayAlias:
+    """The Alias column must be a command, not an internal ID."""
+
+    @pytest.mark.parametrize(
+        "official_id,expected",
+        [
+            ("airtag_scanner_cc1352p7", "airtag-scanner"),
+            ("airtag_spoofer_cc1352p7", "airtag-spoofer"),
+            ("justworks_scanner_cc1352p7", "justworks"),
+            ("sniffle", "ble"),
+            ("ti_sniffer", "zigbee"),
+        ],
+    )
+    def test_display_alias_round_trips(self, official_id, expected):
+        assert fw_aliases.get_display_alias(official_id) == expected
+        # and what is printed must resolve back to the same image
+        assert fw_aliases.get_official_id(expected) == official_id
+
+    def test_a_v2_image_is_never_labelled_p7(self):
+        # 'airtag_scanner_CC1352P1.hex' used to be listed under the alias
+        # 'airtag_scanner_cc1352p7' on a v2 board.
+        official_id = fw_aliases.get_official_id("airtag_scanner_CC1352P1")
+        assert "p7" not in fw_aliases.get_display_alias(official_id).lower()
+
+    def test_unknown_id_falls_back_to_itself(self):
+        assert fw_aliases.get_display_alias("rp2040_boot") == "rp2040_boot"
