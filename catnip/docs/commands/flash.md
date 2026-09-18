@@ -83,6 +83,8 @@ Four ways, in order of convenience. All four resolve to the same file.
 | `-l, --list` | List available firmware images to flash |
 | `--full` | Show full descriptions without truncation in the list |
 | `--all` | With `--list`, show the whole catalogue instead of only the images that can be flashed on the connected board |
+| `--refresh` | Check GitHub for a newer firmware release now and download it if there is one. A standalone command on its own — cannot be combined with `--list` or a firmware name. |
+| `--force` | With `--refresh`: wipe the local `.catnip` firmware cache and re-download everything from scratch, even onto the same tag. For a corrupted local file. |
 | `--board [v2\|v3]` | Board generation override (v2 = SAMD21 + CC1352P1, v3 = RP2040 + CC1352P7). Only needed when the Cat-Shell port cannot answer; the wrong value disables the CC1352 bootloader |
 
 > [!Important]
@@ -132,6 +134,55 @@ list rather than picking something:
 ℹ Use 'catnip flash --list' to see available firmware images and aliases.
 ℹ Or specify a firmware name: catnip flash <firmware_name_or_alias>
 ```
+
+---
+
+## `flash --refresh`
+
+```sh
+catnip flash --refresh
+```
+
+```
+ℹ Checking for firmware updates...
+✓ Updated v3.1.0.0 → v3.1.0.1 (11 images).
+```
+
+```sh
+catnip flash --refresh   # nothing new
+```
+
+```
+ℹ Checking for firmware updates...
+✓ Already up to date — v3.1.0.1 (11 images).
+```
+
+Checks GitHub's latest `CatSniffer-Firmware` release against what is cached
+under `~/.catnip`, and downloads it only if the tag actually changed. Only one
+release is ever kept on disk, so an update replaces it rather than adding to
+it. A network failure here is a clean error (exit code 3), not a silent
+fall-back — you explicitly asked to check.
+
+```sh
+catnip flash --refresh --force
+```
+
+```
+⚠ --force: deleting the local firmware cache and starting over.
+✓ Downloaded v3.1.0.1 (11 images).
+```
+
+`--force` only makes sense with `--refresh`. It deletes the whole cache —
+every downloaded image, not just the CC1352 one you happen to be using — and
+re-downloads the latest release from nothing, even if it is the same tag
+already on disk. Reach for it when a local image is suspected corrupt (an
+interrupted download, a manually edited cache) and a normal `--refresh` would
+see the same tag and consider it done.
+
+`--refresh` cannot be combined with `--list` or a firmware name; run it on its
+own. Firmware is otherwise still downloaded on demand as usual — `--refresh`
+is for pulling a newer release in ahead of that, not something flashing itself
+needs.
 
 ---
 
