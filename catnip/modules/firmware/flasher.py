@@ -14,6 +14,7 @@ from ..core.catnip import (
     CatSnifferDevice,
     ShellConnection,
 )
+from ..core.exceptions import FirmwareError
 from .cc2538 import (
     CommandInterface,
     FirmwareFile,
@@ -654,6 +655,61 @@ class Flasher:
         except Exception as e:
             logger.error(f"[X] Error checking remote version: {e}")
             return False
+
+    def check_remote_tag(self) -> str:
+        """The tag GitHub's ``/releases/latest`` reports right now.
+
+        Unlike :meth:`check_new_remote_version` (which is the once-a-day
+        background check and fails *closed* -- "no update" -- so a network
+        hiccup never blocks an unrelated command), this raises on failure. It
+        backs ``catnip flash --refresh``, an explicit request to check: the
+        user asked, so a network failure has to be reported, not swallowed
+        into a silent "nothing new".
+        """
+        try:
+            resp = requests.get(GITHUB_RELEASE_URL, timeout=5)
+            resp.raise_for_status()
+            tag = resp.json().get("tag_name")
+        except requests.exceptions.RequestException as e:
+            raise FirmwareError(f"could not reach GitHub: {e}") from e
+        if not tag:
+            raise FirmwareError(f"{GITHUB_RELEASE_URL} named no release (no tag_name)")
+        return tag
+
+    def refresh(self, force: bool = False) -> dict:
+        """Check GitHub for a newer firmware release and download it if
+        there is one -- ``catnip flash --refresh``'s engine.
+
+        A no-op (besides the revalidation stamp) when the cached tag is
+        already current. ``force`` skips that comparison and wipes the
+        local release folder before re-downloading, even onto the same tag
+        -- for a corrupted local file that a same-tag check would otherwise
+        leave alone. Only one release is ever kept on disk (unlike
+        bombercat's per-tag cache), so ``remove_release_dir()`` already
+        clears everything there is to clear.
+
+        Returns ``{"previous_tag", "tag", "updated"}``.
+        """
+        previous_tag = self.release_tag
+
+        if not force:
+            remote_tag = self.check_remote_tag()
+            if previous_tag and remote_tag == previous_tag:
+                self.create_local_metadata()  # bump today's revalidation stamp
+                return {
+                    "previous_tag": previous_tag,
+                    "tag": previous_tag,
+                    "updated": False,
+                }
+
+        if previous_tag:
+            self.remove_release_dir()
+        self.get_remove_firmware()
+        return {
+            "previous_tag": previous_tag,
+            "tag": self.release_tag,
+            "updated": True,
+        }
 
     def download_remote_firmware(self) -> None:
         if not self.release_assets:

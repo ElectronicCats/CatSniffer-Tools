@@ -169,6 +169,43 @@ def _print_usage_examples(board) -> None:
     print_example(f"catnip.py flash --device 1 {first}")
 
 
+def _refresh_firmware_cache(force: bool) -> None:
+    """``catnip flash --refresh`` on its own: check GitHub, download only
+    what changed, and say plainly what happened. ``--force`` wipes the
+    ``.catnip`` release folder first and re-downloads everything from
+    scratch, even onto the same tag -- for a corrupted local file that a
+    same-tag check would otherwise leave alone.
+    """
+    from ..core.exceptions import FirmwareError
+
+    if force:
+        print_warning("--force: deleting the local firmware cache and starting over.")
+    else:
+        print_info("Checking for firmware updates...")
+
+    flasher = Flasher()
+    try:
+        result = flasher.refresh(force=force)
+    except FirmwareError as e:
+        print_error(str(e))
+        exit(1)
+    except OSError as e:
+        print_error(f"could not update the firmware cache: {e}")
+        exit(1)
+
+    count = len(flasher.get_local_firmware())
+    plural = "image" if count == 1 else "images"
+    if not result["updated"]:
+        print_success(f"Already up to date — {result['tag']} ({count} {plural}).")
+    elif force or not result["previous_tag"]:
+        print_success(f"Downloaded {result['tag']} ({count} {plural}).")
+    else:
+        print_success(
+            f"Updated {result['previous_tag']} → {result['tag']} "
+            f"({count} {plural})."
+        )
+
+
 def _print_alias_recommendations(board) -> None:
     """Print the alias cheat-sheet, limited to what ``board`` can run.
 
@@ -226,8 +263,22 @@ def _print_alias_recommendations(board) -> None:
     help="With --list, show the whole catalogue instead of only the images "
     "that can be flashed on the connected board",
 )
+@click.option(
+    "--refresh",
+    is_flag=True,
+    help="Check GitHub for a newer firmware release now and download it if "
+    "there is one.",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="With --refresh: wipe the local firmware cache and re-download "
+    "everything from scratch.",
+)
 @board_option()
-def flash(firmware, device, list, full, show_all, board_override) -> None:
+def flash(
+    firmware, device, list, full, show_all, refresh, force, board_override
+) -> None:
     """Flash CC1352 Firmware or list available firmware images.
 
     \b
@@ -237,7 +288,22 @@ def flash(firmware, device, list, full, show_all, board_override) -> None:
         catnip flash ble                  # flash Sniffle BLE firmware
         catnip flash zigbee --device 1    # flash TI sniffer to device #1
         catnip flash ble --board v2       # name the board when its shell is dead
+        catnip flash --refresh            # update the cache to the latest release
+        catnip flash --refresh --force    # wipe the cache and redownload it
     """
+    if force and not refresh:
+        print_error("--force only makes sense together with --refresh.")
+        exit(1)
+
+    if refresh:
+        if list or firmware is not None:
+            print_error(
+                "--refresh cannot be combined with --list or a firmware name; "
+                "run it on its own: 'catnip flash --refresh'."
+            )
+            exit(1)
+        _refresh_firmware_cache(force)
+        return
 
     from .fw_aliases import get_official_id, get_display_alias
 
