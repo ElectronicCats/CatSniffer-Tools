@@ -14,9 +14,134 @@ No hardware is required: every assertion is written to hold with or without a
 CatSniffer plugged in.
 """
 
-import pytest
+from unittest.mock import MagicMock, patch
 
-from modules.firmware.cli import _CAPABILITY_NEXT_STEP, resolve_firmware
+import pytest
+from click.testing import CliRunner
+
+from modules.firmware.cli import _CAPABILITY_NEXT_STEP, flash, resolve_firmware
+
+
+@pytest.mark.unit
+class TestFlashRefreshCLI:
+    """`catnip flash --refresh [--force]` -- CLI wiring only. The actual
+    check/download logic lives in Flasher.refresh(), which is tested in
+    test_catsniffer.py::TestFlasherRefresh; here Flasher itself is a stub so
+    these tests hold with or without a real ``.catnip`` cache on disk.
+    """
+
+    def _run(self, args, refresh_result=None, refresh_error=None, local_firmware=None):
+        from modules.firmware import cli as fw_cli
+
+        fake_flasher = MagicMock()
+        fake_flasher.get_local_firmware.return_value = list(
+            local_firmware if local_firmware is not None else ["a.hex", "b.hex"]
+        )
+        if refresh_error is not None:
+            fake_flasher.refresh.side_effect = refresh_error
+        else:
+            fake_flasher.refresh.return_value = refresh_result
+
+        with patch.object(fw_cli, "Flasher", return_value=fake_flasher), patch.object(
+            fw_cli, "print_error"
+        ) as error, patch.object(fw_cli, "print_warning") as warning, patch.object(
+            fw_cli, "print_success"
+        ) as success, patch.object(
+            fw_cli, "print_info"
+        ) as info:
+            result = CliRunner().invoke(flash, args)
+        said = " ".join(
+            str(call.args[0])
+            for printer in (error, warning, success, info)
+            for call in printer.call_args_list
+        )
+        return result, fake_flasher, said
+
+    def test_force_without_refresh_is_rejected(self):
+        result, flasher, said = self._run(["--force"])
+
+        assert result.exit_code != 0
+        assert "--force only makes sense together with --refresh" in said
+        flasher.refresh.assert_not_called()
+
+    def test_refresh_combined_with_list_is_rejected(self):
+        result, flasher, said = self._run(["--refresh", "--list"])
+
+        assert result.exit_code != 0
+        assert "cannot be combined with --list" in said
+        flasher.refresh.assert_not_called()
+
+    def test_refresh_combined_with_a_firmware_name_is_rejected(self):
+        result, flasher, said = self._run(["--refresh", "ble"])
+
+        assert result.exit_code != 0
+        assert "cannot be combined" in said
+        flasher.refresh.assert_not_called()
+
+    def test_refresh_reports_already_up_to_date(self):
+        result, flasher, said = self._run(
+            ["--refresh"],
+            refresh_result={
+                "previous_tag": "v3.2.0.0",
+                "tag": "v3.2.0.0",
+                "updated": False,
+            },
+        )
+
+        assert result.exit_code == 0
+        assert "Already up to date" in said
+        assert "v3.2.0.0" in said
+        flasher.refresh.assert_called_once_with(force=False)
+
+    def test_refresh_reports_an_update(self):
+        result, flasher, said = self._run(
+            ["--refresh"],
+            refresh_result={
+                "previous_tag": "v3.1.0.0",
+                "tag": "v3.2.0.0",
+                "updated": True,
+            },
+        )
+
+        assert result.exit_code == 0
+        assert "Updated v3.1.0.0" in said
+        assert "v3.2.0.0" in said
+        flasher.refresh.assert_called_once_with(force=False)
+
+    def test_force_reports_a_fresh_download_even_onto_the_same_tag(self):
+        result, flasher, said = self._run(
+            ["--refresh", "--force"],
+            refresh_result={
+                "previous_tag": "v3.2.0.0",
+                "tag": "v3.2.0.0",
+                "updated": True,
+            },
+        )
+
+        assert result.exit_code == 0
+        assert "--force" in said
+        assert "Downloaded v3.2.0.0" in said
+        assert "Updated" not in said
+        flasher.refresh.assert_called_once_with(force=True)
+
+    def test_refresh_network_failure_is_a_clean_error(self):
+        from modules.core.exceptions import FirmwareError
+
+        result, flasher, said = self._run(
+            ["--refresh"], refresh_error=FirmwareError("could not reach GitHub: boom")
+        )
+
+        assert result.exit_code != 0
+        assert "could not reach GitHub: boom" in said
+
+    def test_refresh_disk_failure_is_a_clean_error(self):
+        result, flasher, said = self._run(
+            ["--refresh"], refresh_error=OSError("No space left on device")
+        )
+
+        assert result.exit_code != 0
+        assert "could not update the firmware cache" in said
+        assert "No space left on device" in said
 
 
 @pytest.mark.unit

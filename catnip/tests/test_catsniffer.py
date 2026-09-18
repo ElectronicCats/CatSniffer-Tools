@@ -887,6 +887,165 @@ class TestFlasherChecksumVerification:
         assert not bad_file.exists()
 
 
+def _real_requests_module():
+    """The genuine ``requests`` package, bypassing a MagicMock stand-in an
+    earlier-collected test module may have installed under
+    ``sys.modules["requests"]`` before anything had really imported it
+    (``make_fake_modules()`` above only fakes what is not already cached, and
+    which module gets there first depends on collection order). Whatever was
+    cached is put back before returning, so this has no effect beyond the
+    caller's own use of the returned module object.
+    """
+    import importlib
+    import sys as _sys
+
+    previous = _sys.modules.pop("requests", None)
+    try:
+        return importlib.import_module("requests")
+    finally:
+        if previous is not None:
+            _sys.modules["requests"] = previous
+
+
+class TestFlasherRefresh:
+    """Flasher.check_remote_tag()/refresh(): the engine behind
+    `catnip flash --refresh [--force]`. Only one release is ever kept on
+    disk, so `refresh()` composes existing primitives (remove_release_dir,
+    get_remove_firmware) instead of needing a new cache-clearing method."""
+
+    def _flasher(self, tag="v3.1.0.0"):
+        from modules.firmware.flasher import Flasher
+
+        f = Flasher.__new__(Flasher)
+        f.release_tag = tag
+        f.release_assets = []
+        f.release_published_date = None
+        f.release_description = None
+        return f
+
+    def test_check_remote_tag_returns_the_tag(self):
+        flasher = self._flasher()
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {"tag_name": "v3.2.0.0"}
+
+        with patch("requests.get", return_value=response):
+            assert flasher.check_remote_tag() == "v3.2.0.0"
+
+    def test_check_remote_tag_raises_on_network_failure(self):
+        import modules.firmware.flasher as flasher_mod
+        from modules.core.exceptions import FirmwareError
+
+        # Needs a real requests.exceptions.ConnectionError to raise: see
+        # _real_requests_module() for why "requests" cannot just be
+        # imported plainly here.
+        real_requests = _real_requests_module()
+        flasher = self._flasher()
+        with patch.object(flasher_mod, "requests", real_requests), patch.object(
+            real_requests,
+            "get",
+            side_effect=real_requests.exceptions.ConnectionError("no route to host"),
+        ):
+            with pytest.raises(FirmwareError, match="could not reach GitHub"):
+                flasher.check_remote_tag()
+
+    def test_check_remote_tag_raises_when_the_release_names_no_tag(self):
+        from modules.core.exceptions import FirmwareError
+
+        flasher = self._flasher()
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {}
+
+        with patch("requests.get", return_value=response):
+            with pytest.raises(FirmwareError, match="no tag_name"):
+                flasher.check_remote_tag()
+
+    def test_refresh_on_a_current_tag_downloads_nothing(self):
+        flasher = self._flasher(tag="v3.2.0.0")
+
+        with patch.object(
+            flasher, "check_remote_tag", return_value="v3.2.0.0"
+        ), patch.object(flasher, "remove_release_dir") as remove, patch.object(
+            flasher, "get_remove_firmware"
+        ) as get_fw, patch.object(
+            flasher, "create_local_metadata"
+        ) as stamp:
+            result = flasher.refresh()
+
+        remove.assert_not_called()
+        get_fw.assert_not_called()
+        stamp.assert_called_once()
+        assert result == {
+            "previous_tag": "v3.2.0.0",
+            "tag": "v3.2.0.0",
+            "updated": False,
+        }
+
+    def test_refresh_downloads_a_newer_tag(self):
+        flasher = self._flasher(tag="v3.1.0.0")
+
+        def _fetch():
+            flasher.release_tag = "v3.2.0.0"
+
+        with patch.object(
+            flasher, "check_remote_tag", return_value="v3.2.0.0"
+        ), patch.object(flasher, "remove_release_dir") as remove, patch.object(
+            flasher, "get_remove_firmware", side_effect=_fetch
+        ) as get_fw:
+            result = flasher.refresh()
+
+        remove.assert_called_once()
+        get_fw.assert_called_once()
+        assert result == {
+            "previous_tag": "v3.1.0.0",
+            "tag": "v3.2.0.0",
+            "updated": True,
+        }
+
+    def test_refresh_force_redownloads_the_same_tag_without_checking_github(self):
+        flasher = self._flasher(tag="v3.2.0.0")
+
+        with patch.object(flasher, "check_remote_tag") as check, patch.object(
+            flasher, "remove_release_dir"
+        ) as remove, patch.object(flasher, "get_remove_firmware") as get_fw:
+            result = flasher.refresh(force=True)
+
+        check.assert_not_called()
+        remove.assert_called_once()
+        get_fw.assert_called_once()
+        assert result == {
+            "previous_tag": "v3.2.0.0",
+            "tag": "v3.2.0.0",
+            "updated": True,
+        }
+
+    def test_refresh_on_an_empty_cache_skips_the_removal_step(self):
+        flasher = self._flasher(tag=None)
+
+        with patch.object(
+            flasher, "check_remote_tag", return_value="v3.1.0.0"
+        ), patch.object(flasher, "remove_release_dir") as remove, patch.object(
+            flasher, "get_remove_firmware"
+        ) as get_fw:
+            flasher.refresh()
+
+        remove.assert_not_called()
+        get_fw.assert_called_once()
+
+    def test_refresh_propagates_a_network_failure(self):
+        from modules.core.exceptions import FirmwareError
+
+        flasher = self._flasher()
+        with patch.object(
+            flasher,
+            "check_remote_tag",
+            side_effect=FirmwareError("could not reach GitHub: boom"),
+        ):
+            with pytest.raises(FirmwareError, match="could not reach GitHub"):
+                flasher.refresh()
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 #  3.  modules/bridge.py
 # ═════════════════════════════════════════════════════════════════════════════
