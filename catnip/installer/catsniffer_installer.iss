@@ -1,10 +1,14 @@
 ; catsniffer_installer.iss
 ; Script for Inno Setup
 
+#define AppVersionFile FileOpen(AddBackslash(SourcePath) + "..\VERSION")
+#define MyAppVersion Trim(FileRead(AppVersionFile))
+#expr FileClose(AppVersionFile)
+
 [Setup]
 AppId={{3F8E3E2D-2C5B-4A1F-8E3B-1C4D5E6F7A8B}
 AppName=Catnip
-AppVersion=3.3.2.1
+AppVersion={#MyAppVersion}
 AppPublisher=Electronic Cats
 AppPublisherURL=https://github.com/ElectronicCats/CatSniffer-Tools
 AppSupportURL=https://github.com/ElectronicCats/CatSniffer-Tools/issues

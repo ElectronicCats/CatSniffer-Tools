@@ -37,6 +37,30 @@ def convert_channel_to_freq(channel) -> float:
     return CHANNEL_RANGE_IEEE802145[0][1]
 
 
+def cc1352_band_command() -> str:
+    """``band1``: point the RF switch at the CC1352's 2.4 GHz antenna path.
+
+    The counterpart of :func:`protocol.sniffer_sx.sx1262_band_command`.  The
+    board's antenna is shared through a switch (``ctf1``/``ctf2``/``ctf3``)
+    driven by the RP2040, and its position *survives across capture sessions*:
+    ``change_band`` returns early when the requested band is already selected
+    and nothing resets it between runs.  So a Zigbee, Thread or BLE capture
+    started after a ``sniff lora`` inherits ``SUBGIG_2`` and listens through
+    the SX1262 leg — the symmetric half of the bug ``band3`` fixes.
+
+    Asking for the band explicitly is the only reliable option: the firmware's
+    boot-time ``change_band(GIG)`` is a no-op, because ``catsniffer = { 0 }``
+    already leaves ``band == GIG`` and the call hits that same early return
+    without ever driving a pin.
+
+    Every TI capture catnip drives is on 2.4 GHz — Zigbee and Thread are
+    restricted to channels 11-26, and Sniffle's BLE channels are 2.4 GHz by
+    definition — so this takes no argument.  Sub-GHz CC1352 work would need
+    ``band2`` (``SUBGIG_1``).
+    """
+    return "band1"
+
+
 class TIBaseCommand:
     class ByteCommands(enum.Enum):
         PING = 0x40

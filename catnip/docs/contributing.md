@@ -42,7 +42,7 @@ This guide provides the necessary instructions for adding new functionalities to
     - [Testing Best Practices](#testing-best-practices)
   - [Documentation](#documentation)
     - [Document New Commands](#document-new-commands)
-    - [Update README.md](#update-readmemd)
+    - [Add the page under `docs/`](#add-the-page-under-docs)
     - [Add to This Guide](#add-to-this-guide)
   - [New Feature Checklist](#new-feature-checklist)
   - [Additional Resources](#additional-resources)
@@ -98,7 +98,7 @@ Before starting, identify what type of feature you want to add:
 
 ### Step 1: Define the command in `cli.py`
 
-Commands are defined using Click. Look for the commands section in modules/cli.py:
+Commands are defined using Click. Each feature owns its commands in `modules/<feature>/cli.py`; `modules/core/cli.py` only assembles them with `add_command()`:
 
 ```python
 # Typical command structure
@@ -207,7 +207,7 @@ class NewSniffer(SnifferBase):
 
 ### Step 2: Integrate with the sniffing system
 
-In `modules/cli.py`, add the new command:
+In `modules/sniff/cli.py`, add the new command:
 
 ```python
 @cli.command('sniff')
@@ -226,23 +226,23 @@ def sniff(protocol, ...):
 
 ### Step 3: BLE/VHCI Support (If applicable)
 
-If the protocol is Bluetooth Low Energy or similar using HCI, integrate with modules/vhci/:
+If the protocol is Bluetooth Low Energy or similar using HCI, integrate with modules/protocols/vhci/:
 
 ```python
-# In modules/cli.py
+# In modules/sniff/cli.py
 @cli.command('vhci_scan')
 def vhci_scan():
-    from modules.vhci.bridge import VHCIBridge
+    from modules.protocols.vhci.bridge import VHCIBridge
     # Scanning logic using the VHCI bridge
     pass
 ```
 
 ### Step 4: Add Wireshark support (optional)
 
-If you want Wireshark integration, extend `modules/pipes.py`:
+If you want Wireshark integration, extend `modules/core/pipes.py`:
 
 ```
-# In modules/pipes.py
+# In modules/core/pipes.py
 def create_new_pipe():
     """Create pipe for the new protocol"""
     # Implement PCAP pipe creation
@@ -311,7 +311,7 @@ class NewModule:
 ### Step 4: Add CLI commands
 
 ```python
-# In modules/cli.py
+# In modules/new_module/cli.py — then register it in modules/core/cli.py:build_cli()
 @cli.group('new')
 def new_group():
     """New module tools"""
@@ -362,16 +362,16 @@ FIRMWARE_METADATA = {
 
 The CatSniffer uses a metadata system in the RP2040's NVS memory to know which firmware the CC1352P7 has loaded.
 
-1. **Define Official ID**: In `modules/fw_aliases.py`, associate your firmware with a short, unique ID.
+1. **Define Official ID**: In `modules/firmware/fw_aliases.py`, associate your firmware with a short, unique ID.
 
 2. **Update `fw_metadata.py`**: Ensure the RP2040 shell commands support the new ID if necessary.
 
 ### Step 3: Add aliases (optional)
 
-In `modules/fw_aliases.py`, make flashing easier for users with short names:
+In `modules/firmware/fw_aliases.py`, make flashing easier for users with short names:
 
 ```python
-# In modules/fw_aliases.py
+# In modules/firmware/fw_aliases.py
 FIRMWARE_ALIASES = {
     'new': 'new_proto',
     'proto-x': 'new_proto',
@@ -555,7 +555,7 @@ pytest -v
 
 ### Document New Commands
 
-Add command documentation in `cli.py` using docstrings:
+Add command documentation in the feature's `cli.py` using docstrings:
 
 ```python
 @cli.command('my_command')
@@ -575,13 +575,46 @@ def my_command(option, verbose):
     pass
 ```
 
-### Update README.md
+### Add the page under `docs/`
 
-If you add a significant new feature:
+The README is the front page and an index: it documents no flags, ever. Each
+command group gets one page in `docs/commands/`, and the cross-cutting pages in
+`docs/` hold everything that spans more than one command.
 
-1. Add to the command table
-2. Document in the corresponding section
-3. Include usage examples
+1. Regenerate the CLI snapshot, which is the source of truth for the docs:
+
+   ```sh
+   python scripts/dump_cli_tree.py > tests/snapshots/cli_tree_linux.txt
+   ```
+
+2. Copy the skeleton and keep its section order:
+
+   ```sh
+   cp docs/commands/_template.md docs/commands/<group>.md
+   ```
+
+3. Copy the one-line description and every flag description **literally** from
+   `--help`. That is what keeps the CLI and the docs in sync without tooling;
+   if the wording reads badly in the docs, fix the `--help` text and copy it
+   again.
+4. Paste **real** output from an actual run. Command blocks use ` ```sh `,
+   output blocks carry **no language** -- that is how a reader tells input from
+   output. If you have no hardware to hand, leave an
+   `<!-- TODO: paste a real ... -->` comment rather than inventing output.
+5. Add the row to the *Documentation* table in `README.md` and to the command
+   index in `docs/reference.md`.
+
+A subcommand gets an `###` in its group's page, in the same order as `--help`.
+A flag gets a row in the options table. Content that spans commands goes to the
+page that owns it and is linked from the rest, never written twice:
+`docs/firmware.md` for images and aliases, `docs/wireshark.md` for captures,
+`docs/troubleshooting.md` for symptoms, `docs/glossary.md` for terms.
+
+`tests/test_docs_structure.py` enforces the mechanical half of this: every
+group has a page, no page outlives its command, every published page is
+reachable from the README, and every relative link and anchor resolves. Run it
+with `pytest tests/test_docs_structure.py`. It cannot check that the
+descriptions match `--help` or that the output is real -- that is on review.
 
 ### Add to This Guide
 
@@ -614,7 +647,7 @@ Before making a Pull Request, verify:
 - [Click Documentation](https://click.palletsprojects.com/)
 - [PEP 8 Style Guide](https://www.python.org/dev/peps/pep-0008/)
 - [Pytest Documentation](https://docs.pytest.org/)
-- [Project Documentation](./README.md)
+- [Project Documentation](../README.md)
 
 ---
 

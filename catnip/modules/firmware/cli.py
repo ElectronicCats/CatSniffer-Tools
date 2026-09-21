@@ -1,0 +1,786 @@
+"""``catnip flash|verify|update|restore`` - firmware commands.
+
+Registered one by one on the root group (they are not a Click group).
+"""
+
+import os
+import sys
+import time
+
+# Internal
+from .board import file_available_for_board
+from .flasher import Flasher
+from .verify import run_verification
+from ..core.catnip import catnip_get_device, catnip_get_devices
+from ..core.device_utils import send_identify_command
+
+# External
+import click
+from click.shell_completion import CompletionItem
+from rich.table import Table
+from rich import box
+
+from ..core.firmware_registry import (
+    get_firmware,
+    resolve as resolve_firmware,
+    CAPABILITY_NEXT_STEP as _CAPABILITY_NEXT_STEP,
+    next_steps_for,
+)
+from ..utils.cli_options import board_option, device_option
+from ..utils.output import (
+    console,
+    print_success,
+    print_warning,
+    print_error,
+    print_info,
+    print_dim,
+    print_empty_line,
+    print_title,
+    print_subtitle,
+    print_example,
+    print_alias_item,
+    print_next_steps,
+)
+
+
+def _board_for_list(device, board_override):
+    """Which board ``flash --list`` should filter for, or None if unknown.
+
+    An explicit ``--board`` wins; otherwise the connected device is asked.
+    Nothing here is an error: with no device attached the catalogue is simply
+    shown unfiltered.
+    """
+    from .board import board_from_generation, detect_board
+
+    board = board_from_generation(board_override)
+    if board is not None:
+        return board
+    try:
+        dev = catnip_get_device(device)
+    except Exception:
+        return None
+    if dev is None or not getattr(dev, "shell_port", None):
+        return None
+    return detect_board(dev.shell_port)
+
+
+def _one_line(description):
+    """A description squeezed onto one line, or None if empty.
+
+    Shells render each completion item's help on a single line, so a
+    multi-line description would corrupt what the shell parses.
+    """
+    text = " ".join((description or "").split())
+    return text or None
+
+
+def complete_firmware(ctx, param, incomplete):
+    """`shell_complete` for the FIRMWARE argument.
+
+    Offers every official firmware id *and* its user-facing aliases (ble,
+    zigbee, thread, v3, ...) from ``fw_aliases.ALIAS_TO_OFFICIAL_ID`` — the
+    same table ``find_flash_firmware``/``get_official_id`` use to resolve
+    what the user typed — matched by substring so ``zig<TAB>`` lands on
+    zigbee. Mirrors bombercat's ``complete_firmware`` (see
+    analisis-bombercat-vs-catnip.md). A path is handed back to the shell
+    untouched, and so is anything that matches no firmware or alias.
+    """
+    if incomplete.startswith("~") or "/" in incomplete:
+        return [CompletionItem(incomplete, type="file")]
+
+    from .fw_aliases import ALIAS_TO_OFFICIAL_ID, OFFICIAL_FW_IDS
+
+    choices = {}
+    for official_id in OFFICIAL_FW_IDS:
+        fw = get_firmware(official_id)
+        choices[official_id] = fw.description if fw else ""
+    for alias, official_id in ALIAS_TO_OFFICIAL_ID.items():
+        if alias in choices:
+            continue
+        fw = get_firmware(official_id)
+        choices[alias] = fw.description if fw else ""
+
+    wanted = incomplete.lower()
+    matches = [
+        CompletionItem(name, help=_one_line(description))
+        for name, description in choices.items()
+        if wanted in name.lower()
+    ]
+    return matches or [CompletionItem(incomplete, type="file")]
+
+
+# (alias shown, official ID it resolves to, description). The ID is what
+# decides whether the alias is worth recommending on a given board.
+_ALIAS_RECOMMENDATIONS = (
+    (
+        "BLE:",
+        (
+            ("ble / sniffle", "sniffle", "Sniffle BLE sniffer"),
+            ("airtag-scanner", "airtag_scanner_cc1352p7", "Apple Airtag Scanner"),
+            ("airtag-spoofer", "airtag_spoofer_cc1352p7", "Apple Airtag Spoofer"),
+            ("justworks", "justworks_scanner_cc1352p7", "JustWorks scanner"),
+        ),
+    ),
+    (
+        "Zigbee/Thread/15.4 (TI Sniffer):",
+        (
+            ("zigbee", "ti_sniffer", "Texas Instruments multiprotocol sniffer"),
+            ("thread", "ti_sniffer", "(same as zigbee - supports both)"),
+            ("15.4", "ti_sniffer", "(same as zigbee - supports 802.15.4)"),
+            ("ti", "ti_sniffer", "Texas Instruments sniffer"),
+            ("multiprotocol", "ti_sniffer", "TI multiprotocol firmware"),
+        ),
+    ),
+)
+
+
+def _usable_aliases(board):
+    """(alias, description) pairs from the table, limited to ``board``."""
+    from .fw_aliases import official_ids_for_board
+
+    available = None if board is None else set(official_ids_for_board(board.generation))
+    return [
+        (alias, description)
+        for _heading, items in _ALIAS_RECOMMENDATIONS
+        for alias, official_id, description in items
+        if available is None or official_id in available
+    ]
+
+
+def _print_usage_examples(board) -> None:
+    """Print 'catnip flash <alias>' examples this board can actually run."""
+    usable = _usable_aliases(board)
+    if not usable:
+        return
+
+    print_title("Usage Examples:")
+    seen = set()
+    shown = 0
+    for alias, description in usable:
+        probe = alias.split("/")[0].strip()
+        if probe in seen:
+            continue
+        seen.add(probe)
+        print_example(f"catnip.py flash {probe}", f"({description})")
+        shown += 1
+        if shown == 4:
+            break
+    first = next(iter(seen))
+    print_example(f"catnip.py flash --device 1 {first}")
+
+
+def _refresh_firmware_cache(force: bool) -> None:
+    """``catnip flash --refresh`` on its own: check GitHub, download only
+    what changed, and say plainly what happened. ``--force`` wipes the
+    ``.catnip`` release folder first and re-downloads everything from
+    scratch, even onto the same tag -- for a corrupted local file that a
+    same-tag check would otherwise leave alone.
+    """
+    from ..core.exceptions import FirmwareError
+
+    if force:
+        print_warning("--force: deleting the local firmware cache and starting over.")
+    else:
+        print_info("Checking for firmware updates...")
+
+    flasher = Flasher()
+    try:
+        result = flasher.refresh(force=force)
+    except FirmwareError as e:
+        print_error(str(e))
+        exit(1)
+    except OSError as e:
+        print_error(f"could not update the firmware cache: {e}")
+        exit(1)
+
+    count = len(flasher.get_local_firmware())
+    plural = "image" if count == 1 else "images"
+    if not result["updated"]:
+        print_success(f"Already up to date — {result['tag']} ({count} {plural}).")
+    elif force or not result["previous_tag"]:
+        print_success(f"Downloaded {result['tag']} ({count} {plural}).")
+    else:
+        print_success(
+            f"Updated {result['previous_tag']} → {result['tag']} "
+            f"({count} {plural})."
+        )
+
+
+def _print_alias_recommendations(board) -> None:
+    """Print the alias cheat-sheet, limited to what ``board`` can run.
+
+    ``board`` of None means "do not filter" (unknown board, or --all).
+    """
+    from .fw_aliases import official_ids_for_board
+
+    available = None if board is None else set(official_ids_for_board(board.generation))
+
+    sections = [
+        (
+            heading,
+            [item for item in items if available is None or item[1] in available],
+        )
+        for heading, items in _ALIAS_RECOMMENDATIONS
+    ]
+    sections = [(heading, items) for heading, items in sections if items]
+    if not sections:
+        return
+
+    print_title("Recommended Aliases by Protocol:")
+    for heading, items in sections:
+        print_subtitle(heading)
+        for alias, _official_id, description in items:
+            print_alias_item(alias, description, pad=18)
+
+    if board is not None:
+        print_empty_line()
+        print_dim(
+            f"Only aliases with a {board.cc_chip} image are listed; "
+            "'catnip flash --list --all' shows the whole catalogue."
+        )
+
+
+@click.command()
+@click.argument("firmware", required=False, shell_complete=complete_firmware)
+@device_option(
+    help="Device ID (for multiple CatSniffers). If not specified, first device will be selected."
+)
+@click.option(
+    "--list",
+    "-l",
+    is_flag=True,
+    help="List available firmware images to flash",
+)
+@click.option(
+    "--full",
+    is_flag=True,
+    help="Show full descriptions without truncation in the list",
+)
+@click.option(
+    "--all",
+    "show_all",
+    is_flag=True,
+    help="With --list, show the whole catalogue instead of only the images "
+    "that can be flashed on the connected board",
+)
+@click.option(
+    "--refresh",
+    is_flag=True,
+    help="Check GitHub for a newer firmware release now and download it if "
+    "there is one.",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="With --refresh: wipe the local firmware cache and re-download "
+    "everything from scratch.",
+)
+@board_option()
+def flash(
+    firmware, device, list, full, show_all, refresh, force, board_override
+) -> None:
+    """Flash CC1352 Firmware or list available firmware images.
+
+    \b
+    Examples:
+        catnip flash --list               # images this board can take
+        catnip flash --list --all         # the whole catalogue
+        catnip flash ble                  # flash Sniffle BLE firmware
+        catnip flash zigbee --device 1    # flash TI sniffer to device #1
+        catnip flash ble --board v2       # name the board when its shell is dead
+        catnip flash --refresh            # update the cache to the latest release
+        catnip flash --refresh --force    # wipe the cache and redownload it
+    """
+    if force and not refresh:
+        print_error("--force only makes sense together with --refresh.")
+        exit(1)
+
+    if refresh:
+        if list or firmware is not None:
+            print_error(
+                "--refresh cannot be combined with --list or a firmware name; "
+                "run it on its own: 'catnip flash --refresh'."
+            )
+            exit(1)
+        _refresh_firmware_cache(force)
+        return
+
+    from .fw_aliases import get_official_id, get_display_alias
+
+    # Initialize Flasher to manage firmware operations
+    flasher = Flasher()
+
+    # If listing available firmwares is requested
+    if list:
+        print_title("Available Firmware Images:")
+
+        try:
+            # Get the list of local firmwares
+            firmwares = flasher.get_local_firmware()
+
+            if not firmwares:
+                print_warning("No firmware images found locally.")
+                print_empty_line()
+                print_info("Run the CLI once to download the latest firmware images.")
+                return
+
+            # Only offer what the board in front of the user can actually
+            # take: a CC1352P7 image on a CC1352P1 needs a cJTAG programmer
+            # to undo, so listing it as available is an invitation to brick.
+            list_board = _board_for_list(device, board_override)
+            if list_board is not None and not show_all:
+                shown = [
+                    f for f in firmwares if file_available_for_board(f, list_board)
+                ]
+                hidden = len(firmwares) - len(shown)
+                firmwares = shown
+                print_info(f"Board: {list_board.label}")
+                if hidden:
+                    print_dim(
+                        f"{hidden} image(s) for other boards hidden — use --all to "
+                        "see the full catalogue."
+                    )
+                if not firmwares:
+                    # The bundle is downloaded per release, so a board whose
+                    # images are simply not in it yet is the normal case, not
+                    # an error: name what exists for it and how to get it.
+                    from .fw_aliases import official_ids_for_board
+
+                    print_warning(
+                        f"None of the local images is built for a {list_board.label}."
+                    )
+                    print_empty_line()
+                    catalogue = ", ".join(
+                        sorted(official_ids_for_board(list_board.generation))
+                    )
+                    print_info(f"Built for {list_board.generation}: {catalogue}")
+                    print_info(
+                        "'catnip flash <name>' downloads the image for this board on "
+                        "demand; 'catnip flash --list --all' shows what is already here."
+                    )
+                    return
+            elif list_board is None:
+                print_dim(
+                    "Board generation unknown — showing every image. Connect the "
+                    "Cat-Shell port or pass --board v2/--board v3 to filter."
+                )
+            elif show_all:
+                print_dim(
+                    f"Showing every image; this board is a {list_board.label} and "
+                    "cannot take all of them."
+                )
+
+            # Create table to display firmwares
+            table = Table(box=box.ROUNDED, show_header=True)
+            table.add_column("Alias", style="green bold", min_width=15)
+            table.add_column("Firmware Name", style="cyan", min_width=30)
+            table.add_column("Description", style="white", min_width=70)
+
+            # Get descriptions
+            descriptions = flasher.parse_descriptions()
+
+            # Map aliases to complete firmware
+            firmware_to_alias = {}
+            alias_usage_count = {}
+
+            # Generate automatic aliases based on common names
+            for fw in sorted(firmwares):
+                fw_lower = fw.lower()
+                fw_name_without_ext = os.path.splitext(fw)[0]
+
+                # Check if it matches any centralized alias or official ID
+                official_id = get_official_id(fw_name_without_ext)
+                if official_id:
+                    # The column is a command a user can type, so it shows the
+                    # alias, not the internal ID (which names a CC1352 variant
+                    # that is not necessarily this file's).
+                    alias = get_display_alias(official_id)
+                    firmware_to_alias[fw] = alias
+                    alias_usage_count[alias] = alias_usage_count.get(alias, 0) + 1
+                    continue
+
+            # Display each firmware with its alias
+            for fw in sorted(firmwares):
+                if fw in firmware_to_alias:
+                    continue  # Already has predefined alias
+
+                fw_lower = fw.lower()
+                fw_name_without_ext = os.path.splitext(fw)[0]
+
+                # Special handling for airtag files
+                if "airtag" in fw_lower:
+                    if "scanner" in fw_lower:
+                        alias_candidate = "airtag_scanner"
+                    elif "spoofer" in fw_lower:
+                        alias_candidate = "airtag_spoofer"
+                    else:
+                        alias_candidate = "airtag"
+                else:
+                    # Extract keywords from firmware name
+                    words = (
+                        fw_name_without_ext.replace("_", " ").replace("-", " ").split()
+                    )
+
+                    # Filter common words/noise
+                    common_words = {
+                        "cc1352",
+                        "cc1352p",
+                        "cc1352p7",
+                        "cc1352p2",
+                        "v1",
+                        "v2",
+                        "v3",
+                        "v10",
+                        "v20",
+                        "hex",
+                        "uf2",
+                        "firmware",
+                        "sniffer",
+                        "sniff",
+                        "fw",
+                        "for",
+                        "and",
+                        "the",
+                        "with",
+                    }
+
+                    keywords = [
+                        w for w in words if w.lower() not in common_words and len(w) > 2
+                    ]
+
+                    # Build alias from keywords
+                    if keywords:
+                        # Use the first meaningful keyword
+                        alias_candidate = keywords[0].lower()
+
+                        # If it's too long, truncate it
+                        if len(alias_candidate) > 15:
+                            alias_candidate = alias_candidate[:12] + "..."
+                    else:
+                        # If no keywords, use name without extension (truncated)
+                        alias_candidate = fw_name_without_ext[:15]
+                        if len(fw_name_without_ext) > 15:
+                            alias_candidate = alias_candidate[:12] + "..."
+
+                # Make sure the alias is unique
+                base_alias = alias_candidate
+                counter = 1
+                while alias_candidate in alias_usage_count:
+                    alias_candidate = f"{base_alias}_{counter}"
+                    counter += 1
+
+                firmware_to_alias[fw] = alias_candidate
+                alias_usage_count[alias_candidate] = 1
+
+            # Display each firmware with its alias
+            for fw in sorted(firmwares):
+                fw_lower = fw.lower()
+
+                # Get alias
+                alias = firmware_to_alias.get(fw, "firmware")
+
+                # Get description
+                desc = descriptions.get(fw_lower, "No description available")
+
+                # Truncate description if it's too long (unless --full is specified)
+                if not full and len(desc) > 70:
+                    desc = desc[:67] + "..."
+
+                table.add_row(f"[green]{alias}[/green]", fw, desc)
+
+            console.print(table)
+
+            # Show most useful aliases. Filtered by board for the same reason
+            # the table above is: recommending 'catnip flash zigbee' to a v2
+            # user advertises a command that can only ever be refused, since
+            # ti_sniffer has no CC1352P1 build.
+            _print_alias_recommendations(list_board if not show_all else None)
+
+            # Use Information. Built from the same table as the block above,
+            # so an example is never a command this board cannot run.
+            _print_usage_examples(list_board if not show_all else None)
+
+            return
+
+        except Exception as e:
+            print_error(f"Error listing firmwares: {str(e)}")
+            import traceback
+
+            traceback.print_exc()
+            return
+
+    # If flash is requested but no firmware is specified
+    if firmware is None:
+        print_error("No firmware specified!")
+        print_empty_line()
+        print_info(
+            "Use 'catnip flash --list' to see available firmware images and aliases."
+        )
+        print_info("Or specify a firmware name: catnip flash <firmware_name_or_alias>")
+        exit(1)
+
+    # If the input is a valid file path, we skip alias resolution to avoid confusion
+    if os.path.exists(firmware):
+        print_info(f"Flashing from custom path: {firmware}")
+    else:
+        # Check if it's a known alias
+        official_id = get_official_id(firmware)
+        if official_id and official_id != firmware:
+            print_info(f"Alias '{firmware}' resolved to: {official_id}")
+
+    # If no device is specified, get all connected devices
+    if device is None:
+        devs = catnip_get_devices()
+        if not devs:
+            print_error("No CatSniffer devices found!")
+            print_dim("Make sure your CatSniffer is connected.")
+            exit(1)
+
+        # Select the first device by default
+        dev = devs[0]
+        print_warning(f"No device specified. Using first device: {dev}")
+    else:
+        # If an ID is specified, get that specific device
+        dev = catnip_get_device(device)
+        if dev is None:
+            print_error(f"CatSniffer device with ID {device} not found!")
+            print_dim("Use 'devices' command to list available devices.")
+            exit(1)
+
+    # Verify that the device is valid
+    if not dev.is_valid():
+        print_warning(f"Not all ports detected for {dev}")
+        print_dim(f"Bridge: {dev.bridge_port}")
+        print_dim(f"LoRa:   {dev.lora_port}")
+        print_dim(f"Shell:  {dev.shell_port}")
+
+    print_info(f"Flashing firmware: {firmware} to device: {dev}")
+
+    from .board import board_from_generation
+
+    flash_result = flasher.find_flash_firmware(
+        firmware, dev, board=board_from_generation(board_override)
+    )
+
+    if not flash_result:
+        print_error(f"Error flashing: {firmware}")
+        print_warning("Troubleshooting tips:")
+        print_dim("1. Use 'catnip flash --list' to see all available firmwares")
+        print_dim(
+            "2. Available aliases: ble, zigbee, thread, lora-sniffer, airtag-scanner"
+        )
+        print_dim("3. Use the exact filename from the list")
+        print_dim("4. Note: 'zigbee' alias maps to TI multiprotocol firmware")
+        return
+
+    print_info("Waiting for device to restart...")
+    time.sleep(1)
+    print_success("Device restart complete. Firmware is ready to use!")
+
+    # Send identification command to help identify which device was flashed
+    send_identify_command(dev)
+
+    # Suggest the sniff command that matches what was just flashed, instead
+    # of leaving the user to guess (Bombercat's "status" next-steps pattern).
+    entry = resolve_firmware(firmware)
+    if entry is not None:
+        print_next_steps(next_steps_for(entry))
+
+
+@click.command()
+@click.option(
+    "--test-all",
+    is_flag=True,
+    help="Run all tests including LoRa configuration and communication",
+)
+@device_option(help="Test only a specific device (by ID)")
+@click.option("--quiet", "-q", is_flag=True, help="Show only summary results")
+def verify(test_all, device, quiet):
+    """
+    Verify CatSniffer device functionality
+
+    Tests all connected CatSniffers and verifies:
+    - Basic shell commands (help, status, lora_config, lora_mode)
+    - LoRa configuration (frequency, SF, BW, etc.)
+    - LoRa communication (TEST, TXTEST, TX commands)
+
+    Use --test-all for comprehensive testing.
+
+    \b
+    Examples:
+        catnip verify                # quick check of all connected devices
+        catnip verify --test-all     # full LoRa config + communication tests
+        catnip verify --device 1     # test only device #1
+    """
+    # Check dependencies
+    try:
+        import usb.core
+        import usb.util
+        import serial
+    except ImportError as e:
+        print_error(f"Dependency missing: {e}")
+        print_warning("Install missing dependencies:")
+        print_dim("pip install pyusb pyserial")
+        sys.exit(1)
+
+    # Run verification
+    success, results = run_verification(
+        test_all=test_all, device_id=device, quiet=quiet
+    )
+
+    # Print final message
+    if success:
+        print_success("Verification completed successfully!")
+        if test_all:
+            print_success("All devices are fully functional and ready for use!")
+        else:
+            print_success(
+                "Basic functionality verified. Use --test-all for comprehensive testing."
+            )
+        sys.exit(0)
+    else:
+        print_error("Verification failed!")
+        print_warning("Troubleshooting tips:")
+        print_dim(
+            "1. Make sure all 3 USB endpoints are connected (Bridge, LoRa, Shell)"
+        )
+        print_dim("2. Try reconnecting the USB cable")
+        print_dim("3. Check if the correct firmware is flashed")
+        print_dim("4. Verify serial port permissions (Linux/Mac)")
+        sys.exit(1)
+
+
+# ===================== Firmware Update Commands =====================
+
+
+@click.command()
+@device_option()
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Force update even if firmware versions match",
+)
+@board_option()
+def update(device, force, board_override):
+    """Check and update RP2040 firmware to match the latest release.
+
+    Verifies that the RP2040 firmware version is compatible with the tool
+    and the latest firmware release. If outdated, automatically updates
+    the device.
+
+    If the device is not detected, provides instructions to manually
+    enter Boot Mode for recovery.
+
+    \b
+    Examples:
+        catnip update              # check and update if outdated
+        catnip update --force      # reflash regardless of version
+        catnip update --board v2   # name the board when its shell is dead
+    """
+    from .fw_update import (
+        check_and_update_rp2040,
+        force_update_rp2040,
+        get_tool_version,
+    )
+
+    print_info(f"CatSniffer Firmware Update - Tool v{get_tool_version()}")
+    print_empty_line()
+
+    # Initialize Flasher for release management
+    flasher_inst = Flasher()
+
+    # Get device if specified
+    dev = None
+    if device is not None:
+        dev = catnip_get_device(device)
+        if dev is None:
+            print_warning(f"Device #{device} not found, will check for Boot Mode...")
+    else:
+        dev = catnip_get_device()
+
+    from .board import board_from_generation
+
+    board = board_from_generation(board_override)
+
+    if force:
+        print_info("Force mode enabled — will update regardless of version")
+        result = force_update_rp2040(device=dev, flasher=flasher_inst, board=board)
+    else:
+        result = check_and_update_rp2040(
+            device=dev, flasher=flasher_inst, force=force, board=board
+        )
+
+    if result:
+        print_success("Firmware update check complete!")
+    else:
+        print_error("Firmware update could not be completed.")
+        print_empty_line()
+        print_dim("Use 'catnip update --force' to force an update.")
+
+
+# ===================== CC1352 Restore Command =====================
+
+
+@click.command()
+@click.argument("firmware", required=False, default=None)
+@device_option(help="Device ID (for shell access to trigger BOOTSEL)")
+@click.option(
+    "--tapid",
+    default="0x1BB7702F",
+    help="CC1352 JTAG TAPID (default: CC1352P7)",
+)
+@board_option()
+def restore(firmware, device, tapid, board_override):
+    """Restore CC1352 when bootloader is broken.
+
+    Uses RP2040 as CMSIS-DAP JTAG programmer via OpenOCD to flash
+    the CC1352 directly. Requires OpenOCD installed. Only v3 boards can do
+    this: a v2 (SAMD21) has no RP2040 to load the probe onto and needs an
+    external cJTAG programmer instead.
+
+    If no firmware is specified, uses the default CatSniffer firmware
+    from the catnip release.
+
+    \b
+    Example:
+        catnip restore                    # default CatSniffer firmware
+        catnip restore firmware.hex       # custom firmware
+        catnip restore firmware.hex -d 1  # specific device
+        catnip restore --board v3         # name the board when its shell is dead
+    """
+    from .restore import restore_cc1352
+
+    # If no device is specified, get all connected devices
+    if device is None:
+        devs = catnip_get_devices()
+        if not devs:
+            print_error("No CatSniffer devices found!")
+            print_dim("Make sure your CatSniffer is connected.")
+            exit(1)
+
+        # Select the first device by default
+        dev = devs[0]
+        print_warning(f"No device specified. Using first device: {dev}")
+    else:
+        # If an ID is specified, get that specific device
+        dev = catnip_get_device(device)
+        if dev is None:
+            print_error(f"CatSniffer device with ID {device} not found!")
+            print_dim("Use 'devices' command to list available devices.")
+            exit(1)
+
+    flasher_inst = Flasher()
+
+    from .board import board_from_generation
+
+    success = restore_cc1352(
+        hex_path=firmware,
+        device=dev,
+        flasher=flasher_inst,
+        tapid=tapid,
+        board=board_from_generation(board_override),
+    )
+
+    if not success:
+        print_error("Restore failed. Check the output above for details.")

@@ -7,6 +7,7 @@ on:
       - master
       #- dev
       - feature/restore-cc1352
+      - fix/CLI_Control
   release:
     types: [created]
   workflow_dispatch:
@@ -14,11 +15,11 @@ on:
       version:
         description: 'Version to build'
         required: true
-        default: '3.3.2.1'
+        default: '3.3.3.0'
       release_tag:
-        description: 'Tag del release al que subir los assets (ej: v3.3.2.1)'
+        description: 'Tag del release al que subir los assets (ej: v3.3.3.0)'
         required: false
-        default: 'v3.3.2.1'
+        default: 'v3.3.3.0'
 
 jobs:
   build-windows:
@@ -80,12 +81,6 @@ jobs:
         Write-Host "OpenOCD ready:"
         Get-ChildItem openocd_dist/ | Select-Object Name
         Get-ChildItem openocd_dist/bin/ | Select-Object Name
-
-    - name: Inject Version into _version.py
-      working-directory: catnip
-      run: |
-        $version = (Get-Content "VERSION" -Raw).Trim()
-        Set-Content "modules\utils\_version.py" "__version__ = '$version'"
 
     - name: Build with PyInstaller
       working-directory: catnip
