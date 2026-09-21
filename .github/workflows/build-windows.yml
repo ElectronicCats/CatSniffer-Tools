@@ -7,6 +7,7 @@ on:
       - master
       #- dev
       - feature/restore-cc1352
+      - fix/CLI_Control
   release:
     types: [created]
   workflow_dispatch:
