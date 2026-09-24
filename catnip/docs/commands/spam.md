@@ -124,3 +124,37 @@ not change what the firmware is doing.
 ```sh
 catnip spam stop
 ```
+
+---
+
+## Hardware verification checklist
+
+The automated suite runs entirely against a mocked serial device. Use this
+end-to-end pass on a physical CatSniffer v3 to confirm the full flow — flashing,
+transport and each vendor mode — on real hardware. Only test against devices you
+own or are authorised to spam.
+
+**Setup**
+
+- [ ] `catnip device list` shows the CatSniffer v3 (`1209:babb`) with a
+      `bridge_port` (CDC0, e.g. `/dev/ttyACM0`).
+- [ ] `catnip spam status` flashes `ble_spam` if absent, then reports
+      `mode=… state=… models=…` (metadata-verified, `cc1352_fw_id=ble_spam_cc1352p_7`).
+
+**Per-mode pass** — for each of `all`, `apple`, `android`, `windows`, `samsung`:
+
+- [ ] `catnip spam start --mode <mode> -y` prints `Started BLE spam (mode=<mode>)`
+      and `state=running`.
+- [ ] `catnip spam status` reports the same mode with `state=running` and a
+      plausible model count (`all=82`, `apple=22`, others as reported).
+- [ ] `catnip spam stop` prints `Stopped BLE spam.` and a following
+      `catnip spam status` shows `state=stopped`.
+
+**Live view + safety**
+
+- [ ] `catnip spam run --mode apple` (confirm the prompt, or `-y`) renders the
+      live panel with the current model, ads emitted and the rotating address.
+- [ ] Pressing **Ctrl+C** stops it; a subsequent `catnip spam status` shows
+      `state=stopped` (R5 — the hardware is never left emitting).
+- [ ] Declining the `start`/`run` confirmation aborts without emitting
+      (`catnip spam status` still `state=stopped`).
