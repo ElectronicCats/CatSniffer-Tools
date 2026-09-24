@@ -23,6 +23,7 @@ from ..firmware.cli import flash as _flash
 from ..firmware.cli import update as _update
 from ..firmware.cli import restore as _restore
 from ..firmware.cli import verify as _verify
+from ..protocols.cli.ble_spam import spam as _spam
 from ..protocols.cli.cativity import cativity as _cativity
 from ..protocols.cli.meshtastic import meshtastic as _meshtastic
 from ..protocols.cli.sx1262 import lora as _lora
@@ -146,6 +147,7 @@ def print_header(module=None):
     "  catnip status                   # firmware + capabilities on a device\n"
     "  catnip flash --list             # see available firmware images\n"
     "  catnip sniff ble                # sniff BLE traffic\n"
+    "  catnip spam start --mode apple  # BLE advertising spam (authorised use)\n"
     "  catnip -v sniff zigbee -c 15    # same, with INFO-level logging",
 )
 @click.option(
@@ -166,6 +168,7 @@ def build_cli() -> click.Group:
     without running it (tests, snapshot dumps).
     """
     cli.add_command(_sniff)
+    cli.add_command(_spam)
     cli.add_command(_cativity)
     cli.add_command(_meshtastic)
     cli.add_command(_devices)

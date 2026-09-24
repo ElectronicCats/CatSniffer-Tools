@@ -24,6 +24,7 @@ Commands:
   restore     Restore CC1352 when bootloader is broken.
   setup-env   Setup environment: install udev rules and add user to groups.
   sniff       Sniffer protocol control
+  spam        BLE advertising-spam control (CC1352P7 'ble_spam' firmware).
   status      Show board, firmware and capabilities detected on a CatSniffer.
   update      Check and update RP2040 firmware to match the latest release.
   verify      Verify CatSniffer device functionality
@@ -36,6 +37,7 @@ Commands:
     catnip status                   # firmware + capabilities on a device
     catnip flash --list             # see available firmware images
     catnip sniff ble                # sniff BLE traffic
+    catnip spam start --mode apple  # BLE advertising spam (authorised use)
     catnip -v sniff zigbee -c 15    # same, with INFO-level logging
 
 ==============================================================================
@@ -108,6 +110,8 @@ Usage: catnip flash [OPTIONS] [FIRMWARE]
       catnip flash ble                  # flash Sniffle BLE firmware
       catnip flash zigbee --device 1    # flash TI sniffer to device #1
       catnip flash ble --board v2       # name the board when its shell is dead
+      catnip flash --refresh            # update the cache to the latest release
+      catnip flash --refresh --force    # wipe the cache and redownload it
 
 Options:
   -d, --device INTEGER  Device ID (for multiple CatSniffers). If not specified,
@@ -116,6 +120,10 @@ Options:
   --full                Show full descriptions without truncation in the list
   --all                 With --list, show the whole catalogue instead of only
                         the images that can be flashed on the connected board
+  --refresh             Check GitHub for a newer firmware release now and
+                        download it if there is one.
+  --force               With --refresh: wipe the local firmware cache and re-
+                        download everything from scratch.
   --board [v2|v3]       Board generation override (v2 = SAMD21 + CC1352P1, v3 =
                         RP2040 + CC1352P7). Only needed when the Cat-Shell port
                         cannot answer; the wrong value disables the CC1352
@@ -602,6 +610,85 @@ Options:
                                Works with or without --wireshark
   -f, --force                  Overwrite the --write file if it already exists
   -h, --help                   Show this message and exit.
+
+==============================================================================
+$ catnip spam --help
+==============================================================================
+Usage: catnip spam [OPTIONS] COMMAND [ARGS]...
+
+  BLE advertising-spam control (CC1352P7 'ble_spam' firmware).
+
+  Examples:
+      catnip spam modes                     # list vendor modes (no hardware)
+      catnip spam start --mode apple        # select Apple mode and emit
+      catnip spam status                    # mode / running / model count
+      catnip spam stop                      # stop emitting
+
+  Use only on devices you own or are authorised to test.
+
+Options:
+  -h, --help  Show this message and exit.
+
+Commands:
+  modes   List the available vendor modes (no device needed).
+  start   Select a mode and start emitting.
+  status  Report the current mode, running state and model count.
+  stop    Stop emitting.
+
+==============================================================================
+$ catnip spam modes --help
+==============================================================================
+Usage: catnip spam modes [OPTIONS]
+
+  List the available vendor modes (no device needed).
+
+Options:
+  -h, --help  Show this message and exit.
+
+==============================================================================
+$ catnip spam start --help
+==============================================================================
+Usage: catnip spam start [OPTIONS]
+
+  Select a mode and start emitting.
+
+  Leaves the firmware emitting after the command returns; run ``catnip spam
+  stop`` to halt it.
+
+Options:
+  -d, --device INTEGER            Device ID (for multiple CatSniffers)
+  -m, --mode [all|apple|android|windows|samsung]
+                                  Vendor advertising set to emit.  [default:
+                                  all]
+  -b, --baudrate INTEGER          Override the bridge baudrate (default:
+                                  firmware value, 921600).
+  -h, --help                      Show this message and exit.
+
+==============================================================================
+$ catnip spam status --help
+==============================================================================
+Usage: catnip spam status [OPTIONS]
+
+  Report the current mode, running state and model count.
+
+Options:
+  -d, --device INTEGER    Device ID (for multiple CatSniffers)
+  -b, --baudrate INTEGER  Override the bridge baudrate (default: firmware value,
+                          921600).
+  -h, --help              Show this message and exit.
+
+==============================================================================
+$ catnip spam stop --help
+==============================================================================
+Usage: catnip spam stop [OPTIONS]
+
+  Stop emitting.
+
+Options:
+  -d, --device INTEGER    Device ID (for multiple CatSniffers)
+  -b, --baudrate INTEGER  Override the bridge baudrate (default: firmware value,
+                          921600).
+  -h, --help              Show this message and exit.
 
 ==============================================================================
 $ catnip status --help

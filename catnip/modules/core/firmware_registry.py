@@ -19,6 +19,7 @@ CAP_SNIFF_THREAD = "sniff_thread"
 CAP_AIRTAG_SCAN = "airtag_scan"
 CAP_AIRTAG_SPOOF = "airtag_spoof"
 CAP_JUSTWORKS = "justworks"
+CAP_BLE_SPAM = "ble_spam"
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,12 @@ FIRMWARE_REGISTRY: Dict[str, Firmware] = {
         description="Apple AirTag spoofer",
         capabilities=frozenset({CAP_AIRTAG_SPOOF}),
     ),
+    "ble_spam_cc1352p_7": Firmware(
+        id="ble_spam_cc1352p_7",
+        display="BLE Spam",
+        description="BLE advertising spam (multi-vendor)",
+        capabilities=frozenset({CAP_BLE_SPAM}),
+    ),
     "catnip_v3": Firmware(
         id="catnip_v3",
         display="CatSniffer v3 default",
@@ -111,6 +118,7 @@ CAPABILITY_NEXT_STEP: Dict[str, str] = {
     CAP_SNIFF_ZIGBEE: "catnip sniff zigbee -c 15",
     CAP_SNIFF_THREAD: "catnip sniff thread -c 15",
     CAP_AIRTAG_SCAN: "catnip sniff airtag_scanner",
+    CAP_BLE_SPAM: "catnip spam status",
 }
 
 

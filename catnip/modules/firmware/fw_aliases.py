@@ -17,6 +17,7 @@ OFFICIAL_FW_IDS = [
     "airtag_spoofer_cc1352p7",
     "airtag_scanner_cc1352p7",
     "justworks_scanner_cc1352p7",
+    "ble_spam_cc1352p_7",
 ]
 
 # Map user-friendly aliases to official IDs
@@ -25,6 +26,11 @@ ALIAS_TO_OFFICIAL_ID = {
     "ble": "sniffle",
     "sniffle": "sniffle",
     "justworks": "justworks_scanner_cc1352p7",
+    # BLE Spam (multi-vendor advertising spam)
+    "ble_spam": "ble_spam_cc1352p_7",
+    "ble-spam": "ble_spam_cc1352p_7",
+    "blespam": "ble_spam_cc1352p_7",
+    "spam": "ble_spam_cc1352p_7",
     # TI Sniffer (Zigbee, Thread, 15.4)
     "zigbee": "ti_sniffer",
     "thread": "ti_sniffer",
@@ -52,6 +58,9 @@ OFFICIAL_ID_TO_FILENAME = {
     "airtag_scanner_cc1352p7": "airtag_scanner_CC1352P_7",
     "catnip_v3": "catsniffer-v3",
     "justworks_scanner_cc1352p7": "justworks_scanner",
+    # No v2 image: BLE Spam ships only for the CC1352P7 (v3). Keep it out of
+    # the v2 table below so a P7 image is never flashed onto a P1 board.
+    "ble_spam_cc1352p_7": "ble_spam_CC1352P_7",
 }
 
 # Per board generation. A v2 (SAMD21 + CC1352P1) can only take CC1352P1
@@ -83,6 +92,7 @@ OFFICIAL_ID_TO_DISPLAY_ALIAS = {
     "airtag_scanner_cc1352p7": "airtag-scanner",
     "airtag_spoofer_cc1352p7": "airtag-spoofer",
     "justworks_scanner_cc1352p7": "justworks",
+    "ble_spam_cc1352p_7": "ble_spam",
 }
 
 
@@ -126,6 +136,10 @@ def get_official_id(alias_or_name: str) -> Optional[str]:
     # to leave the file with no official ID at all.
     if "justworks" in name_lower:
         return "justworks_scanner_cc1352p7"
+    # Before the generic "sniffer" rule too: the image is named
+    # ble_spam_CC1352P_7 and must not be mistaken for a TI sniffer.
+    if "ble_spam" in name_lower or "blespam" in name_lower:
+        return "ble_spam_cc1352p_7"
     if any(x in name_lower for x in ["sniffer", "zigbee", "thread", "15.4"]):
         return "ti_sniffer"
     if "airtag" in name_lower:

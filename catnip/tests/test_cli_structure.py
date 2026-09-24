@@ -111,6 +111,11 @@ EXPECTED_PARAMS = {
     ],
     "catnip restore": ["--board", "--device", "--tapid", "-d", "<firmware>"],
     "catnip setup-env": [],
+    "catnip spam": [],
+    "catnip spam modes": [],
+    "catnip spam start": ["--baudrate", "--device", "--mode", "-b", "-d", "-m"],
+    "catnip spam status": ["--baudrate", "--device", "-b", "-d"],
+    "catnip spam stop": ["--baudrate", "--device", "-b", "-d"],
     "catnip sniff": ["--verbose", "-v"],
     "catnip sniff airtag_scanner": ["--device", "--putty", "-d"],
     "catnip sniff ble": [
@@ -250,6 +255,7 @@ EXPECTED_GROUPS = {
     "catnip completion",
     "catnip lora",
     "catnip meshtastic",
+    "catnip spam",
     "catnip sniff",
     "catnip vhci",
 }

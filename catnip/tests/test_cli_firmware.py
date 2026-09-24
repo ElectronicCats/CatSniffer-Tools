@@ -169,6 +169,49 @@ class TestFlashNextSteps:
         assert resolve_firmware("not-a-real-firmware") is None
 
 
+@pytest.mark.unit
+class TestBleSpamRegistration:
+    """Phase 2: `ble_spam` must resolve, carry its capability and have a v3
+    image only (no v2). The official id is `ble_spam_cc1352p_7` (underscore
+    before the 7), the value `catnip flash` writes to metadata as
+    `cc1352_fw_id`, so `device_session` can verify it by metadata."""
+
+    def test_aliases_resolve_to_the_official_id(self):
+        from modules.firmware import fw_aliases
+
+        for alias in ("spam", "ble_spam", "ble-spam", "blespam"):
+            assert fw_aliases.get_official_id(alias) == "ble_spam_cc1352p_7", alias
+
+    def test_filename_resolves_to_the_official_id(self):
+        from modules.firmware import fw_aliases
+
+        assert (
+            fw_aliases.get_official_id("ble_spam_CC1352P_7.hex")
+            == "ble_spam_cc1352p_7"
+        )
+
+    def test_display_alias_round_trips(self):
+        from modules.firmware import fw_aliases
+
+        assert fw_aliases.get_display_alias("ble_spam_cc1352p_7") == "ble_spam"
+        assert fw_aliases.get_official_id("ble_spam") == "ble_spam_cc1352p_7"
+
+    def test_has_a_v3_image_but_no_v2_image(self):
+        from modules.firmware import fw_aliases
+
+        assert "ble_spam_cc1352p_7" in fw_aliases.official_ids_for_board("v3")
+        assert "ble_spam_cc1352p_7" not in fw_aliases.official_ids_for_board("v2")
+
+    def test_registry_entry_declares_the_ble_spam_capability(self):
+        from modules.core import firmware_registry as reg
+
+        entry = reg.resolve("spam")
+        assert entry is not None
+        assert entry.id == "ble_spam_cc1352p_7"
+        assert entry.can(reg.CAP_BLE_SPAM)
+        assert entry in reg.firmwares_with_capability(reg.CAP_BLE_SPAM)
+
+
 @pytest.mark.slow
 class TestFlashCommand:
     def test_flash_help(self, run_catnip):

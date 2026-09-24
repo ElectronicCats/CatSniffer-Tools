@@ -103,6 +103,7 @@ with a *Quick Start* block you can paste:
 | [flash.md](docs/commands/flash.md) | `flash`, `update` — the image catalogue and the flashing pipeline |
 | [restore.md](docs/commands/restore.md) | `restore` — CC1352 recovery when the bootloader stopped answering |
 | [sniff.md](docs/commands/sniff.md) | `ble`, `zigbee`, `thread`, `lora`, `fsk`, `airtag_scanner`, `profiles` |
+| [spam.md](docs/commands/spam.md) | `spam` — BLE advertising spam (`start`, `stop`, `status`, `modes`) |
 | [cativity.md](docs/commands/cativity.md) | `cativity` — 802.15.4 channel activity and network topology |
 | [meshtastic.md](docs/commands/meshtastic.md) | `decode`, `live`, `dashboard`, `config` |
 | [lora.md](docs/commands/lora.md) | `spectrum`, `scan` — survey the sub-GHz band before capturing |
