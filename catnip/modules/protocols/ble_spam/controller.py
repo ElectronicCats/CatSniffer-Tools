@@ -26,6 +26,7 @@ from ...core.exceptions import ProtocolError, ValidationError
 from .core import (
     BAUDRATE,
     CMD_MAXLEN,
+    SEND_GAP_S,
     LineKind,
     SpamLine,
     SpamMode,
@@ -40,6 +41,7 @@ class BleSpamController:
     def __init__(self, serial_obj, *, owns: bool = False) -> None:
         self._serial = serial_obj
         self._owns = owns  # whether we opened (and must close) the port
+        self._last_send = 0.0  # monotonic time of the last write, for pacing
 
     # ── construction ──────────────────────────────────────────────────────
     @classmethod
@@ -73,8 +75,13 @@ class BleSpamController:
             raise ValidationError(
                 f"command {token!r} exceeds firmware limit of {CMD_MAXLEN} bytes"
             )
+        # Space consecutive commands so a burst never outruns the firmware.
+        gap = SEND_GAP_S - (time.monotonic() - self._last_send)
+        if gap > 0:
+            time.sleep(gap)
         self._serial.write((token + "\n").encode("ascii"))
         self._serial.flush()
+        self._last_send = time.monotonic()
 
     def _readline(self) -> str:
         raw = self._serial.readline()

@@ -32,6 +32,12 @@ BAUDRATE = 921600
 # silently truncated by the firmware, so the controller refuses to send them.
 CMD_MAXLEN = 24
 
+# Minimum gap between consecutive command writes. The firmware queues incoming
+# command lines, but this keeps a safety margin so a burst (mode -> start ->
+# status) never outruns the device even on older/other firmware that processes
+# one line at a time. Small enough to be imperceptible for interactive use.
+SEND_GAP_S = 0.02
+
 
 class SpamMode(Enum):
     """Advertising-spam vendor set, with the firmware's long and short tokens."""
