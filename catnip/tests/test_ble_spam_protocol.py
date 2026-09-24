@@ -49,8 +49,8 @@ def test_baudrate_and_cmd_len_pinned_from_spike():
     "value,expected",
     [
         ("apple", SpamMode.APPLE),
-        ("APPLE", SpamMode.APPLE),   # firmware reports modes upper-cased
-        ("p", SpamMode.APPLE),       # short alias
+        ("APPLE", SpamMode.APPLE),  # firmware reports modes upper-cased
+        ("p", SpamMode.APPLE),  # short alias
         ("all", SpamMode.ALL),
         ("a", SpamMode.ALL),
         ("samsung", SpamMode.SAMSUNG),
@@ -115,7 +115,10 @@ def test_parse_line_cycle_with_and_without_model_prefix():
 def test_parse_line_stats():
     assert parse_line("SPAM: cycles=2000").kind is LineKind.STATS
     assert parse_line("SPAM: cycles=2000").cycles == 2000
-    assert parse_line("SPAM: start mode=APPLE models=22 int=20-30ms").kind is LineKind.STATS
+    assert (
+        parse_line("SPAM: start mode=APPLE models=22 int=20-30ms").kind
+        is LineKind.STATS
+    )
     assert parse_line("SPAM: addr fc:99:ae:e0:7c:8b").kind is LineKind.STATS
 
 
@@ -129,7 +132,12 @@ def test_parse_line_info_acks():
     assert parse_line("SPAM: stopped").kind is LineKind.INFO
     assert parse_line("SPAM: already running").kind is LineKind.INFO
     assert parse_line("SPAM: mode -> APPLE (stopped)").kind is LineKind.INFO
-    assert parse_line("SPAM cmds: all|apple|android|windows|samsung, start, stop, status").kind is LineKind.INFO
+    assert (
+        parse_line(
+            "SPAM cmds: all|apple|android|windows|samsung, start, stop, status"
+        ).kind
+        is LineKind.INFO
+    )
 
 
 def test_mode_change_not_misread_as_cycle():
@@ -157,9 +165,11 @@ class FakeSerial:
 
     def __init__(self, incoming=b""):
         # split into readline-sized chunks preserving line endings
-        self._lines = deque(
-            (l + "\n").encode() for l in incoming.decode().splitlines()
-        ) if incoming else deque()
+        self._lines = (
+            deque((l + "\n").encode() for l in incoming.decode().splitlines())
+            if incoming
+            else deque()
+        )
         self.written = []
         self.closed = False
 
@@ -207,8 +217,7 @@ def test_controller_commands_write_expected_tokens():
 def test_controller_status_parses_reply():
     # per-cycle noise before the actual status reply (interleaving, R3)
     fake = FakeSerial(
-        b"SPAM: Beats Flex (11/82)\n"
-        b"SPAM: mode=APPLE running=1 models=22\n"
+        b"SPAM: Beats Flex (11/82)\n" b"SPAM: mode=APPLE running=1 models=22\n"
     )
     ctl = BleSpamController(fake)
     st = ctl.status(timeout=1.0)
@@ -255,7 +264,7 @@ def test_context_manager_stops_and_closes_owned_port():
     fake = FakeSerial()
     with BleSpamController(fake, owns=True):
         pass
-    assert fake.written == [b"stop\n"]   # R5: stop on exit
+    assert fake.written == [b"stop\n"]  # R5: stop on exit
     assert fake.closed is True
 
 

@@ -190,3 +190,32 @@ class TestSpamLiveView:
     def test_renders_before_any_event(self):
         view = SpamLiveView(SpamMode.ALL)
         assert view.render() is not None
+
+
+@pytest.mark.unit
+class TestSpamCompletion:
+    """Phase 6: shell tab-completion reaches ``spam`` and its modes.
+
+    Completion is Click-native (the group is registered on the root and
+    ``--mode`` is a ``click.Choice``), so there is no hand-written list to
+    drift. These tests lock that in so a future refactor cannot silently drop
+    ``spam`` or a mode from what users get on <TAB>.
+    """
+
+    def _completions(self, args, incomplete):
+        from click.shell_completion import ShellComplete
+        from modules.core.cli import build_cli
+
+        sc = ShellComplete(build_cli(), {}, "catnip", "_CATNIP_COMPLETE")
+        return [c.value for c in sc.get_completions(args, incomplete)]
+
+    def test_spam_completes_at_root(self):
+        assert "spam" in self._completions(["catnip"], "sp")
+
+    def test_spam_subcommands_complete(self):
+        subs = self._completions(["spam"], "")
+        assert {"modes", "run", "start", "status", "stop"} <= set(subs)
+
+    def test_modes_complete_for_the_mode_option(self):
+        modes = self._completions(["spam", "start", "--mode"], "")
+        assert sorted(modes) == sorted(m.token for m in SpamMode)

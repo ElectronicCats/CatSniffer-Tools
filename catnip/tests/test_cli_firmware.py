@@ -186,8 +186,7 @@ class TestBleSpamRegistration:
         from modules.firmware import fw_aliases
 
         assert (
-            fw_aliases.get_official_id("ble_spam_CC1352P_7.hex")
-            == "ble_spam_cc1352p_7"
+            fw_aliases.get_official_id("ble_spam_CC1352P_7.hex") == "ble_spam_cc1352p_7"
         )
 
     def test_display_alias_round_trips(self):

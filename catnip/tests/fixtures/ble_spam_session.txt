@@ -81,4 +81,3 @@ SPAM: stopped
 
 <<< SENT 'status' >>>
 SPAM: mode=APPLE running=0 models=22
-
