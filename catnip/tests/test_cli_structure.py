@@ -113,6 +113,7 @@ EXPECTED_PARAMS = {
     "catnip setup-env": [],
     "catnip spam": [],
     "catnip spam modes": [],
+    "catnip spam run": ["--baudrate", "--device", "--mode", "-b", "-d", "-m"],
     "catnip spam start": ["--baudrate", "--device", "--mode", "-b", "-d", "-m"],
     "catnip spam status": ["--baudrate", "--device", "-b", "-d"],
     "catnip spam stop": ["--baudrate", "--device", "-b", "-d"],

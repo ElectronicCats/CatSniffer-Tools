@@ -92,6 +92,7 @@ class SpamLine:
     index: Optional[int] = None
     total: Optional[int] = None
     cycles: Optional[int] = None
+    addr: Optional[str] = None
     message: Optional[str] = None
 
 
@@ -153,8 +154,9 @@ def parse_line(line: str) -> SpamLine:
     if m:
         return SpamLine(LineKind.STATS, raw, cycles=int(m.group("cycles")))
 
-    if _RE_ADDR.search(text):
-        return SpamLine(LineKind.STATS, raw, message=text)
+    m = _RE_ADDR.search(text)
+    if m:
+        return SpamLine(LineKind.STATS, raw, addr=m.group("addr"), message=text)
 
     m = _RE_CYCLE.search(text)
     if m:

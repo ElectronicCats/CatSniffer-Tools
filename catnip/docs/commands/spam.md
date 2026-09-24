@@ -13,6 +13,7 @@ the same way `catnip sniff airtag_scanner` surfaces the AirTag firmware.
 
 - [`modes`](#spam-modes) — list the vendor modes (no hardware needed).
 - [`start`](#spam-start) — select a mode and begin emitting.
+- [`run`](#spam-run) — emit with a live view of the cycle (Ctrl+C to stop).
 - [`status`](#spam-status) — report mode, running state and model count.
 - [`stop`](#spam-stop) — stop emitting.
 
@@ -68,6 +69,26 @@ catnip spam start --mode apple    # only Apple payloads
 The firmware is left emitting after this returns; run [`stop`](#spam-stop) to
 halt it. Selecting a mode while a cycle is running restarts it with the new
 mode.
+
+<a id="spam-run"></a>
+### `spam run`
+
+> Start emitting and show a live view of the cycle (Ctrl+C to stop).
+
+| Option | Description |
+|---|---|
+| `-m, --mode [all\|apple\|android\|windows\|samsung]` | Vendor advertising set to emit (default: `all`) |
+| `-d, --device INTEGER` | Device ID (for multiple CatSniffers) |
+| `-b, --baudrate INTEGER` | Override the bridge baudrate (default: firmware value, 921600) |
+
+```sh
+catnip spam run --mode apple      # live panel while emitting Apple payloads
+```
+
+Renders a fixed panel — active mode, elapsed time, the model being advertised
+now, ads emitted and the last rotated address. Unlike [`start`](#spam-start),
+this is an interactive session: pressing **Ctrl+C** (or the stream ending) always
+stops the firmware and closes the port, so the hardware is never left emitting.
 
 <a id="spam-status"></a>
 ### `spam status`

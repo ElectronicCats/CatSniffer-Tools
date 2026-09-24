@@ -13,7 +13,8 @@ import pytest
 from click.testing import CliRunner
 
 from modules.protocols.cli.ble_spam import spam
-from modules.protocols.ble_spam import SpamMode, SpamStatus
+from modules.protocols.ble_spam import SpamMode, SpamStatus, parse_line
+from modules.protocols.ble_spam.live import SpamLiveView
 
 
 @contextmanager
@@ -92,3 +93,55 @@ class TestSpamGroup:
         result = CliRunner().invoke(spam, ["start", "--mode", "nope"])
         assert result.exit_code != 0
         assert "nope" in result.output
+
+    def test_run_starts_and_always_stops_on_exit(self):
+        ctrl = MagicMock()
+        # A finite event stream ends the live loop cleanly.
+        ctrl.read_events.return_value = iter([])
+
+        result = _run(["run", "--mode", "apple"], ctrl)
+
+        assert result.exit_code == 0, result.output
+        ctrl.set_mode.assert_called_once_with(SpamMode.APPLE)
+        ctrl.start.assert_called_once_with()
+        # R5: a live session must halt the hardware on exit.
+        ctrl.stop.assert_called_once_with()
+        ctrl.close.assert_called_once_with()
+
+    def test_run_stops_on_keyboard_interrupt(self):
+        ctrl = MagicMock()
+        ctrl.read_events.side_effect = KeyboardInterrupt
+
+        result = _run(["run"], ctrl)
+
+        assert result.exit_code == 0, result.output
+        ctrl.stop.assert_called_once_with()
+        ctrl.close.assert_called_once_with()
+
+
+@pytest.mark.unit
+class TestSpamLiveView:
+    def test_folds_cycle_status_stats_and_error(self):
+        view = SpamLiveView(SpamMode.APPLE)
+
+        view.update(parse_line("SPAM: model Apple AirPods 1 (1/22)"))
+        view.update(parse_line("SPAM: addr fc:99:ae:e0:7c:8b"))
+        view.update(parse_line("SPAM: Beats Solo Pro (9/22)"))
+        view.update(parse_line("SPAM: cycles=100"))
+        view.update(parse_line("SPAM: mode=APPLE running=1 models=22"))
+        view.update(parse_line("ERR: TRNG unavailable, fixed seed used"))
+
+        assert view.mode is SpamMode.APPLE
+        assert view.models == 22
+        assert view.adverts == 2
+        assert view.current_model == "Beats Solo Pro"
+        assert (view.index, view.total) == (9, 22)
+        assert view.cycles == 100
+        assert view.addr == "fc:99:ae:e0:7c:8b"
+        assert "TRNG" in view.last_error
+        # Rendering must not raise with a fully populated view.
+        assert view.render() is not None
+
+    def test_renders_before_any_event(self):
+        view = SpamLiveView(SpamMode.ALL)
+        assert view.render() is not None

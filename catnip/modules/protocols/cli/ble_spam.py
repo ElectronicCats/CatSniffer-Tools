@@ -41,6 +41,7 @@ def spam():
     Examples:
         catnip spam modes                     # list vendor modes (no hardware)
         catnip spam start --mode apple        # select Apple mode and emit
+        catnip spam run --mode apple          # emit with a live view (Ctrl+C)
         catnip spam status                    # mode / running / model count
         catnip spam stop                      # stop emitting
 
@@ -108,6 +109,67 @@ def spam_start(device, mode, baudrate):
             _print_status(ctrl.status())
         finally:
             ctrl.close()
+
+
+@spam.command("run")
+@device_option()
+@click.option(
+    "-m",
+    "--mode",
+    type=click.Choice(_MODE_CHOICE),
+    default="all",
+    show_default=True,
+    help="Vendor advertising set to emit.",
+)
+@click.option(
+    "-b",
+    "--baudrate",
+    type=int,
+    default=None,
+    help="Override the bridge baudrate (default: firmware value, 921600).",
+)
+def spam_run(device, mode, baudrate):
+    """Start emitting and show a live view of the cycle (Ctrl+C to stop).
+
+    Unlike ``start``, this is an interactive session: it always stops the
+    firmware and closes the port on exit, so the hardware is never left emitting.
+    """
+    from ...core.device_session import device_session
+    from ...firmware.flasher import Flasher
+    from ...protocols.ble_spam import BAUDRATE, BleSpamController, SpamMode
+    from ...protocols.ble_spam.live import run_live
+
+    print_warning(
+        "Emitting BLE advertising frames — use only on devices you own or are "
+        "authorised to test."
+    )
+
+    selected = SpamMode.from_str(mode)
+    with device_session(
+        device,
+        required_firmware=OFFICIAL_ID,
+        feature="catnip spam",
+        flasher=Flasher(),
+        identify=False,
+    ) as dev:
+        ctrl = BleSpamController.open(dev.bridge_port, baudrate=baudrate or BAUDRATE)
+        try:
+            ctrl.set_mode(selected)
+            ctrl.start()
+            print_info(f"Live view (mode={mode}) — Ctrl+C to stop.")
+            run_live(ctrl, selected)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            # R5: a live session always leaves the hardware halted, even if the
+            # loop raised. Stop first, then close, and never let either mask the
+            # other.
+            try:
+                ctrl.stop()
+            except Exception:
+                pass
+            ctrl.close()
+            print_success("Stopped BLE spam.")
 
 
 @spam.command("stop")

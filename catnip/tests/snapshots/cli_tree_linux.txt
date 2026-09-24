@@ -621,6 +621,7 @@ Usage: catnip spam [OPTIONS] COMMAND [ARGS]...
   Examples:
       catnip spam modes                     # list vendor modes (no hardware)
       catnip spam start --mode apple        # select Apple mode and emit
+      catnip spam run --mode apple          # emit with a live view (Ctrl+C)
       catnip spam status                    # mode / running / model count
       catnip spam stop                      # stop emitting
 
@@ -631,6 +632,7 @@ Options:
 
 Commands:
   modes   List the available vendor modes (no device needed).
+  run     Start emitting and show a live view of the cycle (Ctrl+C to stop).
   start   Select a mode and start emitting.
   status  Report the current mode, running state and model count.
   stop    Stop emitting.
@@ -644,6 +646,25 @@ Usage: catnip spam modes [OPTIONS]
 
 Options:
   -h, --help  Show this message and exit.
+
+==============================================================================
+$ catnip spam run --help
+==============================================================================
+Usage: catnip spam run [OPTIONS]
+
+  Start emitting and show a live view of the cycle (Ctrl+C to stop).
+
+  Unlike ``start``, this is an interactive session: it always stops the firmware
+  and closes the port on exit, so the hardware is never left emitting.
+
+Options:
+  -d, --device INTEGER            Device ID (for multiple CatSniffers)
+  -m, --mode [all|apple|android|windows|samsung]
+                                  Vendor advertising set to emit.  [default:
+                                  all]
+  -b, --baudrate INTEGER          Override the bridge baudrate (default:
+                                  firmware value, 921600).
+  -h, --help                      Show this message and exit.
 
 ==============================================================================
 $ catnip spam start --help
