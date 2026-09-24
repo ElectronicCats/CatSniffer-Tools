@@ -664,6 +664,7 @@ Options:
                                   all]
   -b, --baudrate INTEGER          Override the bridge baudrate (default:
                                   firmware value, 921600).
+  -y, --yes                       Skip the authorised-use confirmation prompt.
   -h, --help                      Show this message and exit.
 
 ==============================================================================
@@ -683,6 +684,7 @@ Options:
                                   all]
   -b, --baudrate INTEGER          Override the bridge baudrate (default:
                                   firmware value, 921600).
+  -y, --yes                       Skip the authorised-use confirmation prompt.
   -h, --help                      Show this message and exit.
 
 ==============================================================================

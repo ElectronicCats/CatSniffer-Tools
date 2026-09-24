@@ -24,6 +24,35 @@ OFFICIAL_ID = "ble_spam_cc1352p_7"
 
 _MODE_CHOICE = ["all", "apple", "android", "windows", "samsung"]
 
+_AUTH_WARNING = (
+    "Emitting BLE advertising frames — use only on devices you own or are "
+    "authorised to test."
+)
+
+
+def _yes_option():
+    """``-y/--yes``: skip the authorised-use confirmation (for scripting)."""
+    return click.option(
+        "-y",
+        "--yes",
+        is_flag=True,
+        default=False,
+        help="Skip the authorised-use confirmation prompt.",
+    )
+
+
+def _confirm_authorised(yes: bool) -> None:
+    """Warn about authorised use and, unless *yes*, require confirmation.
+
+    Mirrors the responsible-use barrier the CLI applies before other emitting
+    actions. Declining raises ``click.Abort`` (exit 130), so the firmware is
+    never started without an explicit go-ahead; ``--yes`` skips the prompt so
+    the command stays scriptable.
+    """
+    print_warning(_AUTH_WARNING)
+    if not yes:
+        click.confirm("Proceed with BLE advertising spam?", abort=True)
+
 
 def _print_status(status) -> None:
     """Print a :class:`SpamStatus` in a uniform, greppable form."""
@@ -77,7 +106,8 @@ def spam_modes():
     default=None,
     help="Override the bridge baudrate (default: firmware value, 921600).",
 )
-def spam_start(device, mode, baudrate):
+@_yes_option()
+def spam_start(device, mode, baudrate, yes):
     """Select a mode and start emitting.
 
     Leaves the firmware emitting after the command returns; run
@@ -87,10 +117,7 @@ def spam_start(device, mode, baudrate):
     from ...firmware.flasher import Flasher
     from ...protocols.ble_spam import BAUDRATE, BleSpamController, SpamMode
 
-    print_warning(
-        "Emitting BLE advertising frames — use only on devices you own or are "
-        "authorised to test."
-    )
+    _confirm_authorised(yes)
 
     with device_session(
         device,
@@ -128,7 +155,8 @@ def spam_start(device, mode, baudrate):
     default=None,
     help="Override the bridge baudrate (default: firmware value, 921600).",
 )
-def spam_run(device, mode, baudrate):
+@_yes_option()
+def spam_run(device, mode, baudrate, yes):
     """Start emitting and show a live view of the cycle (Ctrl+C to stop).
 
     Unlike ``start``, this is an interactive session: it always stops the
@@ -139,10 +167,7 @@ def spam_run(device, mode, baudrate):
     from ...protocols.ble_spam import BAUDRATE, BleSpamController, SpamMode
     from ...protocols.ble_spam.live import run_live
 
-    print_warning(
-        "Emitting BLE advertising frames — use only on devices you own or are "
-        "authorised to test."
-    )
+    _confirm_authorised(yes)
 
     selected = SpamMode.from_str(mode)
     with device_session(

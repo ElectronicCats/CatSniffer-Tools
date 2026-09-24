@@ -60,11 +60,17 @@ Prints each mode's long token and its single-letter alias: `all` (a),
 | `-m, --mode [all\|apple\|android\|windows\|samsung]` | Vendor advertising set to emit (default: `all`) |
 | `-d, --device INTEGER` | Device ID (for multiple CatSniffers) |
 | `-b, --baudrate INTEGER` | Override the bridge baudrate (default: firmware value, 921600) |
+| `-y, --yes` | Skip the authorised-use confirmation prompt (for scripting) |
 
 ```sh
 catnip spam start                 # emit the full multi-vendor set
 catnip spam start --mode apple    # only Apple payloads
+catnip spam start --mode apple -y # skip the confirmation (scripting)
 ```
+
+Before it begins, the command prints the authorised-use warning and asks for
+confirmation; declining aborts and nothing is emitted. Pass `-y/--yes` to skip
+the prompt in scripts.
 
 The firmware is left emitting after this returns; run [`stop`](#spam-stop) to
 halt it. Selecting a mode while a cycle is running restarts it with the new
@@ -80,12 +86,14 @@ mode.
 | `-m, --mode [all\|apple\|android\|windows\|samsung]` | Vendor advertising set to emit (default: `all`) |
 | `-d, --device INTEGER` | Device ID (for multiple CatSniffers) |
 | `-b, --baudrate INTEGER` | Override the bridge baudrate (default: firmware value, 921600) |
+| `-y, --yes` | Skip the authorised-use confirmation prompt (for scripting) |
 
 ```sh
 catnip spam run --mode apple      # live panel while emitting Apple payloads
 ```
 
-Renders a fixed panel — active mode, elapsed time, the model being advertised
+Like [`start`](#spam-start), it prints the authorised-use warning and asks for
+confirmation before emitting (skip with `-y/--yes`). Renders a fixed panel — active mode, elapsed time, the model being advertised
 now, ads emitted and the last rotated address. Unlike [`start`](#spam-start),
 this is an interactive session: pressing **Ctrl+C** (or the stream ending) always
 stops the firmware and closes the port, so the hardware is never left emitting.

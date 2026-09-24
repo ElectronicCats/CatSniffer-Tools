@@ -36,10 +36,10 @@ def _patched(controller):
     )
 
 
-def _run(args, controller):
+def _run(args, controller, **kwargs):
     p1, p2, p3 = _patched(controller)
     with p1, p2, p3:
-        return CliRunner().invoke(spam, args)
+        return CliRunner().invoke(spam, args, **kwargs)
 
 
 @pytest.mark.unit
@@ -60,7 +60,7 @@ class TestSpamGroup:
         ctrl = MagicMock()
         ctrl.status.return_value = SpamStatus(SpamMode.APPLE, running=True, models=22)
 
-        result = _run(["start", "--mode", "apple"], ctrl)
+        result = _run(["start", "--mode", "apple", "--yes"], ctrl)
 
         assert result.exit_code == 0, result.output
         ctrl.set_mode.assert_called_once_with(SpamMode.APPLE)
@@ -99,7 +99,7 @@ class TestSpamGroup:
         # A finite event stream ends the live loop cleanly.
         ctrl.read_events.return_value = iter([])
 
-        result = _run(["run", "--mode", "apple"], ctrl)
+        result = _run(["run", "--mode", "apple", "--yes"], ctrl)
 
         assert result.exit_code == 0, result.output
         ctrl.set_mode.assert_called_once_with(SpamMode.APPLE)
@@ -112,11 +112,56 @@ class TestSpamGroup:
         ctrl = MagicMock()
         ctrl.read_events.side_effect = KeyboardInterrupt
 
-        result = _run(["run"], ctrl)
+        result = _run(["run", "--yes"], ctrl)
 
         assert result.exit_code == 0, result.output
         ctrl.stop.assert_called_once_with()
         ctrl.close.assert_called_once_with()
+
+
+@pytest.mark.unit
+class TestAuthorisedUseBarrier:
+    """Emission never begins without an explicit go-ahead (Phase 5)."""
+
+    def test_start_aborts_when_confirmation_declined(self):
+        ctrl = MagicMock()
+
+        # No --yes and "n" at the prompt: the command must abort before any
+        # controller call that would begin emitting.
+        result = _run(["start", "--mode", "apple"], ctrl, input="n\n")
+
+        assert result.exit_code != 0
+        ctrl.set_mode.assert_not_called()
+        ctrl.start.assert_not_called()
+
+    def test_start_proceeds_when_confirmation_accepted(self):
+        ctrl = MagicMock()
+        ctrl.status.return_value = SpamStatus(SpamMode.APPLE, running=True, models=22)
+
+        result = _run(["start", "--mode", "apple"], ctrl, input="y\n")
+
+        assert result.exit_code == 0, result.output
+        ctrl.start.assert_called_once_with()
+
+    def test_yes_flag_skips_the_prompt(self):
+        ctrl = MagicMock()
+        ctrl.status.return_value = SpamStatus(SpamMode.APPLE, running=True, models=22)
+
+        # --yes with no stdin available: must not block on a prompt.
+        result = _run(["start", "--mode", "apple", "--yes"], ctrl)
+
+        assert result.exit_code == 0, result.output
+        ctrl.start.assert_called_once_with()
+        assert "Proceed with BLE advertising spam?" not in result.output
+
+    def test_run_aborts_when_confirmation_declined(self):
+        ctrl = MagicMock()
+
+        result = _run(["run", "--mode", "apple"], ctrl, input="n\n")
+
+        assert result.exit_code != 0
+        ctrl.start.assert_not_called()
+        ctrl.read_events.assert_not_called()
 
 
 @pytest.mark.unit

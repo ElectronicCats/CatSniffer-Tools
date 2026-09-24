@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from modules.core.exceptions import ConnectionError as CatnipConnectionError
 from modules.core.exceptions import ProtocolError, ValidationError
 from modules.protocols.ble_spam import (
     BAUDRATE,
@@ -217,8 +218,22 @@ def test_controller_status_parses_reply():
 
 def test_controller_status_timeout_raises():
     ctl = BleSpamController(FakeSerial())  # no reply
-    with pytest.raises(ProtocolError):
+    with pytest.raises(ProtocolError) as exc:
         ctl.status(timeout=0.1)
+    # Phase 5: the typed error must carry actionable next steps, not just a message.
+    assert exc.value.hint
+    assert any("catnip flash" in step for step in exc.value.hint)
+
+
+def test_open_failure_raises_connection_error_with_hint(monkeypatch):
+    # Phase 5: a port that will not open surfaces a typed ConnectionError whose
+    # hint points the user at the fix, not a bare pyserial traceback.
+    import modules.core.usb_connection as usb
+
+    monkeypatch.setattr(usb, "open_serial_port", lambda *a, **k: None)
+    with pytest.raises(CatnipConnectionError) as exc:
+        BleSpamController.open("/dev/ttyNOPE", baudrate=921600)
+    assert exc.value.hint
 
 
 def test_controller_read_events_yields_parsed_lines():

@@ -46,7 +46,13 @@ class BleSpamController:
 
         ser = open_serial_port(port, baudrate=baudrate, timeout=timeout)
         if ser is None:
-            raise CatnipConnectionError(f"could not open {port} at {baudrate} baud")
+            raise CatnipConnectionError(
+                f"could not open {port} at {baudrate} baud",
+                hint=[
+                    "Check the CatSniffer is connected: catnip device list",
+                    "Close any other program holding the port (serial monitors, IDEs)",
+                ],
+            )
         return cls(ser, owns=True)
 
     # ── low-level I/O ─────────────────────────────────────────────────────
@@ -96,7 +102,13 @@ class BleSpamController:
             parsed = parse_line(line)
             if parsed.kind is LineKind.STATUS and parsed.status is not None:
                 return parsed.status
-        raise ProtocolError("no status reply from BLE-spam firmware")
+        raise ProtocolError(
+            "no status reply from BLE-spam firmware",
+            hint=[
+                "Confirm the ble_spam firmware is flashed: catnip flash ble_spam",
+                "The CC1352 may still be resetting after connect — retry the command",
+            ],
+        )
 
     def read_events(self) -> Iterator[SpamLine]:
         """Yield parsed lines as they arrive (blocks per read timeout).
