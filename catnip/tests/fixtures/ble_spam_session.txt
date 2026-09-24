@@ -1,0 +1,84 @@
+# ============================================================================
+# Fixture Fase 0 — Sesión real BLE Spam (CC1352P7) sobre el bridge_port
+# ============================================================================
+# Capturado hardware-in-the-loop en una CatSniffer v3.
+#   Puerto (bridge_port / CDC0) : /dev/ttyACM0
+#   Baud efectivo (host)        : 921600  (= baud del firmware; máximo caudal, sin pérdida)
+#   Firmware (metadata shell)   : cc1352_fw_id=ble_spam_cc1352p_7 type=custom
+#   fw_version RP2040           : v3.1.0.1 / Board v3 RP2040 CC1352P7
+#
+# Formato de línea: respuestas terminadas en CRLF ("\r\n"), prefijo "SPAM:" (estado)
+# o "ERR:" (error). Las marcas "<<< SENT '<cmd>' >>>" indican el comando enviado
+# por el host (una línea ASCII terminada en "\n"); NO forman parte del protocolo.
+#
+# NOTA banner de arranque: el firmware emite una sola vez, al bootear:
+#   CatSniffer:BleSpam <mode>
+#   SPAM: UART control ready (type 'help')
+# Sobre el bridge, el reset del CC1352 introduce un transitorio de baud que
+# CORROMPE ese banner (framing errors). => No usar el banner para detección de
+# firmware (R7); usar la metadata por shell (cc1352_fw_id), que catnip ya provee.
+# ============================================================================
+
+## --- Bloque 1: stop/help/status + cambio de modo (detenido) ---
+SPAM: Bose QC35 II (30/82)
+SPAM: JBL Live 300 (31/82)
+SPAM: OnePlus Buds (32/82)
+SPAM: MS Surface Mouse (33/82)
+# … [+82 líneas 'SPAM: <model> (i/n)' omitidas en el fixture]
+SPAM: cycles=2000
+SPAM: MS Surface Keyboard (34/82)
+SPAM: MS Surface Audio (35/82)
+SPAM: Xbox Controller (36/82)
+SPAM: Fallback Watch (37/82)
+# … [+96 líneas 'SPAM: <model> (i/n)' omitidas en el fixture]
+SPAM: cycles=2100
+SPAM: Purple W5 40mm (52/82)
+
+<<< SENT 'stop' @ +1790210468.336 >>>
+SPAM: stopped
+
+<<< SENT 'help' @ +1790210469.338 >>>
+SPAM cmds: all|apple|android|windows|samsung, start, stop, status
+
+<<< SENT 'status' @ +1790210470.341 >>>
+SPAM: mode=ALL running=0 models=82
+
+<<< SENT 'apple' @ +1790210471.343 >>>
+SPAM: mode -> APPLE (stopped)
+
+<<< SENT 'status' @ +1790210472.847 >>>
+SPAM: mode=APPLE running=0 models=22
+
+<<< SENT 'stop' @ +1790210473.849 >>>
+SPAM: stopped
+
+<<< SENT 'status' @ +1790210474.851 >>>
+SPAM: mode=APPLE running=0 models=22
+
+## --- Bloque 2: apple + start (running=1) + status + stop ---
+<<< SENT 'apple' >>>
+SPAM: mode -> APPLE (stopped)
+
+<<< SENT 'start' >>>
+SPAM: start mode=APPLE models=22 int=20-30ms
+SPAM: model Apple AirPods 1 (1/22)
+SPAM: addr fc:99:ae:e0:7c:8b
+SPAM: Apple AirPods 2 (2/22)
+SPAM: Apple AirPods 3 (3/22)
+SPAM: Apple AirPods Pro (4/22)
+SPAM: Apple AirPods Pro 2 (5/22)
+# … [+1 líneas 'SPAM: <model> (i/n)' omitidas en el fixture]
+
+<<< SENT 'status' >>>
+SPAM: mode=APPLE running=1 models=22
+SPAM: Powerbeats (7/22)
+SPAM: Powerbeats Pro (8/22)
+SPAM: Beats Solo Pro (9/22)
+SPAM: Beats Studio Buds (10/22)
+
+<<< SENT 'stop' >>>
+SPAM: stopped
+
+<<< SENT 'status' >>>
+SPAM: mode=APPLE running=0 models=22
+

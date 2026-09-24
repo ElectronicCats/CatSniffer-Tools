@@ -12,6 +12,7 @@ __pycache__/
 .venv/
 !**/requirements.txt
 !**/tests/snapshots/*.txt
+!**/tests/fixtures/*.txt
 release*/
 releases*/
 releases.*
