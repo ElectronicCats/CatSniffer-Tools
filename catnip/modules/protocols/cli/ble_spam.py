@@ -57,9 +57,7 @@ def _confirm_authorised(yes: bool) -> None:
 def _print_status(status) -> None:
     """Print a :class:`SpamStatus` in a uniform, greppable form."""
     state = "running" if status.running else "stopped"
-    print_info(
-        f"mode={status.mode.token} state={state} models={status.models}"
-    )
+    print_info(f"mode={status.mode.token} state={state} models={status.models}")
 
 
 @click.group("spam", context_settings={"help_option_names": ["-h", "--help"]})

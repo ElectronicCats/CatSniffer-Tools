@@ -43,8 +43,8 @@ class SpamMode(Enum):
     SAMSUNG = ("samsung", "s")
 
     def __init__(self, token: str, short: str) -> None:
-        self.token = token   # long command token, e.g. "apple"
-        self.short = short   # single-letter alias, e.g. "p"
+        self.token = token  # long command token, e.g. "apple"
+        self.short = short  # single-letter alias, e.g. "p"
 
     @classmethod
     def from_str(cls, value: str) -> "SpamMode":
@@ -72,13 +72,13 @@ class SpamStatus:
 class LineKind(Enum):
     """Classification of a single device output line."""
 
-    BANNER = "banner"          # one-shot boot banner (CatSniffer:BleSpam ...)
-    STATUS = "status"          # SPAM: mode=... running=... models=...
-    CYCLE = "cycle"            # SPAM: [model ]<name> (i/n)  — per advertisement
-    STATS = "stats"            # SPAM: start.../cycles=.../addr ... running stats
-    ERROR = "error"            # ERR: ...
-    INFO = "info"              # command acks & misc (stopped, mode ->, help, ...)
-    UNKNOWN = "unknown"        # anything unrecognised
+    BANNER = "banner"  # one-shot boot banner (CatSniffer:BleSpam ...)
+    STATUS = "status"  # SPAM: mode=... running=... models=...
+    CYCLE = "cycle"  # SPAM: [model ]<name> (i/n)  — per advertisement
+    STATS = "stats"  # SPAM: start.../cycles=.../addr ... running stats
+    ERROR = "error"  # ERR: ...
+    INFO = "info"  # command acks & misc (stopped, mode ->, help, ...)
+    UNKNOWN = "unknown"  # anything unrecognised
 
 
 @dataclass(frozen=True)
@@ -104,7 +104,9 @@ _RE_START = re.compile(r"SPAM:\s*start\s+mode=(?P<mode>\w+)\s+models=(?P<models>
 _RE_CYCLES = re.compile(r"SPAM:\s*cycles=(?P<cycles>\d+)")
 _RE_ADDR = re.compile(r"SPAM:\s*addr\s+(?P<addr>[0-9A-Fa-f:]+)")
 # First per-cycle line carries a "model " prefix; the rest do not.
-_RE_CYCLE = re.compile(r"SPAM:\s*(?:model\s+)?(?P<model>.+?)\s+\((?P<i>\d+)/(?P<n>\d+)\)\s*$")
+_RE_CYCLE = re.compile(
+    r"SPAM:\s*(?:model\s+)?(?P<model>.+?)\s+\((?P<i>\d+)/(?P<n>\d+)\)\s*$"
+)
 
 _INFO_MARKERS = ("stopped", "already running", "mode ->", "uart control ready")
 

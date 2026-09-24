@@ -23,7 +23,15 @@ from typing import Iterator, Optional
 
 from ...core.exceptions import ConnectionError as CatnipConnectionError
 from ...core.exceptions import ProtocolError, ValidationError
-from .core import BAUDRATE, CMD_MAXLEN, LineKind, SpamLine, SpamMode, SpamStatus, parse_line
+from .core import (
+    BAUDRATE,
+    CMD_MAXLEN,
+    LineKind,
+    SpamLine,
+    SpamMode,
+    SpamStatus,
+    parse_line,
+)
 
 
 class BleSpamController:
