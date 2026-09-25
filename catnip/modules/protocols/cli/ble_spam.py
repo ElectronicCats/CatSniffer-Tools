@@ -23,6 +23,9 @@ from ...utils.output import print_info, print_success, print_warning
 OFFICIAL_ID = "ble_spam_cc1352p_7"
 
 _MODE_CHOICE = ["all", "apple", "android", "windows", "samsung"]
+# Firmware TX-power/interval profiles (`pwr high|bal|low`). Matches PowerProfile.
+_POWER_CHOICE = ["high", "bal", "low"]
+_SCAN_CHOICE = ["on", "off"]
 
 _AUTH_WARNING = (
     "Emitting BLE advertising frames — use only on devices you own or are "
@@ -41,6 +44,41 @@ def _yes_option():
     )
 
 
+def _baudrate_option():
+    """``-b/--baudrate``: override the bridge baudrate (mirrors the inline one)."""
+    return click.option(
+        "-b",
+        "--baudrate",
+        type=int,
+        default=None,
+        help="Override the bridge baudrate (default: firmware value, 921600).",
+    )
+
+
+def _power_option():
+    """``-p/--power``: pin a TX-power/interval profile at start."""
+    return click.option(
+        "-p",
+        "--power",
+        type=click.Choice(_POWER_CHOICE),
+        default=None,
+        help="TX-power/interval profile to apply before emitting.",
+    )
+
+
+def _interval_option():
+    """``-i/--interval MIN MAX``: pin the advertising interval at start (0.625 ms units)."""
+    return click.option(
+        "-i",
+        "--interval",
+        type=int,
+        nargs=2,
+        default=None,
+        metavar="MIN MAX",
+        help="Advertising interval in 0.625 ms units (32..16384), e.g. -i 40 60.",
+    )
+
+
 def _confirm_authorised(yes: bool) -> None:
     """Warn about authorised use and, unless *yes*, require confirmation.
 
@@ -55,9 +93,32 @@ def _confirm_authorised(yes: bool) -> None:
 
 
 def _print_status(status) -> None:
-    """Print a :class:`SpamStatus` in a uniform, greppable form."""
+    """Print a :class:`SpamStatus` in a uniform, greppable form.
+
+    The hardened firmware fills ``power``/``int_min``/``int_max``; against the
+    base firmware they are ``None`` and simply omitted, so the line never breaks.
+    """
     state = "running" if status.running else "stopped"
-    print_info(f"mode={status.mode.token} state={state} models={status.models}")
+    parts = [f"mode={status.mode.token}", f"state={state}", f"models={status.models}"]
+    if status.power is not None:
+        parts.append(f"pwr={status.power.value}")
+    if status.int_min is not None and status.int_max is not None:
+        parts.append(f"int={status.int_min}-{status.int_max}")
+    print_info(" ".join(parts))
+
+
+def _apply_profile(ctrl, power, interval) -> None:
+    """Apply optional ``--power`` / ``--interval`` on *ctrl* before starting.
+
+    Shared by ``start`` and ``run``. ``interval`` is a ``(min, max)`` pair or
+    ``None``; the controller re-validates it in the firmware's own domain.
+    """
+    from ...protocols.ble_spam import PowerProfile
+
+    if power is not None:
+        ctrl.set_power(PowerProfile.from_str(power))
+    if interval is not None:
+        ctrl.set_interval(interval[0], interval[1])
 
 
 @click.group("spam", context_settings={"help_option_names": ["-h", "--help"]})
@@ -68,8 +129,13 @@ def spam():
     Examples:
         catnip spam modes                     # list vendor modes (no hardware)
         catnip spam start --mode apple        # select Apple mode and emit
+        catnip spam start -m apple -p low     # ... at the low-power profile
         catnip spam run --mode apple          # emit with a live view (Ctrl+C)
         catnip spam status                    # mode / running / model count
+        catnip spam pwr low                   # switch TX-power/interval profile
+        catnip spam int 40 60                 # override interval (0.625 ms units)
+        catnip spam stats                     # on-demand resource telemetry
+        catnip spam scan on                   # passive GAP coexistence scan
         catnip spam stop                      # stop emitting
 
     Use only on devices you own or are authorised to test.
@@ -97,23 +163,29 @@ def spam_modes():
     show_default=True,
     help="Vendor advertising set to emit.",
 )
-@click.option(
-    "-b",
-    "--baudrate",
-    type=int,
-    default=None,
-    help="Override the bridge baudrate (default: firmware value, 921600).",
-)
+@_baudrate_option()
+@_power_option()
+@_interval_option()
 @_yes_option()
-def spam_start(device, mode, baudrate, yes):
+def spam_start(device, mode, baudrate, power, interval, yes):
     """Select a mode and start emitting.
 
     Leaves the firmware emitting after the command returns; run
-    ``catnip spam stop`` to halt it.
+    ``catnip spam stop`` to halt it. ``--power`` and ``--interval`` pin the
+    profile/interval before emission begins.
     """
     from ...core.device_session import device_session
     from ...firmware.flasher import Flasher
-    from ...protocols.ble_spam import BAUDRATE, BleSpamController, SpamMode
+    from ...protocols.ble_spam import (
+        BAUDRATE,
+        BleSpamController,
+        SpamMode,
+        validate_interval,
+    )
+
+    # Fail fast, before any confirmation or port open, on a bad interval.
+    if interval is not None:
+        validate_interval(interval[0], interval[1])
 
     _confirm_authorised(yes)
 
@@ -129,6 +201,7 @@ def spam_start(device, mode, baudrate, yes):
         ctrl = BleSpamController.open(dev.bridge_port, baudrate=baudrate or BAUDRATE)
         try:
             ctrl.set_mode(SpamMode.from_str(mode))
+            _apply_profile(ctrl, power, interval)
             ctrl.start()
             print_success(f"Started BLE spam (mode={mode}).")
             _print_status(ctrl.status())
@@ -146,24 +219,29 @@ def spam_start(device, mode, baudrate, yes):
     show_default=True,
     help="Vendor advertising set to emit.",
 )
-@click.option(
-    "-b",
-    "--baudrate",
-    type=int,
-    default=None,
-    help="Override the bridge baudrate (default: firmware value, 921600).",
-)
+@_baudrate_option()
+@_power_option()
+@_interval_option()
 @_yes_option()
-def spam_run(device, mode, baudrate, yes):
+def spam_run(device, mode, baudrate, power, interval, yes):
     """Start emitting and show a live view of the cycle (Ctrl+C to stop).
 
     Unlike ``start``, this is an interactive session: it always stops the
     firmware and closes the port on exit, so the hardware is never left emitting.
+    ``--power`` and ``--interval`` pin the profile/interval before emission.
     """
     from ...core.device_session import device_session
     from ...firmware.flasher import Flasher
-    from ...protocols.ble_spam import BAUDRATE, BleSpamController, SpamMode
+    from ...protocols.ble_spam import (
+        BAUDRATE,
+        BleSpamController,
+        SpamMode,
+        validate_interval,
+    )
     from ...protocols.ble_spam.live import run_live
+
+    if interval is not None:
+        validate_interval(interval[0], interval[1])
 
     _confirm_authorised(yes)
 
@@ -178,6 +256,7 @@ def spam_run(device, mode, baudrate, yes):
         ctrl = BleSpamController.open(dev.bridge_port, baudrate=baudrate or BAUDRATE)
         try:
             ctrl.set_mode(selected)
+            _apply_profile(ctrl, power, interval)
             ctrl.start()
             print_info(f"Live view (mode={mode}) — Ctrl+C to stop.")
             run_live(ctrl, selected)
@@ -251,5 +330,150 @@ def spam_status(device, baudrate):
         ctrl = BleSpamController.open(dev.bridge_port, baudrate=baudrate or BAUDRATE)
         try:
             _print_status(ctrl.status())
+        finally:
+            ctrl.close()
+
+
+@spam.command("pwr")
+@click.argument("profile", type=click.Choice(_POWER_CHOICE))
+@device_option()
+@_baudrate_option()
+def spam_pwr(profile, device, baudrate):
+    """Select a TX-power/interval profile (high|bal|low).
+
+    Applies to a running or idle cycle; it does not begin new emission, so it
+    needs no authorised-use confirmation. The coupled interval is echoed by
+    ``catnip spam status``/``stats``.
+    """
+    from ...core.device_session import device_session
+    from ...firmware.flasher import Flasher
+    from ...protocols.ble_spam import (
+        BAUDRATE,
+        BleSpamController,
+        PowerProfile,
+    )
+
+    with device_session(
+        device,
+        required_firmware=OFFICIAL_ID,
+        feature="catnip spam",
+        flasher=Flasher(),
+        identify=False,
+    ) as dev:
+        # No context manager: changing the profile must not stop an active cycle.
+        ctrl = BleSpamController.open(dev.bridge_port, baudrate=baudrate or BAUDRATE)
+        try:
+            ctrl.set_power(PowerProfile.from_str(profile))
+            print_success(f"Power profile set to {profile}.")
+        finally:
+            ctrl.close()
+
+
+@spam.command("int")
+@click.argument("minimum", type=int)
+@click.argument("maximum", type=int)
+@device_option()
+@_baudrate_option()
+def spam_int(minimum, maximum, device, baudrate):
+    """Override the advertising interval: MIN MAX in 0.625 ms units.
+
+    \b
+    Units are the firmware's raw 0.625 ms ticks; valid range is 32..16384
+    (20 ms..10.24 s), with MIN <= MAX. Example:
+        catnip spam int 40 60      # 25 ms .. 37.5 ms
+
+    The range is checked on the host *before* the port is opened, so a bad
+    interval fails immediately without touching hardware.
+    """
+    from ...core.device_session import device_session
+    from ...firmware.flasher import Flasher
+    from ...protocols.ble_spam import BAUDRATE, BleSpamController, validate_interval
+
+    # D-C3/R4: validate in the firmware's domain before opening the port.
+    validate_interval(minimum, maximum)
+
+    with device_session(
+        device,
+        required_firmware=OFFICIAL_ID,
+        feature="catnip spam",
+        flasher=Flasher(),
+        identify=False,
+    ) as dev:
+        # No context manager: setting the interval must not stop an active cycle.
+        ctrl = BleSpamController.open(dev.bridge_port, baudrate=baudrate or BAUDRATE)
+        try:
+            ctrl.set_interval(minimum, maximum)
+            print_success(f"Interval set to {minimum}-{maximum} (x0.625 ms).")
+        finally:
+            ctrl.close()
+
+
+@spam.command("stats")
+@device_option()
+@_baudrate_option()
+def spam_stats(device, baudrate):
+    """Report on-demand resource telemetry (hardened firmware).
+
+    Prints a greppable line: cycles, stack used/size, free/total heap and the
+    active power profile / interval.
+    """
+    from ...core.device_session import device_session
+    from ...firmware.flasher import Flasher
+    from ...protocols.ble_spam import BAUDRATE, BleSpamController
+
+    with device_session(
+        device,
+        required_firmware=OFFICIAL_ID,
+        feature="catnip spam",
+        flasher=Flasher(),
+        identify=False,
+    ) as dev:
+        # No context manager: telemetry must not stop an active cycle.
+        ctrl = BleSpamController.open(dev.bridge_port, baudrate=baudrate or BAUDRATE)
+        try:
+            s = ctrl.stats()
+            parts = [
+                f"cycles={s.cycles}",
+                f"stack={s.stack_used}/{s.stack_size}",
+                f"heap={s.heap_free}/{s.heap_total}",
+            ]
+            if s.power is not None:
+                parts.append(f"pwr={s.power.value}")
+            if s.int_min is not None and s.int_max is not None:
+                parts.append(f"int={s.int_min}-{s.int_max}")
+            print_info(" ".join(parts))
+        finally:
+            ctrl.close()
+
+
+@spam.command("scan")
+@click.argument("state", type=click.Choice(_SCAN_CHOICE))
+@device_option()
+@_baudrate_option()
+def spam_scan(state, device, baudrate):
+    """Toggle the passive GAP coexistence scan (on|off).
+
+    Only available in a firmware image built with ``SPAM_WITH_SCAN=1``. On a
+    build without it the command reports a clear error (rebuild/reflash) and
+    exits non-zero — no traceback unless ``CATNIP_DEBUG=1``.
+    """
+    from ...core.device_session import device_session
+    from ...firmware.flasher import Flasher
+    from ...protocols.ble_spam import BAUDRATE, BleSpamController
+
+    with device_session(
+        device,
+        required_firmware=OFFICIAL_ID,
+        feature="catnip spam",
+        flasher=Flasher(),
+        identify=False,
+    ) as dev:
+        # No context manager: toggling scan must not stop an active cycle.
+        ctrl = BleSpamController.open(dev.bridge_port, baudrate=baudrate or BAUDRATE)
+        try:
+            # FeatureUnavailable (no SPAM_WITH_SCAN) propagates to main_cli, which
+            # renders it as a clean actionable panel with a non-zero exit code.
+            ctrl.set_scan(state == "on")
+            print_success(f"Scan {state}.")
         finally:
             ctrl.close()
