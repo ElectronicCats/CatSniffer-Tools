@@ -16,6 +16,8 @@ from modules.core.exceptions import FeatureUnavailable, ProtocolError, Validatio
 from modules.protocols.ble_spam import (
     BAUDRATE,
     CMD_MAXLEN,
+    INT_UNIT_MAX,
+    INT_UNIT_MIN,
     BleSpamController,
     LineKind,
     PowerProfile,
@@ -23,21 +25,30 @@ from modules.protocols.ble_spam import (
     SpamStats,
     SpamStatus,
     parse_line,
+    parse_stats,
     parse_status,
+    validate_interval,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ble_spam_session.txt"
+# Hardened-firmware transcript (pwr/int/stats/scan/WARN + extended status).
+MEJORAS_FIXTURE = Path(__file__).parent / "fixtures" / "ble_spam_mejoras_session.txt"
 
 
-def _device_lines():
-    """Meaningful device output lines from the fixture (no comments/markers)."""
+def _device_lines_from(path):
+    """Meaningful device output lines from *path* (no comments/markers/blanks)."""
     out = []
-    for line in FIXTURE.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or stripped.startswith("<<<"):
             continue
         out.append(line)
     return out
+
+
+def _device_lines():
+    """Meaningful device output lines from the base fixture."""
+    return _device_lines_from(FIXTURE)
 
 
 # ── constants ─────────────────────────────────────────────────────────────────
@@ -436,3 +447,183 @@ def test_read_scan_events_yields_only_reports():
             break
     assert [e.addr for e in events] == ["aa:bb:cc:dd:ee:ff", "11:22:33:44:55:66"]
     assert [e.rssi for e in events] == [-60, -42]
+
+
+# ── Phase 6: PowerProfile ─────────────────────────────────────────────────────
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("high", PowerProfile.HIGH),
+        ("HIGH", PowerProfile.HIGH),  # firmware upper-cases in some replies
+        ("bal", PowerProfile.BALANCED),
+        ("balanced", PowerProfile.BALANCED),  # enum name, not just the token
+        ("low", PowerProfile.LOW),
+        ("  Low  ", PowerProfile.LOW),  # surrounding whitespace tolerated
+    ],
+)
+def test_power_profile_from_str(value, expected):
+    assert PowerProfile.from_str(value) is expected
+
+
+def test_power_profile_from_str_rejects_unknown():
+    with pytest.raises(ValueError):
+        PowerProfile.from_str("turbo")
+
+
+def test_power_profile_tokens_are_firmware_tokens():
+    # The wire token is the enum value, not the enum name (bal, not BALANCED).
+    assert PowerProfile.BALANCED.value == "bal"
+    assert [p.value for p in PowerProfile] == ["high", "bal", "low"]
+
+
+# ── Phase 6: validate_interval (pure host-side domain check, D-C3/R4) ─────────
+@pytest.mark.parametrize("mn,mx", [(INT_UNIT_MIN, INT_UNIT_MAX), (32, 48), (40, 60), (100, 100)])
+def test_validate_interval_accepts_in_range(mn, mx):
+    validate_interval(mn, mx)  # must not raise
+
+
+@pytest.mark.parametrize(
+    "mn,mx",
+    [
+        (INT_UNIT_MIN - 1, 100),  # min below floor (0x20)
+        (100, INT_UNIT_MAX + 1),  # max above ceiling (0x4000)
+        (60, 40),  # min > max
+        (0, 0),  # both below floor
+    ],
+)
+def test_validate_interval_rejects_out_of_range(mn, mx):
+    with pytest.raises(ValidationError):
+        validate_interval(mn, mx)
+
+
+def test_interval_unit_bounds_pinned_to_firmware_domain():
+    # 0x20..0x4000 raw 0.625 ms ticks == 32..16384 == 20 ms..10.24 s.
+    assert (INT_UNIT_MIN, INT_UNIT_MAX) == (0x20, 0x4000) == (32, 16384)
+
+
+# ── Phase 6: hardened-firmware line parsing (each new format) ────────────────
+def test_parse_status_extended_fills_new_fields():
+    # Hardened status carries rot/pwr/int in addition to the base fields.
+    st = parse_status("SPAM: mode=ALL running=1 models=82 rot=cycle pwr=low int=40-60")
+    assert st == SpamStatus(
+        mode=SpamMode.ALL,
+        running=True,
+        models=82,
+        rot="cycle",
+        power=PowerProfile.LOW,
+        int_min=40,
+        int_max=60,
+    )
+
+
+def test_parse_status_base_leaves_new_fields_none():
+    # R1: a base-firmware status line still parses, with the new fields None.
+    st = parse_status("SPAM: mode=APPLE running=1 models=22")
+    assert (st.rot, st.power, st.int_min, st.int_max) == (None, None, None, None)
+
+
+def test_parse_stats_telemetry_line():
+    s = parse_stats(
+        "STATS: cycles=1500 stack=812/1024 run=1 pwr=low int=40-60 heap=12992/16384"
+    )
+    assert s == SpamStats(
+        cycles=1500,
+        stack_used=812,
+        stack_size=1024,
+        heap_free=12992,
+        heap_total=16384,
+        power=PowerProfile.LOW,
+        int_min=40,
+        int_max=60,
+    )
+
+
+def test_parse_stats_none_for_non_telemetry():
+    assert parse_stats("SPAM: cycles=2000") is None  # bare cycles, not STATS:
+    assert parse_stats("STATS: garbage") is None
+
+
+@pytest.mark.parametrize(
+    "line,kind",
+    [
+        # extended status
+        ("SPAM: mode=ALL running=0 models=82 rot=cycle pwr=high int=32-48", LineKind.STATUS),
+        # on-demand telemetry
+        ("STATS: cycles=0 stack=352/1024 run=0 pwr=low int=40-60 heap=13120/16384", LineKind.STATS),
+        # extended start line (still generic STATS, D-C2: not enriched)
+        ("SPAM: start mode=ALL models=82 pwr=low int=40-60 rot=cycle", LineKind.STATS),
+        # stack low-water warning
+        ("WARN: stack low 840/1024 B (>=80%)", LineKind.WARN),
+        # scan report + scan state lines
+        ("SCAN: 4c:19:2a:7f:e1:03 rssi=-52 len=31", LineKind.SCAN),
+        ("SCAN: on (passive 160/80)", LineKind.SCAN),
+        ("SCAN: already on", LineKind.SCAN),
+        ("SCAN: off", LineKind.SCAN),
+        # pwr/int command acks (no mode= → INFO, not STATUS)
+        ("SPAM: pwr=bal int=64-96", LineKind.INFO),
+        ("SPAM: int=40-60 (x0.625ms)", LineKind.INFO),
+        # hardened help + new errors
+        ("SPAM cmds: all|apple|android|windows|samsung, start, stop, status, stats, pwr high|bal|low, int <min> <max>, scan on|off", LineKind.INFO),
+        ("ERR: usage: pwr high|bal|low", LineKind.ERROR),
+        ("ERR: int range 0x20<=min<=max<=0x4000", LineKind.ERROR),
+        ("ERR: usage: int <min> <max> (units 0.625ms, 32-16384)", LineKind.ERROR),
+        ("ERR: unknown cmd 'scan' (type help)", LineKind.ERROR),
+        ("ERR: scan not ready", LineKind.ERROR),
+    ],
+)
+def test_parse_line_hardened_formats(line, kind):
+    assert parse_line(line).kind is kind
+
+
+def test_parse_line_scan_report_extracts_fields():
+    line = parse_line("SCAN: d8:9e:3f:11:0a:bc rssi=-71 len=27")
+    assert line.kind is LineKind.SCAN
+    assert (line.addr, line.rssi, line.data_len) == ("d8:9e:3f:11:0a:bc", -71, 27)
+
+
+def test_parse_line_scan_state_has_no_report_fields():
+    # A state line must not look like a report (rssi None), so set_scan reads it as an ack.
+    line = parse_line("SCAN: on (passive 160/80)")
+    assert line.kind is LineKind.SCAN
+    assert line.rssi is None and line.addr is None
+
+
+def test_parse_line_stats_telemetry_attaches_stats():
+    line = parse_line(
+        "STATS: cycles=1500 stack=812/1024 run=1 pwr=low int=40-60 heap=12992/16384"
+    )
+    assert line.kind is LineKind.STATS
+    assert line.stats is not None and line.stats.stack_used == 812
+    assert line.cycles == 1500  # mirrored for the live view's convenience
+
+
+# ── Phase 6: hardened fixture classifies cleanly (R1 backward-compat) ────────
+def test_mejoras_fixture_lines_all_classified_without_unknown():
+    if not MEJORAS_FIXTURE.exists():
+        pytest.skip("hardened transcript fixture not present")
+    lines = _device_lines_from(MEJORAS_FIXTURE)
+    assert lines, "fixture yielded no device lines"
+    for line in lines:
+        assert parse_line(line).kind is not LineKind.UNKNOWN, line
+    kinds = {parse_line(l).kind for l in lines}
+    # The hardened transcript exercises every new category plus the base ones.
+    assert {
+        LineKind.STATUS,
+        LineKind.STATS,
+        LineKind.WARN,
+        LineKind.SCAN,
+        LineKind.ERROR,
+        LineKind.INFO,
+    } <= kinds
+
+
+def test_mejoras_fixture_has_extended_status_and_telemetry():
+    if not MEJORAS_FIXTURE.exists():
+        pytest.skip("hardened transcript fixture not present")
+    lines = _device_lines_from(MEJORAS_FIXTURE)
+    parsed = [parse_line(l) for l in lines]
+    # At least one status carries the hardened pwr/int fields.
+    statuses = [p.status for p in parsed if p.kind is LineKind.STATUS and p.status]
+    assert any(s.power is not None and s.int_min is not None for s in statuses)
+    # At least one real telemetry line (STATS with parsed stats) is present.
+    assert any(p.kind is LineKind.STATS and p.stats is not None for p in parsed)

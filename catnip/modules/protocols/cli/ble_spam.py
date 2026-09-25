@@ -407,7 +407,7 @@ def spam_int(minimum, maximum, device, baudrate):
 
     The range is checked on the host *before* the port is opened, so a bad
     interval fails immediately without touching hardware; the firmware's own
-    reply is then confirmed (Fase 5), so success means the interval was accepted.
+    reply is then confirmed, so success means the interval was accepted.
     """
     from ...core.device_session import device_session
     from ...firmware.flasher import Flasher

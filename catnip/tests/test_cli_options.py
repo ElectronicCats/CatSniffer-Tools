@@ -259,7 +259,11 @@ def test_choice_defaults_are_one_of_the_choices(path, param):
     this needs a test rather than a passing manual run.  ``setup.py`` allows
     ``click>=8.0.0``, so both behaviours are in scope.
     """
-    if param.default is None:
+    # A required parameter (e.g. the positional ``pwr``/``scan`` arguments) has
+    # no default to validate. Click <8.2 spelled "no default" as ``None``; Click
+    # >=8.2 uses an ``UNSET`` sentinel, so key off ``required`` to stay robust
+    # across both — the test only cares about defaults that are actually set.
+    if param.required or param.default is None:
         return
     assert param.default in param.type.choices, (
         f"{path} {param.opts}: default {param.default!r} "

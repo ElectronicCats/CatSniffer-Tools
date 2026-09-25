@@ -1,0 +1,125 @@
+# ============================================================================
+# Fixture Fase 0 (plan MEJORAS) — Sesión BLE Spam endurecido (CC1352P7)
+# ============================================================================
+# ⚠️  SINTÉTICO (Fase 0, tarea 4): NO capturado en hardware. Construido a partir
+#     de los formatos printf EXACTOS del firmware endurecido en
+#     CatSniffer-Firmware/CC1352P7/ble_spam_CC1352P_7/Application/ble_spam.c
+#     (verificado línea a línea; refs abajo). Reemplazar por una captura real
+#     hardware-in-the-loop en cuanto haya HW con el binario endurecido flasheado
+#     (`catnip flash ble_spam`), conservando este mismo layout.
+#
+#   Build asumido            : SPAM_WITH_SCAN=1  (scan de coexistencia disponible)
+#   Perfil de potencia inicial: high  (spamPowerProfile = SPAM_PWR_HIGH, ble_spam.c:343)
+#   Puerto (bridge_port/CDC0): /dev/ttyACM0
+#   Baud efectivo (host)     : 921600
+#
+# Perfiles de potencia y su intervalo acoplado (ble_spam.c:338-341, unidades 0.625ms):
+#     high = int 32-48   (0x20-0x30, +5 dBm)
+#     bal  = int 64-96   (0x40-0x60,  0 dBm)
+#     low  = int 128-160 (0x80-0xA0, -20 dBm)
+#
+# Formato de línea: respuestas terminadas en CRLF; prefijos "SPAM:"/"STATS:"/
+# "WARN:"/"SCAN:" (estado) o "ERR:" (error). Las marcas "<<< SENT '<cmd>' >>>"
+# indican el comando enviado por el host y NO forman parte del protocolo.
+#
+# Referencias de formato (ble_spam.c):
+#   status extendido        : 858  SPAM: mode=%s running=%u models=%u rot=%s pwr=%s int=%u-%u
+#   start extendido         : 462  SPAM: start mode=%s models=%u pwr=%s int=%u-%u rot=%s
+#   telemetría              : 646  STATS: cycles=%u stack=%u/%u run=%u pwr=%s int=%u-%u heap=%u/%u
+#   aviso de stack          : 620  WARN: stack low %u/%u B (>=%u%%)
+#   reporte de scan         : 2072 SCAN: %02x:..:%02x rssi=%d len=%u
+#   estados de scan         : 2013/2030/2041/2052
+#   pwr reply / usage        : 894 / 888
+#   int reply / usage / rango: 913 / 905 / 908
+#   help endurecido          : 934
+# ============================================================================
+
+## --- Bloque 1: status extendido (detenido, defaults high) ---
+<<< SENT 'status' >>>
+SPAM: mode=ALL running=0 models=82 rot=cycle pwr=high int=32-48
+SCAN: off
+
+## --- Bloque 2: perfiles de potencia (pwr) + intervalo acoplado ---
+<<< SENT 'pwr high' >>>
+SPAM: pwr=high int=32-48
+
+<<< SENT 'pwr bal' >>>
+SPAM: pwr=bal int=64-96
+
+<<< SENT 'pwr low' >>>
+SPAM: pwr=low int=128-160
+
+<<< SENT 'pwr loud' >>>
+ERR: usage: pwr high|bal|low
+
+## --- Bloque 3: override de intervalo (int) + rechazos de rango ---
+<<< SENT 'int 40 60' >>>
+SPAM: int=40-60 (x0.625ms)
+
+<<< SENT 'int 10 20' >>>
+ERR: int range 0x20<=min<=max<=0x4000
+
+<<< SENT 'int 60 40' >>>
+ERR: int range 0x20<=min<=max<=0x4000
+
+<<< SENT 'int 40' >>>
+ERR: usage: int <min> <max> (units 0.625ms, 32-16384)
+
+## --- Bloque 4: telemetría bajo demanda (detenido) ---
+# tras Bloque 3: perfil sigue en 'low', pero int quedó overrideado a 40-60; run=0.
+<<< SENT 'stats' >>>
+STATS: cycles=0 stack=352/1024 run=0 pwr=low int=40-60 heap=13120/16384
+
+## --- Bloque 5: start (running=1) → start extendido + telemetría + WARN ---
+<<< SENT 'start' >>>
+SPAM: start mode=ALL models=82 pwr=low int=40-60 rot=cycle
+SPAM: model Bose QC35 II (1/82)
+SPAM: addr fc:99:ae:e0:7c:8b
+SPAM: JBL Live 300 (2/82)
+SPAM: OnePlus Buds (3/82)
+SPAM: cycles=1500
+
+<<< SENT 'stats' >>>
+STATS: cycles=1500 stack=812/1024 run=1 pwr=low int=40-60 heap=12992/16384
+
+WARN: stack low 840/1024 B (>=80%)
+
+<<< SENT 'status' >>>
+SPAM: mode=ALL running=1 models=82 rot=cycle pwr=low int=40-60
+SCAN: off
+
+## --- Bloque 6: scan pasivo de coexistencia (SPAM_WITH_SCAN=1) ---
+<<< SENT 'scan on' >>>
+SCAN: on (passive 160/80)
+SCAN: 4c:19:2a:7f:e1:03 rssi=-52 len=31
+SCAN: d8:9e:3f:11:0a:bc rssi=-71 len=27
+SCAN: 6b:00:aa:12:cd:ef rssi=-88 len=8
+
+<<< SENT 'scan on' >>>
+SCAN: already on
+
+<<< SENT 'scan off' >>>
+SCAN: off
+
+<<< SENT 'scan off' >>>
+SCAN: already off
+
+## --- Bloque 7: help endurecido ---
+<<< SENT 'help' >>>
+SPAM cmds: all|apple|android|windows|samsung, start, stop, status, stats, pwr high|bal|low, int <min> <max>, scan on|off
+
+## --- Bloque 8: parada limpia (R5) ---
+<<< SENT 'stop' >>>
+SPAM: stopped
+
+# ============================================================================
+# Referencia (NO parte de esta sesión): build compilado SIN SPAM_WITH_SCAN.
+# Sirve para la degradación limpia de R2 (inferir ausencia de scan por la
+# réplica). Mantener comentado; el firmware endurecido de este fixture SÍ trae
+# scan. Formatos exactos:
+#   <<< SENT 'help' >>>
+#   SPAM cmds: all|apple|android|windows|samsung, start, stop, status, stats, pwr high|bal|low, int <min> <max>
+#   <<< SENT 'scan on' >>>
+#   ERR: unknown cmd 'scan' (type help)          # ble_spam.c:942 (scan no compilado)
+#   ERR: scan not ready                          # ble_spam.c:2026 (scan compilado, aún sin init)
+# ============================================================================

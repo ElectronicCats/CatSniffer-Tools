@@ -74,7 +74,7 @@ def make_fake_modules():
         sys.modules["requests"] = MagicMock()
 
     # rich
-    for mod in [
+    rich_mods = [
         "rich",
         "rich.console",
         "rich.table",
@@ -84,7 +84,20 @@ def make_fake_modules():
         "rich.style",
         "rich",
         "rich.box",
-    ]:
+    ]
+    # Import the real rich first when it is installed, so the guard below skips
+    # it. Collection imports every test module before any test runs, and a
+    # MagicMock left in sys.modules is visible to *every* later test module
+    # (same trap the ``protocol.*`` block above avoids): if ``rich.console`` is
+    # stubbed here before ``modules.utils.output`` first imports it, that
+    # module's shared ``console`` becomes a MagicMock and silently swallows the
+    # output of every CLI test that runs afterwards.
+    try:
+        for _m in rich_mods:
+            __import__(_m)
+    except ImportError:
+        pass  # rich absent: fall back to stubbing it below
+    for mod in rich_mods:
         if mod not in sys.modules:
             sys.modules[mod] = MagicMock()
 

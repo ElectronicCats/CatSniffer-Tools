@@ -443,8 +443,35 @@ class TestSpamCompletion:
 
     def test_spam_subcommands_complete(self):
         subs = self._completions(["spam"], "")
-        assert {"modes", "run", "start", "status", "stop"} <= set(subs)
+        # Base commands and the hardened-firmware runtime controls all appear.
+        assert {
+            "modes",
+            "run",
+            "start",
+            "status",
+            "stop",
+            "pwr",
+            "int",
+            "stats",
+            "scan",
+        } <= set(subs)
 
     def test_modes_complete_for_the_mode_option(self):
         modes = self._completions(["spam", "start", "--mode"], "")
         assert sorted(modes) == sorted(m.token for m in SpamMode)
+
+    def test_power_profiles_complete_for_the_power_option(self):
+        # click.Choice completes itself; lock the profiles in for --power and pwr.
+        assert sorted(self._completions(["spam", "start", "--power"], "")) == [
+            "bal",
+            "high",
+            "low",
+        ]
+        assert sorted(self._completions(["spam", "pwr"], "")) == ["bal", "high", "low"]
+
+    def test_scan_states_complete_for_the_scan_argument(self):
+        assert sorted(self._completions(["spam", "scan"], "")) == ["off", "on"]
+        assert sorted(self._completions(["spam", "run", "--scan"], "")) == [
+            "off",
+            "on",
+        ]
