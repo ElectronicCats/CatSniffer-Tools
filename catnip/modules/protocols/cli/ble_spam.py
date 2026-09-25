@@ -79,6 +79,17 @@ def _interval_option():
     )
 
 
+def _scan_option():
+    """``-s/--scan on|off``: enable the passive GAP scan feed during ``run``."""
+    return click.option(
+        "-s",
+        "--scan",
+        type=click.Choice(_SCAN_CHOICE),
+        default=None,
+        help="Enable the passive scan feed in the live view (needs SPAM_WITH_SCAN).",
+    )
+
+
 def _confirm_authorised(yes: bool) -> None:
     """Warn about authorised use and, unless *yes*, require confirmation.
 
@@ -222,13 +233,16 @@ def spam_start(device, mode, baudrate, power, interval, yes):
 @_baudrate_option()
 @_power_option()
 @_interval_option()
+@_scan_option()
 @_yes_option()
-def spam_run(device, mode, baudrate, power, interval, yes):
+def spam_run(device, mode, baudrate, power, interval, scan, yes):
     """Start emitting and show a live view of the cycle (Ctrl+C to stop).
 
     Unlike ``start``, this is an interactive session: it always stops the
     firmware and closes the port on exit, so the hardware is never left emitting.
-    ``--power`` and ``--interval`` pin the profile/interval before emission.
+    ``--power`` and ``--interval`` pin the profile/interval before emission;
+    ``--scan on`` enables the passive-scan feed in the live view (needs a firmware
+    built with ``SPAM_WITH_SCAN=1``).
     """
     from ...core.device_session import device_session
     from ...firmware.flasher import Flasher
@@ -258,14 +272,23 @@ def spam_run(device, mode, baudrate, power, interval, yes):
             ctrl.set_mode(selected)
             _apply_profile(ctrl, power, interval)
             ctrl.start()
+            if scan == "on":
+                # FeatureUnavailable (no SPAM_WITH_SCAN) propagates to main_cli;
+                # the finally below still halts the hardware first (R5).
+                ctrl.set_scan(True)
             print_info(f"Live view (mode={mode}) — Ctrl+C to stop.")
             run_live(ctrl, selected)
         except KeyboardInterrupt:
             pass
         finally:
             # R5: a live session always leaves the hardware halted, even if the
-            # loop raised. Stop first, then close, and never let either mask the
-            # other.
+            # loop raised. Turn scan off (best-effort), stop, then close, and
+            # never let any of them mask the others.
+            if scan == "on":
+                try:
+                    ctrl.set_scan(False)
+                except Exception:
+                    pass
             try:
                 ctrl.stop()
             except Exception:
