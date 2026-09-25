@@ -65,7 +65,14 @@ class FirmwareVerifier:
 
     # Firmware ids that can be confirmed by talking to the CC1352 directly.
     # Firmwares outside this set can only be confirmed via metadata.
-    _DIRECT_CHECK_IDS = {"ti_sniffer", "sniffle"}
+    #
+    # ble_spam is here so a device that is genuinely running it is recognised
+    # even when the RP2040 NVS metadata is missing or stale: e.g. a WIP image
+    # flashed outside catnip, a post-flash metadata write that did not land, or
+    # a shell port not yet ready right after a physical reconnect. Without a
+    # direct probe, any of those makes verify() fail and drives device_session
+    # into a doomed auto-reflash of an image that is not in the release bundle.
+    _DIRECT_CHECK_IDS = {"ti_sniffer", "sniffle", "ble_spam_cc1352p_7"}
 
     def __init__(self, bridge_port: Optional[str], shell_port: Optional[str] = None):
         self.bridge_port = bridge_port
@@ -109,6 +116,8 @@ class FirmwareVerifier:
             return self._check_ti_firmware()
         if official_id == "sniffle":
             return self._check_sniffle_firmware_smart()
+        if official_id == "ble_spam_cc1352p_7":
+            return self._check_ble_spam_firmware()
         return False
 
     def verify(self, official_id: str) -> VerificationResult:
@@ -170,6 +179,35 @@ class FirmwareVerifier:
 
     def _check_ti_firmware(self, timeout: float = 2) -> bool:
         return self._check_flag(flag=b"TI Packet", timeout=timeout)
+
+    def _check_ble_spam_firmware(self, timeout: float = 1.5) -> bool:
+        """Confirm the ble_spam firmware by asking it for ``status``.
+
+        The image has no NVS-independent flag beyond its UART line protocol, so
+        — like the ti_sniffer/sniffle probes — we open the bridge, request
+        ``status``, and treat a well-formed STATUS reply as proof it is running.
+        ``status`` never starts emitting, so probing an idle device is safe, and
+        the port is always closed again so the caller can reopen it.
+        """
+        if not self.bridge_port:
+            return False
+        # Lazy import: the protocol package pulls in core modules, so importing
+        # it at module load would risk a cycle.
+        from ..protocols.ble_spam import BAUDRATE, BleSpamController
+
+        ctrl = None
+        try:
+            ctrl = BleSpamController.open(self.bridge_port, baudrate=BAUDRATE)
+            ctrl.status(timeout=timeout)
+            return True
+        except Exception:
+            return False
+        finally:
+            if ctrl is not None:
+                try:
+                    ctrl.close()
+                except Exception:
+                    pass
 
     def _check_sniffle_firmware_smart(
         self, timeout: float = 3, max_retries: int = 2
