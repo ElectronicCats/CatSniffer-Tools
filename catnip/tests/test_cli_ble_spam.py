@@ -125,6 +125,41 @@ class TestSpamGroup:
         ctrl.stop.assert_called_once_with()
         ctrl.close.assert_called_once_with()
 
+    def test_run_scan_on_enables_and_disables_scan(self):
+        ctrl = MagicMock()
+        ctrl.read_events.return_value = iter([])
+
+        result = _run(["run", "--scan", "on", "--yes"], ctrl)
+
+        assert result.exit_code == 0, result.output
+        # Scan is enabled after start and turned back off on exit (R5).
+        ctrl.set_scan.assert_any_call(True)
+        ctrl.set_scan.assert_any_call(False)
+        ctrl.stop.assert_called_once_with()
+        ctrl.close.assert_called_once_with()
+
+    def test_run_without_scan_never_toggles_scan(self):
+        ctrl = MagicMock()
+        ctrl.read_events.return_value = iter([])
+
+        result = _run(["run", "--yes"], ctrl)
+
+        assert result.exit_code == 0, result.output
+        ctrl.set_scan.assert_not_called()
+
+    def test_run_scan_on_unavailable_still_halts_hardware(self):
+        ctrl = MagicMock()
+        # A build without SPAM_WITH_SCAN raises when enabling the scan.
+        ctrl.set_scan.side_effect = FeatureUnavailable("no scan in this build")
+
+        result = _run(["run", "--scan", "on", "--yes"], ctrl)
+
+        assert result.exit_code != 0
+        # The live loop never ran, but the hardware is still stopped/closed (R5).
+        ctrl.read_events.assert_not_called()
+        ctrl.stop.assert_called_once_with()
+        ctrl.close.assert_called_once_with()
+
 
 @pytest.mark.unit
 class TestSpamRuntimeControls:
@@ -324,6 +359,65 @@ class TestSpamLiveView:
     def test_renders_before_any_event(self):
         view = SpamLiveView(SpamMode.ALL)
         assert view.render() is not None
+
+    def test_folds_telemetry_from_stats_line(self):
+        view = SpamLiveView(SpamMode.APPLE)
+
+        view.update(
+            parse_line(
+                "STATS: cycles=100 stack=320/1024 run=1 pwr=low int=128-160 "
+                "heap=8192/16384"
+            )
+        )
+
+        assert view.cycles == 100
+        assert (view.stack_used, view.stack_size) == (320, 1024)
+        assert (view.heap_free, view.heap_total) == (8192, 16384)
+        assert view.power is PowerProfile.LOW
+        assert (view.int_min, view.int_max) == (128, 160)
+        assert view.render() is not None
+
+    def test_folds_power_and_interval_from_extended_status(self):
+        view = SpamLiveView(SpamMode.ALL)
+
+        view.update(
+            parse_line("SPAM: mode=APPLE running=1 models=22 rot=on pwr=bal int=64-96")
+        )
+
+        assert view.mode is SpamMode.APPLE
+        assert view.power is PowerProfile.BALANCED
+        assert (view.int_min, view.int_max) == (64, 96)
+
+    def test_warn_flags_stack_and_renders_red(self):
+        view = SpamLiveView(SpamMode.ALL)
+        assert view.stack_warn is False
+
+        view.update(parse_line("WARN: stack low 950/1024 B (>=80%)"))
+
+        assert view.stack_warn is True
+        assert view.render() is not None
+
+    def test_scan_reports_feed_the_secondary_table(self):
+        view = SpamLiveView(SpamMode.ALL)
+
+        view.update(parse_line("SCAN: on (passive 160/80)"))  # state: not a report
+        view.update(parse_line("SCAN: aa:bb:cc:dd:ee:ff rssi=-40 len=31"))
+        view.update(parse_line("SCAN: 11:22:33:44:55:66 rssi=-72 len=20"))
+
+        assert view.scan_reports == 2
+        # Newest first.
+        assert view.scan_recent[0][0] == "11:22:33:44:55:66"
+        assert view.render() is not None
+
+    def test_scan_feed_is_bounded(self):
+        from modules.protocols.ble_spam.live import SCAN_FEED_MAX
+
+        view = SpamLiveView(SpamMode.ALL)
+        for i in range(SCAN_FEED_MAX + 5):
+            view.update(parse_line(f"SCAN: aa:bb:cc:dd:ee:{i:02x} rssi=-{i} len=10"))
+
+        assert view.scan_reports == SCAN_FEED_MAX + 5
+        assert len(view.scan_recent) == SCAN_FEED_MAX
 
 
 @pytest.mark.unit
