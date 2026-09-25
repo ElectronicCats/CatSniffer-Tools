@@ -188,7 +188,8 @@ class TestSpamRuntimeControls:
         result = _run(["int", "40", "60"], ctrl)
 
         assert result.exit_code == 0, result.output
-        ctrl.set_interval.assert_called_once_with(40, 60)
+        # Fase 5: the CLI confirms the firmware accepted the interval.
+        ctrl.set_interval.assert_called_once_with(40, 60, confirm=True)
         ctrl.stop.assert_not_called()
         ctrl.close.assert_called_once_with()
 

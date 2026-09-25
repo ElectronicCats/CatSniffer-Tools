@@ -314,6 +314,44 @@ def test_set_interval_min_greater_than_max_raises_without_writing():
     assert fake.written == []
 
 
+# ── Phase 5: end-to-end interval confirmation (defence in depth) ─────────────
+def test_set_interval_confirm_returns_on_ack():
+    # With confirm=True the controller reads the firmware echo and returns.
+    fake = FakeSerial(b"SPAM: int=40-60 (x0.625ms)\n")
+    ctl = BleSpamController(fake)
+    ctl.set_interval(40, 60, confirm=True, timeout=1.0)  # no raise
+    assert fake.written == [b"int 40 60\n"]
+
+
+def test_set_interval_confirm_maps_late_range_error():
+    # A firmware that rejects an in-host-range interval (build mismatch) must
+    # surface as a ValidationError, not a silent success (R4/Fase 5).
+    fake = FakeSerial(
+        b"SPAM: Beats Flex (11/82)\n"  # interleaved cycle line, skipped
+        b"ERR: int range 0x20<=min<=max<=0x4000\n"
+    )
+    ctl = BleSpamController(fake)
+    with pytest.raises(ValidationError):
+        ctl.set_interval(40, 60, confirm=True, timeout=1.0)
+    assert fake.written == [b"int 40 60\n"]  # it did send before the reply
+
+
+def test_set_interval_confirm_best_effort_on_silence():
+    # A quiet echo (no ack within timeout) is not a failure: the write went out.
+    fake = FakeSerial()  # no reply at all
+    ctl = BleSpamController(fake)
+    ctl.set_interval(40, 60, confirm=True, timeout=0.1)  # returns, no raise
+    assert fake.written == [b"int 40 60\n"]
+
+
+def test_set_interval_no_confirm_is_fire_and_forget():
+    # Default path: no read, so start/run never wait on the ack.
+    fake = FakeSerial(b"ERR: int range 0x20<=min<=max<=0x4000\n")
+    ctl = BleSpamController(fake)
+    ctl.set_interval(40, 60)  # does not read the reply, no raise
+    assert fake.written == [b"int 40 60\n"]
+
+
 def test_stats_parses_telemetry_skipping_interleaved_lines():
     # A per-cycle line and a bare cycles= line (both STATS-kind but stats=None)
     # precede the telemetry line; the loop must skip them (R3).
