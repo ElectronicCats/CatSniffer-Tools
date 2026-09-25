@@ -477,7 +477,9 @@ def test_power_profile_tokens_are_firmware_tokens():
 
 
 # ── Phase 6: validate_interval (pure host-side domain check, D-C3/R4) ─────────
-@pytest.mark.parametrize("mn,mx", [(INT_UNIT_MIN, INT_UNIT_MAX), (32, 48), (40, 60), (100, 100)])
+@pytest.mark.parametrize(
+    "mn,mx", [(INT_UNIT_MIN, INT_UNIT_MAX), (32, 48), (40, 60), (100, 100)]
+)
 def test_validate_interval_accepts_in_range(mn, mx):
     validate_interval(mn, mx)  # must not raise
 
@@ -547,9 +549,15 @@ def test_parse_stats_none_for_non_telemetry():
     "line,kind",
     [
         # extended status
-        ("SPAM: mode=ALL running=0 models=82 rot=cycle pwr=high int=32-48", LineKind.STATUS),
+        (
+            "SPAM: mode=ALL running=0 models=82 rot=cycle pwr=high int=32-48",
+            LineKind.STATUS,
+        ),
         # on-demand telemetry
-        ("STATS: cycles=0 stack=352/1024 run=0 pwr=low int=40-60 heap=13120/16384", LineKind.STATS),
+        (
+            "STATS: cycles=0 stack=352/1024 run=0 pwr=low int=40-60 heap=13120/16384",
+            LineKind.STATS,
+        ),
         # extended start line (still generic STATS, D-C2: not enriched)
         ("SPAM: start mode=ALL models=82 pwr=low int=40-60 rot=cycle", LineKind.STATS),
         # stack low-water warning
@@ -563,7 +571,10 @@ def test_parse_stats_none_for_non_telemetry():
         ("SPAM: pwr=bal int=64-96", LineKind.INFO),
         ("SPAM: int=40-60 (x0.625ms)", LineKind.INFO),
         # hardened help + new errors
-        ("SPAM cmds: all|apple|android|windows|samsung, start, stop, status, stats, pwr high|bal|low, int <min> <max>, scan on|off", LineKind.INFO),
+        (
+            "SPAM cmds: all|apple|android|windows|samsung, start, stop, status, stats, pwr high|bal|low, int <min> <max>, scan on|off",
+            LineKind.INFO,
+        ),
         ("ERR: usage: pwr high|bal|low", LineKind.ERROR),
         ("ERR: int range 0x20<=min<=max<=0x4000", LineKind.ERROR),
         ("ERR: usage: int <min> <max> (units 0.625ms, 32-16384)", LineKind.ERROR),
