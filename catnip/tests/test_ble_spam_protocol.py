@@ -12,13 +12,15 @@ from pathlib import Path
 import pytest
 
 from modules.core.exceptions import ConnectionError as CatnipConnectionError
-from modules.core.exceptions import ProtocolError, ValidationError
+from modules.core.exceptions import FeatureUnavailable, ProtocolError, ValidationError
 from modules.protocols.ble_spam import (
     BAUDRATE,
     CMD_MAXLEN,
     BleSpamController,
     LineKind,
+    PowerProfile,
     SpamMode,
+    SpamStats,
     SpamStatus,
     parse_line,
     parse_status,
@@ -274,3 +276,125 @@ def test_context_manager_does_not_close_borrowed_port():
         pass
     assert fake.written == [b"stop\n"]
     assert fake.closed is False
+
+
+# ── Phase 2: hardened-firmware controller commands ───────────────────────────
+def test_set_power_writes_profile_token():
+    fake = FakeSerial()
+    BleSpamController(fake).set_power(PowerProfile.HIGH)
+    assert fake.written == [b"pwr high\n"]
+
+
+def test_set_power_uses_firmware_token_not_name():
+    fake = FakeSerial()
+    BleSpamController(fake).set_power(PowerProfile.BALANCED)
+    assert fake.written == [b"pwr bal\n"]  # value "bal", not "BALANCED"
+
+
+def test_set_interval_writes_min_max():
+    fake = FakeSerial()
+    BleSpamController(fake).set_interval(0x20, 0x4000)
+    assert fake.written == [b"int 32 16384\n"]
+
+
+def test_set_interval_out_of_range_raises_without_writing():
+    # Success criterion: rejects before touching the port (R4/D-C3).
+    fake = FakeSerial()
+    ctl = BleSpamController(fake)
+    with pytest.raises(ValidationError):
+        ctl.set_interval(10, 20)  # below INT_UNIT_MIN (0x20)
+    assert fake.written == []
+
+
+def test_set_interval_min_greater_than_max_raises_without_writing():
+    fake = FakeSerial()
+    ctl = BleSpamController(fake)
+    with pytest.raises(ValidationError):
+        ctl.set_interval(60, 40)
+    assert fake.written == []
+
+
+def test_stats_parses_telemetry_skipping_interleaved_lines():
+    # A per-cycle line and a bare cycles= line (both STATS-kind but stats=None)
+    # precede the telemetry line; the loop must skip them (R3).
+    fake = FakeSerial(
+        b"SPAM: Beats Flex (11/82)\n"
+        b"SPAM: cycles=2000\n"
+        b"STATS: cycles=2000 stack=200/1024 run=1 pwr=high int=32-48 heap=8000/16000\n"
+    )
+    st = BleSpamController(fake).stats(timeout=1.0)
+    assert st == SpamStats(
+        cycles=2000,
+        stack_used=200,
+        stack_size=1024,
+        heap_free=8000,
+        heap_total=16000,
+        power=PowerProfile.HIGH,
+        int_min=32,
+        int_max=48,
+    )
+    assert fake.written == [b"stats\n"]
+
+
+def test_stats_timeout_raises_protocol_error_with_hint():
+    ctl = BleSpamController(FakeSerial())  # no reply
+    with pytest.raises(ProtocolError) as exc:
+        ctl.stats(timeout=0.1)
+    assert exc.value.hint
+
+
+def test_set_scan_on_state_ack_returns():
+    fake = FakeSerial(b"SCAN: on (passive 160/80)\n")
+    BleSpamController(fake).set_scan(True, timeout=1.0)
+    assert fake.written == [b"scan on\n"]
+
+
+def test_set_scan_off_writes_token():
+    fake = FakeSerial(b"SCAN: off\n")
+    BleSpamController(fake).set_scan(False, timeout=1.0)
+    assert fake.written == [b"scan off\n"]
+
+
+def test_set_scan_skips_report_lines_until_state_ack():
+    # Interleaved SCAN report lines (rssi=…) must not be mistaken for the ack.
+    fake = FakeSerial(b"SCAN: aa:bb:cc:dd:ee:ff rssi=-60 len=12\n" b"SCAN: off\n")
+    BleSpamController(fake).set_scan(False, timeout=1.0)  # returns, no raise
+
+
+def test_set_scan_unknown_cmd_raises_feature_unavailable():
+    # Binary built without SPAM_WITH_SCAN → typed error, does not hang (R2).
+    fake = FakeSerial(b"ERR: unknown cmd 'scan' (type help)\n")
+    with pytest.raises(FeatureUnavailable) as exc:
+        BleSpamController(fake).set_scan(True, timeout=1.0)
+    assert exc.value.hint
+    assert any("SPAM_WITH_SCAN" in step for step in exc.value.hint)
+
+
+def test_set_scan_not_ready_raises_feature_unavailable():
+    fake = FakeSerial(b"ERR: scan not ready\n")
+    with pytest.raises(FeatureUnavailable):
+        BleSpamController(fake).set_scan(True, timeout=1.0)
+
+
+def test_set_scan_timeout_raises_protocol_error():
+    ctl = BleSpamController(FakeSerial())  # silent binary
+    with pytest.raises(ProtocolError) as exc:
+        ctl.set_scan(True, timeout=0.1)
+    assert exc.value.hint
+
+
+def test_read_scan_events_yields_only_reports():
+    fake = FakeSerial(
+        b"SCAN: on (passive 160/80)\n"  # state line → filtered out
+        b"SCAN: aa:bb:cc:dd:ee:ff rssi=-60 len=12\n"  # report → yielded
+        b"SPAM: Beats Flex (11/82)\n"  # cycle → filtered out
+        b"SCAN: 11:22:33:44:55:66 rssi=-42 len=8\n"  # report → yielded
+    )
+    ctl = BleSpamController(fake)
+    events = []
+    for ev in ctl.read_scan_events():
+        events.append(ev)
+        if len(events) == 2:
+            break
+    assert [e.addr for e in events] == ["aa:bb:cc:dd:ee:ff", "11:22:33:44:55:66"]
+    assert [e.rssi for e in events] == [-60, -42]
