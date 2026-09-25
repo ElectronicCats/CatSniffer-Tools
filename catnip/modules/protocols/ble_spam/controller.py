@@ -138,16 +138,53 @@ class BleSpamController:
         """
         self.send(f"pwr {profile.value}")
 
-    def set_interval(self, mn: int, mx: int) -> None:
+    def set_interval(
+        self, mn: int, mx: int, *, confirm: bool = False, timeout: float = 1.0
+    ) -> None:
         """Override the advertising interval (``int <min> <max>``, 0.625 ms units).
 
         Validates in the firmware's own domain **before** touching the port
         (R4/D-C3), so an out-of-range interval raises :class:`ValidationError`
         without a write or a round-trip. On valid input the firmware echoes
         ``SPAM: int=<mn>-<mx> (x0.625ms)``.
+
+        With ``confirm`` (Fase 5, end-to-end validation) it also reads the reply
+        for a bounded *timeout* and turns a late ``ERR: int range …`` into a
+        :class:`ValidationError` — defence in depth: host pre-validation makes
+        that reply impossible from a sound firmware, but a mismatched build must
+        not slip through as silent success. Interleaved per-cycle lines are
+        skipped; a missing ack within *timeout* is treated as best-effort (the
+        write went out, so the happy path is never failed on a quiet echo).
+        Fire-and-forget by default, so ``start``/``run`` never wait on the ack.
         """
         validate_interval(mn, mx)  # raises before any write
         self.send(f"int {mn} {mx}")
+        if not confirm:
+            return
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            line = self._readline()
+            if not line:
+                continue
+            parsed = parse_line(line)
+            if (
+                parsed.kind is LineKind.INFO
+                and parsed.message
+                and "int=" in parsed.message
+            ):
+                return  # SPAM: int=<mn>-<mx> (x0.625ms) — firmware accepted it
+            if parsed.kind is LineKind.ERROR and parsed.message:
+                low = parsed.message.lower()
+                if "int range" in low or ("usage" in low and "int" in low):
+                    raise ValidationError(
+                        f"firmware rejected interval {mn}-{mx}: {parsed.message}",
+                        hint=[
+                            "Use units of 0.625 ms in 32..16384 (20 ms..10.24 s)",
+                            "Example: catnip spam int 40 60",
+                        ],
+                    )
+        # No ack seen within timeout: the write went out; do not fail the
+        # happy path on a quiet echo (a busy cycle may crowd it out).
 
     def stats(self, timeout: float = 1.0) -> SpamStats:
         """Send ``stats`` and return the first telemetry line as :class:`SpamStats`.

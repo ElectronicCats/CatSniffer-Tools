@@ -406,7 +406,8 @@ def spam_int(minimum, maximum, device, baudrate):
         catnip spam int 40 60      # 25 ms .. 37.5 ms
 
     The range is checked on the host *before* the port is opened, so a bad
-    interval fails immediately without touching hardware.
+    interval fails immediately without touching hardware; the firmware's own
+    reply is then confirmed (Fase 5), so success means the interval was accepted.
     """
     from ...core.device_session import device_session
     from ...firmware.flasher import Flasher
@@ -425,7 +426,9 @@ def spam_int(minimum, maximum, device, baudrate):
         # No context manager: setting the interval must not stop an active cycle.
         ctrl = BleSpamController.open(dev.bridge_port, baudrate=baudrate or BAUDRATE)
         try:
-            ctrl.set_interval(minimum, maximum)
+            # confirm=True: read the reply and map a late `ERR: int range` to a
+            # ValidationError (defence in depth; main_cli renders it, exit 2).
+            ctrl.set_interval(minimum, maximum, confirm=True)
             print_success(f"Interval set to {minimum}-{maximum} (x0.625 ms).")
         finally:
             ctrl.close()
