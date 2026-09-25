@@ -80,3 +80,17 @@ class ProtocolError(CatnipError):
     """A wire protocol (sniffer/shell/vhci handshake, ...) got bad data."""
 
     exit_code = EXIT_ERROR
+
+
+class FeatureUnavailable(CatnipError):
+    """The running firmware image was built without an optional feature.
+
+    Distinct from :class:`UnsupportedOnBoardError` (a hardware-generation limit)
+    and from :class:`FirmwareError` (something went wrong): nothing failed, the
+    flashed image simply was not compiled with the feature the command needs
+    (e.g. ``SPAM_WITH_SCAN``), so the fix is a rebuild/reflash, not a retry.
+    Inferred at runtime from the device's reply, never from inspecting the .hex.
+    Shares the "cannot, and retrying will not help" exit code.
+    """
+
+    exit_code = EXIT_UNSUPPORTED

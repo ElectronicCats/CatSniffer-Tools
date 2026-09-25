@@ -22,16 +22,19 @@ import time
 from typing import Iterator, Optional
 
 from ...core.exceptions import ConnectionError as CatnipConnectionError
-from ...core.exceptions import ProtocolError, ValidationError
+from ...core.exceptions import FeatureUnavailable, ProtocolError, ValidationError
 from .core import (
     BAUDRATE,
     CMD_MAXLEN,
     SEND_GAP_S,
     LineKind,
+    PowerProfile,
     SpamLine,
     SpamMode,
+    SpamStats,
     SpamStatus,
     parse_line,
+    validate_interval,
 )
 
 
@@ -125,6 +128,95 @@ class BleSpamController:
             ],
         )
 
+    def set_power(self, profile: PowerProfile) -> None:
+        """Select a TX-power/interval profile (``pwr high|bal|low``).
+
+        Mirrors :meth:`set_mode`: fire-and-forget. The firmware acks with
+        ``SPAM: pwr=… int=…`` (classified as INFO, not a full status), so there
+        is nothing to return; the coupled interval is observed later via
+        :meth:`status` or :meth:`stats`.
+        """
+        self.send(f"pwr {profile.value}")
+
+    def set_interval(self, mn: int, mx: int) -> None:
+        """Override the advertising interval (``int <min> <max>``, 0.625 ms units).
+
+        Validates in the firmware's own domain **before** touching the port
+        (R4/D-C3), so an out-of-range interval raises :class:`ValidationError`
+        without a write or a round-trip. On valid input the firmware echoes
+        ``SPAM: int=<mn>-<mx> (x0.625ms)``.
+        """
+        validate_interval(mn, mx)  # raises before any write
+        self.send(f"int {mn} {mx}")
+
+    def stats(self, timeout: float = 1.0) -> SpamStats:
+        """Send ``stats`` and return the first telemetry line as :class:`SpamStats`.
+
+        Same read-and-classify-by-pattern loop as :meth:`status`: per-cycle and
+        other ``STATS:``-family lines (start/cycles/addr, which carry no parsed
+        ``stats``) are skipped until the telemetry line arrives or *timeout*
+        elapses. The bounded deadline keeps an unresponsive binary from hanging
+        the CLI (R2/Fase 5).
+        """
+        self.send("stats")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            line = self._readline()
+            if not line:
+                continue
+            parsed = parse_line(line)
+            if parsed.kind is LineKind.STATS and parsed.stats is not None:
+                return parsed.stats
+        raise ProtocolError(
+            "no telemetry reply from BLE-spam firmware",
+            hint=[
+                "Confirm the hardened ble_spam firmware is flashed: catnip flash ble_spam",
+                "The CC1352 may still be resetting after connect — retry the command",
+            ],
+        )
+
+    def set_scan(self, on: bool, timeout: float = 1.0) -> None:
+        """Toggle the passive GAP coexistence scan (``scan on|off``).
+
+        Reads the reply to distinguish three outcomes (R2):
+
+        * a ``SCAN:`` **state** line (``on``/``off``/``already …``/``ready``) →
+          success, returns ``None``;
+        * ``ERR: scan not ready`` or ``ERR: unknown cmd`` → the image was built
+          **without** ``SPAM_WITH_SCAN``, so raise :class:`FeatureUnavailable`
+          rather than hang waiting for a ``SCAN:`` that never comes;
+        * nothing within *timeout* → :class:`ProtocolError`.
+
+        Interleaved ``SCAN:`` **report** lines (``rssi=…``) are skipped; only a
+        state line (``rssi is None``) counts as the acknowledgement.
+        """
+        self.send("scan on" if on else "scan off")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            line = self._readline()
+            if not line:
+                continue
+            parsed = parse_line(line)
+            if parsed.kind is LineKind.SCAN and parsed.rssi is None:
+                return  # state ack: on|off|already|ready
+            if parsed.kind is LineKind.ERROR and parsed.message:
+                low = parsed.message.lower()
+                if "scan not ready" in low or "unknown cmd" in low:
+                    raise FeatureUnavailable(
+                        "this firmware build has no BLE scan (SPAM_WITH_SCAN is off)",
+                        hint=[
+                            "Rebuild the ble_spam firmware with SPAM_WITH_SCAN=1",
+                            "Reflash it, then retry: catnip flash ble_spam",
+                        ],
+                    )
+        raise ProtocolError(
+            "no scan reply from BLE-spam firmware",
+            hint=[
+                "Confirm the hardened ble_spam firmware is flashed: catnip flash ble_spam",
+                "The CC1352 may still be resetting after connect — retry the command",
+            ],
+        )
+
     def read_events(self) -> Iterator[SpamLine]:
         """Yield parsed lines as they arrive (blocks per read timeout).
 
@@ -136,6 +228,16 @@ class BleSpamController:
             if not line:
                 continue
             yield parse_line(line)
+
+    def read_scan_events(self) -> Iterator[SpamLine]:
+        """Yield only ``SCAN:`` **report** lines (``rssi is not None``).
+
+        A filtered sibling of :meth:`read_events` for the live view's scan feed;
+        state lines and the rest of the stream are dropped.
+        """
+        for event in self.read_events():
+            if event.kind is LineKind.SCAN and event.rssi is not None:
+                yield event
 
     # ── lifecycle ─────────────────────────────────────────────────────────
     def close(self) -> None:
