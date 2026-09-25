@@ -12,8 +12,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from modules.core.exceptions import FeatureUnavailable
 from modules.protocols.cli.ble_spam import spam
-from modules.protocols.ble_spam import SpamMode, SpamStatus, parse_line
+from modules.protocols.ble_spam import (
+    PowerProfile,
+    SpamMode,
+    SpamStats,
+    SpamStatus,
+    parse_line,
+)
 from modules.protocols.ble_spam.live import SpamLiveView
 
 
@@ -47,7 +54,7 @@ class TestSpamGroup:
     def test_help_lists_subcommands(self):
         result = CliRunner().invoke(spam, ["--help"])
         assert result.exit_code == 0
-        for sub in ("start", "stop", "status", "modes"):
+        for sub in ("start", "stop", "status", "modes", "pwr", "int", "stats", "scan"):
             assert sub in result.output
 
     def test_modes_needs_no_hardware(self):
@@ -117,6 +124,133 @@ class TestSpamGroup:
         assert result.exit_code == 0, result.output
         ctrl.stop.assert_called_once_with()
         ctrl.close.assert_called_once_with()
+
+
+@pytest.mark.unit
+class TestSpamRuntimeControls:
+    """Phase 3: pwr / int / stats / scan and the start/run profile options."""
+
+    def test_pwr_sets_profile_without_stopping(self):
+        ctrl = MagicMock()
+
+        result = _run(["pwr", "low"], ctrl)
+
+        assert result.exit_code == 0, result.output
+        ctrl.set_power.assert_called_once_with(PowerProfile.LOW)
+        # Changing the profile must not begin or stop emission.
+        ctrl.start.assert_not_called()
+        ctrl.stop.assert_not_called()
+        ctrl.close.assert_called_once_with()
+
+    def test_pwr_rejects_unknown_profile(self):
+        result = CliRunner().invoke(spam, ["pwr", "turbo"])
+        assert result.exit_code != 0
+        assert "turbo" in result.output
+
+    def test_int_sets_interval_without_stopping(self):
+        ctrl = MagicMock()
+
+        result = _run(["int", "40", "60"], ctrl)
+
+        assert result.exit_code == 0, result.output
+        ctrl.set_interval.assert_called_once_with(40, 60)
+        ctrl.stop.assert_not_called()
+        ctrl.close.assert_called_once_with()
+
+    def test_int_out_of_range_fails_without_touching_hardware(self):
+        ctrl = MagicMock()
+
+        result = _run(["int", "10", "20"], ctrl)
+
+        assert result.exit_code != 0
+        assert "out of range" in str(result.exception)
+        # Rejected on the host before the port is opened.
+        ctrl.set_interval.assert_not_called()
+
+    def test_stats_prints_greppable_telemetry(self):
+        ctrl = MagicMock()
+        ctrl.stats.return_value = SpamStats(
+            cycles=100,
+            stack_used=612,
+            stack_size=1024,
+            heap_free=4096,
+            heap_total=8192,
+            power=PowerProfile.BALANCED,
+            int_min=64,
+            int_max=96,
+        )
+
+        result = _run(["stats"], ctrl)
+
+        assert result.exit_code == 0, result.output
+        ctrl.stats.assert_called_once()
+        assert "cycles=100" in result.output
+        assert "stack=612/1024" in result.output
+        assert "heap=4096/8192" in result.output
+        assert "pwr=bal" in result.output
+        assert "int=64-96" in result.output
+        ctrl.stop.assert_not_called()
+        ctrl.close.assert_called_once_with()
+
+    def test_scan_on_toggles_scan(self):
+        ctrl = MagicMock()
+
+        result = _run(["scan", "on"], ctrl)
+
+        assert result.exit_code == 0, result.output
+        ctrl.set_scan.assert_called_once_with(True)
+        ctrl.close.assert_called_once_with()
+
+    def test_scan_off_toggles_scan(self):
+        ctrl = MagicMock()
+
+        result = _run(["scan", "off"], ctrl)
+
+        assert result.exit_code == 0, result.output
+        ctrl.set_scan.assert_called_once_with(False)
+
+    def test_scan_without_feature_surfaces_typed_error(self):
+        ctrl = MagicMock()
+        ctrl.set_scan.side_effect = FeatureUnavailable(
+            "no scan", hint=["Rebuild with SPAM_WITH_SCAN=1"]
+        )
+
+        result = _run(["scan", "on"], ctrl)
+
+        # main_cli renders FeatureUnavailable cleanly; here it just propagates.
+        assert result.exit_code != 0
+        assert isinstance(result.exception, FeatureUnavailable)
+        ctrl.close.assert_called_once_with()
+
+    def test_start_applies_power_and_interval_before_emitting(self):
+        ctrl = MagicMock()
+        ctrl.status.return_value = SpamStatus(
+            SpamMode.APPLE,
+            running=True,
+            models=22,
+            power=PowerProfile.HIGH,
+            int_min=40,
+            int_max=60,
+        )
+
+        result = _run(
+            ["start", "-m", "apple", "-p", "high", "-i", "40", "60", "--yes"], ctrl
+        )
+
+        assert result.exit_code == 0, result.output
+        ctrl.set_power.assert_called_once_with(PowerProfile.HIGH)
+        ctrl.set_interval.assert_called_once_with(40, 60)
+        ctrl.start.assert_called_once_with()
+        ctrl.stop.assert_not_called()
+
+    def test_start_rejects_out_of_range_interval_before_emitting(self):
+        ctrl = MagicMock()
+
+        result = _run(["start", "-m", "apple", "-i", "10", "20", "--yes"], ctrl)
+
+        assert result.exit_code != 0
+        assert "out of range" in str(result.exception)
+        ctrl.start.assert_not_called()
 
 
 @pytest.mark.unit
