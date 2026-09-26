@@ -155,7 +155,6 @@ EXPECTED_PARAMS = {
         "<minimum>",
     ],
     "catnip spam stats": ["--baudrate", "--device", "-b", "-d"],
-    "catnip spam scan": ["--baudrate", "--device", "-b", "-d", "<state>"],
     "catnip sniff": ["--verbose", "-v"],
     "catnip sniff airtag_scanner": ["--device", "--putty", "-d"],
     "catnip sniff ble": [
