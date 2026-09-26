@@ -24,9 +24,9 @@ the same way `catnip sniff airtag_scanner` surfaces the AirTag firmware.
 > The `pwr`, `int`, `stats` and `scan` controls target the **hardened** firmware
 > build. They surface the runtime knobs the firmware added over UART (power
 > profile, advertising interval, telemetry and a passive coexistence scan) —
-> again with no new offensive capability. `scan` needs an image built with
-> `SPAM_WITH_SCAN=1`; on a build without it the command reports a clear rebuild
-> hint and exits non-zero (see [`scan`](#spam-scan)).
+> again with no new offensive capability. `scan` is built into the default
+> firmware image (no recompile needed); an older image flashed before it became
+> standard reports a clear reflash hint and exits non-zero (see [`scan`](#spam-scan)).
 
 If the firmware is not present, these commands flash it first (verified by
 metadata, `cc1352_fw_id=ble_spam_cc1352p_7`) — the same session flow as the
@@ -105,7 +105,7 @@ mode.
 | `-m, --mode [all\|apple\|android\|windows\|samsung]` | Vendor advertising set to emit (default: `all`) |
 | `-p, --power [high\|bal\|low]` | TX-power/interval profile to pin before emitting (hardened firmware) |
 | `-i, --interval MIN MAX` | Advertising interval in 0.625 ms units (`32..16384`); see [`int`](#spam-int) |
-| `-s, --scan [on\|off]` | Enable the passive-scan feed in the live view (needs `SPAM_WITH_SCAN`) |
+| `-s, --scan [on\|off]` | Enable the passive-scan feed in the live view (built into the default firmware) |
 | `-d, --device INTEGER` | Device ID (for multiple CatSniffers) |
 | `-b, --baudrate INTEGER` | Override the bridge baudrate (default: firmware value, 921600) |
 | `-y, --yes` | Skip the authorised-use confirmation prompt (for scripting) |
@@ -123,9 +123,9 @@ panel also shows the active power profile, interval and stack/heap use (the
 stack row turns red on a low-stack `WARN`).
 
 `--scan on` adds a secondary table of the passive scan's reports (MAC / RSSI /
-length) as they arrive. It needs a firmware built with `SPAM_WITH_SCAN=1`; on a
-build without it the command surfaces the same rebuild hint as [`scan`](#spam-scan)
-and still halts the hardware on the way out.
+length) as they arrive. It's built into the default firmware; an older image
+flashed before scan became standard surfaces the same reflash hint as
+[`scan`](#spam-scan) and still halts the hardware on the way out.
 
 Unlike [`start`](#spam-start), this is an interactive session: pressing
 **Ctrl+C** (or the stream ending) always turns the scan off, stops the firmware
@@ -236,7 +236,7 @@ exit code rather than hanging.
 <a id="spam-scan"></a>
 ### `spam scan`
 
-> Toggle the passive GAP coexistence scan (`on|off`). *(needs `SPAM_WITH_SCAN`)*
+> Toggle the passive GAP coexistence scan (`on|off`). *(built into the default firmware)*
 
 | Argument / Option | Description |
 |---|---|
@@ -253,12 +253,16 @@ The scan is a **passive** GAP observer that only lists nearby advertisers
 (MAC / RSSI / length) so you can gauge coexistence while spamming — it decodes
 no payloads. Toggling it does not stop an active cycle.
 
-**`SPAM_WITH_SCAN` build flag.** The scan is only present in a firmware image
-built with `SPAM_WITH_SCAN=1` (off by default). On a build without it, `scan`
-(and `run --scan on`) reports a clear error — *rebuild the `ble_spam` firmware
-with `SPAM_WITH_SCAN=1`, then reflash* — and exits non-zero, with no traceback
-unless `CATNIP_DEBUG=1`. The host infers the feature's absence from the
-firmware's reply at runtime, not by inspecting the `.hex`.
+**Built into the default firmware.** The scan ships in the default `ble_spam`
+image (`SPAM_WITH_SCAN=1` is now the build default), so `catnip spam scan on`
+works out of the box — no recompile or custom flags. The scan is **passive** and
+**windowed** (50 ms window in a 100 ms interval), so the spam advertising always
+keeps radio priority; the two coexist. Only an **older** image, flashed before
+scan became standard, reports a clear error — *reflash the current `ble_spam`
+firmware* — and exits non-zero, with no traceback unless `CATNIP_DEBUG=1`. The
+host infers that from the firmware's reply at runtime, not by inspecting the
+`.hex`. If you build your own image you can still opt out with
+`SPAM_WITH_SCAN=0` (the historical advertise-only binary).
 
 ---
 
@@ -295,8 +299,8 @@ own or are authorised to spam.
       (`catnip spam status` still `state=stopped`).
 
 **Hardened-firmware controls** — `pwr` / `int` / `stats` / `scan`. These need
-the hardened `ble_spam` build; `scan` additionally needs `SPAM_WITH_SCAN=1`
-(see [`scan`](#spam-scan)). Instrument each against real RF/telemetry:
+the hardened `ble_spam` build; `scan` is part of the default image (see
+[`scan`](#spam-scan)). Instrument each against real RF/telemetry:
 
 - [ ] **`pwr`** (receiver, e.g. a phone's Bluetooth scanner or an SDR): `catnip
       spam pwr high|bal|low` visibly changes the received signal strength across
@@ -308,13 +312,14 @@ the hardened `ble_spam` build; `scan` additionally needs `SPAM_WITH_SCAN=1`
 - [ ] **`stats`** (telemetry over UART): `catnip spam stats` prints a plausible
       `cycles=… stack=u/n heap=free/total` line, with `stack`/`heap` moving as a
       cycle runs; a low-stack condition shows the `WARN` row red in `run`.
-- [ ] **`scan`** (a third BLE emitter nearby): on a `SPAM_WITH_SCAN=1` build,
+- [ ] **`scan`** (a third BLE emitter nearby): on the default firmware,
       `catnip spam scan on` then `catnip spam run --scan on` lists the third
       emitter (MAC / RSSI / length) in the live feed; `scan off` stops it, and a
       `run --scan on` interrupted with **Ctrl+C** leaves scan **and** spam off.
-- [ ] **Degradation** (a build **without** `SPAM_WITH_SCAN`): `catnip spam scan
-      on` reports the rebuild hint and exits non-zero without hanging or a
-      traceback (traceback only under `CATNIP_DEBUG=1`).
+      Spam keeps radiating throughout (passive/windowed scan, spam priority).
+- [ ] **Legacy image** (an older build flashed with `SPAM_WITH_SCAN=0`): `catnip
+      spam scan on` reports the reflash hint and exits non-zero without hanging or
+      a traceback (traceback only under `CATNIP_DEBUG=1`).
 
 > Firmware side: the UART controls these commands drive are specified and
 > validated in the firmware plan
