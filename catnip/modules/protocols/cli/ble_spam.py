@@ -86,7 +86,7 @@ def _scan_option():
         "--scan",
         type=click.Choice(_SCAN_CHOICE),
         default=None,
-        help="Enable the passive scan feed in the live view (needs SPAM_WITH_SCAN).",
+        help="Enable the passive scan feed in the live view (built into the default firmware).",
     )
 
 
@@ -146,7 +146,7 @@ def spam():
         catnip spam pwr low                   # switch TX-power/interval profile
         catnip spam int 40 60                 # override interval (0.625 ms units)
         catnip spam stats                     # on-demand resource telemetry
-        catnip spam scan on                   # passive GAP coexistence scan
+        catnip spam run -m apple --scan on    # live view with passive GAP scan
         catnip spam stop                      # stop emitting
 
     Use only on devices you own or are authorised to test.
@@ -241,8 +241,8 @@ def spam_run(device, mode, baudrate, power, interval, scan, yes):
     Unlike ``start``, this is an interactive session: it always stops the
     firmware and closes the port on exit, so the hardware is never left emitting.
     ``--power`` and ``--interval`` pin the profile/interval before emission;
-    ``--scan on`` enables the passive-scan feed in the live view (needs a firmware
-    built with ``SPAM_WITH_SCAN=1``).
+    ``--scan on`` enables the passive-scan feed in the live view (built into the
+    default firmware; passive and windowed, so spam keeps radio priority).
     """
     from ...core.device_session import device_session
     from ...firmware.flasher import Flasher
@@ -468,38 +468,5 @@ def spam_stats(device, baudrate):
             if s.int_min is not None and s.int_max is not None:
                 parts.append(f"int={s.int_min}-{s.int_max}")
             print_info(" ".join(parts))
-        finally:
-            ctrl.close()
-
-
-@spam.command("scan")
-@click.argument("state", type=click.Choice(_SCAN_CHOICE))
-@device_option()
-@_baudrate_option()
-def spam_scan(state, device, baudrate):
-    """Toggle the passive GAP coexistence scan (on|off).
-
-    Only available in a firmware image built with ``SPAM_WITH_SCAN=1``. On a
-    build without it the command reports a clear error (rebuild/reflash) and
-    exits non-zero — no traceback unless ``CATNIP_DEBUG=1``.
-    """
-    from ...core.device_session import device_session
-    from ...firmware.flasher import Flasher
-    from ...protocols.ble_spam import BAUDRATE, BleSpamController
-
-    with device_session(
-        device,
-        required_firmware=OFFICIAL_ID,
-        feature="catnip spam",
-        flasher=Flasher(),
-        identify=False,
-    ) as dev:
-        # No context manager: toggling scan must not stop an active cycle.
-        ctrl = BleSpamController.open(dev.bridge_port, baudrate=baudrate or BAUDRATE)
-        try:
-            # FeatureUnavailable (no SPAM_WITH_SCAN) propagates to main_cli, which
-            # renders it as a clean actionable panel with a non-zero exit code.
-            ctrl.set_scan(state == "on")
-            print_success(f"Scan {state}.")
         finally:
             ctrl.close()

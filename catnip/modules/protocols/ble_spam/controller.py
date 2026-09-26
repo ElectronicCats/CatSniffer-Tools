@@ -219,9 +219,10 @@ class BleSpamController:
 
         * a ``SCAN:`` **state** line (``on``/``off``/``already …``/``ready``) →
           success, returns ``None``;
-        * ``ERR: scan not ready`` or ``ERR: unknown cmd`` → the image was built
-          **without** ``SPAM_WITH_SCAN``, so raise :class:`FeatureUnavailable`
-          rather than hang waiting for a ``SCAN:`` that never comes;
+        * ``ERR: scan not ready`` or ``ERR: unknown cmd`` → an **older** flashed
+          image built before scan became the default (``SPAM_WITH_SCAN=0``), so
+          raise :class:`FeatureUnavailable` (fix: reflash) rather than hang
+          waiting for a ``SCAN:`` that never comes;
         * nothing within *timeout* → :class:`ProtocolError`.
 
         Interleaved ``SCAN:`` **report** lines (``rssi=…``) are skipped; only a
@@ -240,10 +241,12 @@ class BleSpamController:
                 low = parsed.message.lower()
                 if "scan not ready" in low or "unknown cmd" in low:
                     raise FeatureUnavailable(
-                        "this firmware build has no BLE scan (SPAM_WITH_SCAN is off)",
+                        "the flashed ble_spam image predates built-in BLE scan",
                         hint=[
-                            "Rebuild the ble_spam firmware with SPAM_WITH_SCAN=1",
-                            "Reflash it, then retry: catnip flash ble_spam",
+                            "Scan ships enabled by default now — reflash the "
+                            "current firmware: catnip flash ble_spam",
+                            "Only if you build your own image, keep the default "
+                            "SPAM_WITH_SCAN=1 (SPAM_WITH_SCAN=0 opts out)",
                         ],
                     )
         raise ProtocolError(
