@@ -370,6 +370,27 @@ def test_every_package_under_modules_has_an_init():
     assert not missing, f"packages without __init__.py: {missing}"
 
 
+_BARE_EXIT_RE = re.compile(r"(?<![\w.])(?:exit|quit)\s*\(")
+
+
+@pytest.mark.unit
+def test_no_bare_exit_calls_under_modules():
+    """``exit()`` and ``quit()`` only exist when ``site`` ran at startup.
+
+    PyInstaller freezes the app with ``site`` disabled, so a bare ``exit(1)``
+    that works from source raises ``NameError`` in the Windows/macOS binary —
+    and only on the error path, which no smoke test reaches.  ``sys.exit()`` is
+    the one that is always defined.
+    """
+    offenders = [
+        f"{py.relative_to(_MODULES_DIR.parent)}:{n}"
+        for py in _MODULES_DIR.rglob("*.py")
+        for n, line in enumerate(py.read_text().splitlines(), 1)
+        if _BARE_EXIT_RE.search(line.split("#", 1)[0])
+    ]
+    assert not offenders, f"use sys.exit() instead: {offenders}"
+
+
 @pytest.mark.unit
 def test_feature_cli_modules_do_not_import_core_cli():
     """Invariant §2.3: the dependency between CLI modules only points one way.
