@@ -1,4 +1,5 @@
 import os
+import sys
 import platform
 import threading
 import subprocess
@@ -21,7 +22,7 @@ if platform.system().lower() == "windows":
         logger.error(
             "[bold red][X] Error[/bold red]: win32pipe, win32file, pywintypes modules not found. [yellow]Please install [bold]pywin32[/bold] package.[/yellow]"
         )
-        exit(1)
+        sys.exit(1)
 
 
 def show_generic_error(title="", e="") -> None:
@@ -44,7 +45,7 @@ class UnixPipe:
             logger.info(f"[-] Pipeline already exists.")
         except OSError as e:
             show_generic_error("Creating Pipeline", e)
-            exit(1)
+            sys.exit(1)
 
     def open(self, mode="ab") -> None:
         logger.info(f"[*] Check if exist: {self.pipe_path}")
@@ -56,7 +57,7 @@ class UnixPipe:
             logger.info(f"[*] Pipeline Open ({mode}): {self.pipe_path}")
         except Exception as e:
             show_generic_error("Opening Pipeline", e)
-            exit(1)
+            sys.exit(1)
 
     def read(self, size=1024) -> bytes:
         try:
@@ -97,7 +98,7 @@ class UnixPipe:
         except BrokenPipeError:
             show_generic_error("BrokenPipe", "")
             self.remove()
-            exit(1)
+            sys.exit(1)
         except Exception as e:
             show_generic_error("Writing Pipeline", e)
             pass
@@ -127,7 +128,7 @@ class WindowsPipe:
             logger.info(f"[-] Pipeline already exists.")
         except pywintypes.error as e:
             logger.error(f"[X] {e}")
-            exit(1)
+            sys.exit(1)
 
     def open(self) -> None:
         logger.info(f"[*] Waiting for a client on {self.pipe_path}.")

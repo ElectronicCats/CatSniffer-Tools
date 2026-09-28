@@ -188,10 +188,10 @@ def _refresh_firmware_cache(force: bool) -> None:
         result = flasher.refresh(force=force)
     except FirmwareError as e:
         print_error(str(e))
-        exit(1)
+        sys.exit(1)
     except OSError as e:
         print_error(f"could not update the firmware cache: {e}")
-        exit(1)
+        sys.exit(1)
 
     count = len(flasher.get_local_firmware())
     plural = "image" if count == 1 else "images"
@@ -293,7 +293,7 @@ def flash(
     """
     if force and not refresh:
         print_error("--force only makes sense together with --refresh.")
-        exit(1)
+        sys.exit(1)
 
     if refresh:
         if list or firmware is not None:
@@ -301,7 +301,7 @@ def flash(
                 "--refresh cannot be combined with --list or a firmware name; "
                 "run it on its own: 'catnip flash --refresh'."
             )
-            exit(1)
+            sys.exit(1)
         _refresh_firmware_cache(force)
         return
 
@@ -517,7 +517,7 @@ def flash(
             "Use 'catnip flash --list' to see available firmware images and aliases."
         )
         print_info("Or specify a firmware name: catnip flash <firmware_name_or_alias>")
-        exit(1)
+        sys.exit(1)
 
     # If the input is a valid file path, we skip alias resolution to avoid confusion
     if os.path.exists(firmware):
@@ -534,7 +534,7 @@ def flash(
         if not devs:
             print_error("No CatSniffer devices found!")
             print_dim("Make sure your CatSniffer is connected.")
-            exit(1)
+            sys.exit(1)
 
         # Select the first device by default
         dev = devs[0]
@@ -545,7 +545,7 @@ def flash(
         if dev is None:
             print_error(f"CatSniffer device with ID {device} not found!")
             print_dim("Use 'devices' command to list available devices.")
-            exit(1)
+            sys.exit(1)
 
     # Verify that the device is valid
     if not dev.is_valid():
@@ -757,7 +757,7 @@ def restore(firmware, device, tapid, board_override):
         if not devs:
             print_error("No CatSniffer devices found!")
             print_dim("Make sure your CatSniffer is connected.")
-            exit(1)
+            sys.exit(1)
 
         # Select the first device by default
         dev = devs[0]
@@ -768,7 +768,7 @@ def restore(firmware, device, tapid, board_override):
         if dev is None:
             print_error(f"CatSniffer device with ID {device} not found!")
             print_dim("Use 'devices' command to list available devices.")
-            exit(1)
+            sys.exit(1)
 
     flasher_inst = Flasher()
 

@@ -212,7 +212,7 @@ class CCLoader:
         self.cmd.close()
         if self.shell:
             self.shell.disconnect()
-        exit(1)
+        sys.exit(1)
 
     def close_reset(self) -> None:
         self.cmd.cmdReset()
@@ -790,13 +790,13 @@ class Flasher:
 
         except requests.exceptions.ConnectionError as e:
             logger.error("[X] Error: No internet connection.")
-            exit(1)
+            sys.exit(1)
         except requests.exceptions.RequestException as e:
             logger.error(f"[X] HTTP Error: {e}")
-            exit(1)
+            sys.exit(1)
         except Exception as e:
             logger.error(f"[X] Error fetching remote firmware: {e}")
-            exit(1)
+            sys.exit(1)
 
     def _hex_assets_for_board(self, board) -> list:
         """The .hex assets of ``board``'s own latest release (empty if none).
