@@ -727,8 +727,8 @@ def update(device, force, board_override):
 @device_option(help="Device ID (for shell access to trigger BOOTSEL)")
 @click.option(
     "--tapid",
-    default="0x1BB7702F",
-    help="CC1352 JTAG TAPID (default: CC1352P7)",
+    default=None,
+    help="CC1352 JTAG TAPID (default: the board's CC1352 variant)",
 )
 @board_option()
 def restore(firmware, device, tapid, board_override):
@@ -737,7 +737,8 @@ def restore(firmware, device, tapid, board_override):
     Uses RP2040 as CMSIS-DAP JTAG programmer via OpenOCD to flash
     the CC1352 directly. Requires OpenOCD installed. Only v3 boards can do
     this: a v2 (SAMD21) has no RP2040 to load the probe onto and needs an
-    external cJTAG programmer instead.
+    external cJTAG programmer instead. A board that cannot be identified is
+    refused too; pass --board v3 if its shell does not answer.
 
     If no firmware is specified, uses the default CatSniffer firmware
     from the catnip release.
@@ -754,14 +755,19 @@ def restore(firmware, device, tapid, board_override):
     # If no device is specified, get all connected devices
     if device is None:
         devs = catnip_get_devices()
-        if not devs:
+        if devs:
+            # Select the first device by default
+            dev = devs[0]
+            print_warning(f"No device specified. Using first device: {dev}")
+        elif board_override:
+            # An RP2040 left in BOOTSEL or running free_dap by an interrupted
+            # restore enumerates as no CatSniffer at all; --board vouches for it.
+            dev = None
+        else:
             print_error("No CatSniffer devices found!")
             print_dim("Make sure your CatSniffer is connected.")
+            print_dim("If it is stuck in BOOTSEL or as a JTAG probe, pass --board v3.")
             sys.exit(1)
-
-        # Select the first device by default
-        dev = devs[0]
-        print_warning(f"No device specified. Using first device: {dev}")
     else:
         # If an ID is specified, get that specific device
         dev = catnip_get_device(device)
@@ -784,3 +790,4 @@ def restore(firmware, device, tapid, board_override):
 
     if not success:
         print_error("Restore failed. Check the output above for details.")
+        sys.exit(1)
