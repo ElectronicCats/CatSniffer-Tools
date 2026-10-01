@@ -850,16 +850,47 @@ class TestRestoreRefusesOnV2:
                 restore_mod.restore_cc1352(board=BOARD_V2)
             detect.assert_not_called()
 
-    def test_unknown_board_still_lets_a_recovery_run(self):
-        # The board being recovered is exactly the one that cannot answer.
+    def test_unknown_board_is_refused(self):
+        # Assuming v3 would send 'reboot' to a v2's SAMD21 and strand it in
+        # its bootloader, so a board that never said what it is is refused.
+        from modules.core.exceptions import UnsupportedOnBoardError
         from modules.firmware import restore as restore_mod
 
         device = MagicMock()
         device.shell_port = "/dev/ttyACM2"
         with patch.object(restore_mod, "detect_board", return_value=None), patch.object(
-            restore_mod, "check_openocd", return_value=None
-        ) as openocd:
-            assert restore_mod.restore_cc1352(device=device) is False
+            restore_mod, "find_any_board_mount_point", return_value=(None, None)
+        ), patch.object(restore_mod, "check_openocd") as openocd, patch.object(
+            restore_mod, "enter_boot_mode"
+        ) as reboot:
+            with pytest.raises(UnsupportedOnBoardError):
+                restore_mod.restore_cc1352(device=device)
+            openocd.assert_not_called()
+            reboot.assert_not_called()
+
+    def test_v2_bootloader_volume_is_refused(self):
+        from modules.core.exceptions import UnsupportedOnBoardError
+        from modules.firmware import restore as restore_mod
+
+        with patch.object(
+            restore_mod,
+            "find_any_board_mount_point",
+            return_value=(BOARD_V2, "/media/SNIFFER"),
+        ), patch.object(restore_mod, "check_openocd") as openocd:
+            with pytest.raises(UnsupportedOnBoardError):
+                restore_mod.restore_cc1352()
+            openocd.assert_not_called()
+
+    def test_v3_in_bootsel_is_identified_by_its_volume(self):
+        # An interrupted restore leaves the RP2040 with no shell to ask.
+        from modules.firmware import restore as restore_mod
+
+        with patch.object(
+            restore_mod,
+            "find_any_board_mount_point",
+            return_value=(BOARD_V3, "/media/RPI-RP2"),
+        ), patch.object(restore_mod, "check_openocd", return_value=None) as openocd:
+            assert restore_mod.restore_cc1352() is False
             openocd.assert_called_once()
 
 
