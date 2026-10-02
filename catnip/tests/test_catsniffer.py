@@ -684,6 +684,19 @@ class TestCCLoader:
             loader.enter_bootloader()
         mock_shell.enter_bootloader.assert_called_once()
 
+    def test_enter_bootloader_sends_exit_before_boot(self, fake_device):
+        """The RP2040 ignores 'boot' while already in BOOT mode, so 'exit' must
+        come first or a board left in BOOT never resets the CC1352."""
+        loader = self._loader(fake_device)
+        mock_shell = MagicMock()
+        mock_shell.connect.return_value = True
+        with patch(
+            "modules.firmware.flasher.ShellConnection", return_value=mock_shell
+        ), patch("modules.firmware.flasher.time.sleep"):
+            loader.enter_bootloader()
+        calls = [c[0] for c in mock_shell.method_calls]
+        assert calls.index("exit_bootloader") < calls.index("enter_bootloader")
+
     def test_exit_bootloader_no_shell_port(self, fake_device):
         loader = self._loader(fake_device)
         loader.shell_port = None
@@ -692,8 +705,30 @@ class TestCCLoader:
     def test_sync_device_fail_exits(self, fake_device):
         loader = self._loader(fake_device)
         loader.cmd.sendSynch.return_value = False
-        with pytest.raises(SystemExit):
+        with patch.object(loader, "enter_bootloader"), patch.object(
+            loader, "exit_bootloader"
+        ) as exit_bl, patch.object(loader, "drain_bridge"):
+            with pytest.raises(SystemExit):
+                loader.sync_device()
+        exit_bl.assert_called_once()
+
+    def test_sync_device_retry_resets_into_bootloader(self, fake_device):
+        """A missed synch is only recoverable with a fresh CC1352 reset."""
+        loader = self._loader(fake_device)
+        loader.cmd.sendSynch.side_effect = [False, True]
+        with patch.object(loader, "enter_bootloader") as enter_bl, patch.object(
+            loader, "drain_bridge"
+        ):
             loader.sync_device()
+        enter_bl.assert_called_once()
+
+    def test_close_exit_leaves_bootloader(self, fake_device):
+        """Erase/write/CRC failures must not leave the board in BOOT mode."""
+        loader = self._loader(fake_device)
+        with patch.object(loader, "exit_bootloader") as exit_bl:
+            with pytest.raises(SystemExit):
+                loader.close_exit()
+        exit_bl.assert_called_once()
 
     def test_sync_device_success(self, fake_device):
         loader = self._loader(fake_device)
