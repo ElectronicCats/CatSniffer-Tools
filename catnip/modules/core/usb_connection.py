@@ -51,6 +51,15 @@ CATSNIFFER_PID = 0xBABB
 DEFAULT_BAUDRATE = 115200
 DEFAULT_COMPORT = "/dev/ttyUSB0"
 
+# ── Timing defaults (centralized — see analisis-bombercat-vs-catnip.md, ─────
+# section 4: timeouts used to be hardcoded ad-hoc per call site) ─────────────
+
+DEFAULT_TIMEOUT = 2.0  # serial read timeout (seconds)
+DEFAULT_WRITE_TIMEOUT = 2.0  # serial write timeout (seconds) — prevents an
+# indefinite hang if the firmware stops draining the USB-OUT buffer.
+DEFAULT_READLINE_MAX_BYTES = 4096  # caps readline() growth against a noisy
+# or misbehaving firmware that never sends '\n'.
+
 # ── Interface role labels (match RP2040 firmware CDC node labels) ─────────────
 
 ROLE_BRIDGE = "Cat-Bridge"  # CDC0 — CC1352 raw binary bridge
@@ -314,7 +323,8 @@ def get_bridge_port() -> str:
 def open_serial_port(
     port: str,
     baudrate: int = DEFAULT_BAUDRATE,
-    timeout: float = 2.0,
+    timeout: float = DEFAULT_TIMEOUT,
+    write_timeout: float = DEFAULT_WRITE_TIMEOUT,
     **kwargs,
 ) -> Optional[serial.Serial]:
     """
@@ -325,6 +335,10 @@ def open_serial_port(
     host as connected and processes incoming data — required on Windows where
     the OS does not auto-assert DTR on port open (unlike Linux/macOS).
 
+    write_timeout bounds serial.Serial.write() so a wedged/unresponsive
+    firmware that stops draining the USB-OUT buffer cannot hang the caller
+    indefinitely.
+
     Returns the open Serial instance, or None on failure.
     """
     try:
@@ -332,6 +346,7 @@ def open_serial_port(
             port,
             baudrate,
             timeout=timeout,
+            write_timeout=write_timeout,
             dsrdtr=False,
             rtscts=False,
             **kwargs,
@@ -362,11 +377,13 @@ class _SerialBase:
         self,
         port: str = "",
         baudrate: int = DEFAULT_BAUDRATE,
-        timeout: float = 2.0,
+        timeout: float = DEFAULT_TIMEOUT,
+        write_timeout: float = DEFAULT_WRITE_TIMEOUT,
     ) -> None:
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
+        self.write_timeout = write_timeout
         self.connection: Optional[serial.Serial] = None
 
     # ── lifecycle ─────────────────────────────────────────────────────────
@@ -377,6 +394,7 @@ class _SerialBase:
             self.port,
             self.baudrate,
             timeout=self.timeout,
+            write_timeout=self.write_timeout,
             dsrdtr=False,
             rtscts=False,
             **kwargs,
@@ -422,7 +440,14 @@ class _SerialBase:
         return self.connection.read(size) if self.connection else b""
 
     def readline(self) -> bytes:
-        return self.connection.readline() if self.connection else b""
+        # Bounded to DEFAULT_READLINE_MAX_BYTES: a noisy firmware that never
+        # sends '\n' would otherwise let this grow unbounded (see
+        # analisis-bombercat-vs-catnip.md, section 4).
+        return (
+            self.connection.readline(DEFAULT_READLINE_MAX_BYTES)
+            if self.connection
+            else b""
+        )
 
     # ── context manager ───────────────────────────────────────────────────
 

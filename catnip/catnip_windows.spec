@@ -64,6 +64,9 @@ for src, dst in module_dirs:
 extra_files = [
     ('README.md', '.'),
     ('LICENSE', '.'),
+    ('VERSION', '.'),
+    # Wireshark loads this one from disk by path, so it has to stay a real file.
+    ('protocol/lora_ascii.lua', 'protocol'),
 ]
 
 for src, dst in extra_files:

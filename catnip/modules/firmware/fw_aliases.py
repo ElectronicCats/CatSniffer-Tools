@@ -60,10 +60,35 @@ OFFICIAL_ID_TO_FILENAME = {
 OFFICIAL_ID_TO_FILENAME_BY_BOARD = {
     "v3": OFFICIAL_ID_TO_FILENAME,
     "v2": {
+        # Sniffle is mirrored from the nccgroup release, which builds both
+        # variants; the rest come from the CatSniffer-Firmware v2.X.Y.Z
+        # releases, whose CC1352P1 images spell the variant "CC1352P1"
+        # (the v3 bundle spells the same field "CC1352P_7").
         "sniffle": "sniffle_cc1352p1_cc2652p1_1M",
+        "airtag_scanner_cc1352p7": "airtag_scanner_CC1352P1",
+        "airtag_spoofer_cc1352p7": "airtag_spoofer_CC1352P1",
+        "justworks_scanner_cc1352p7": "justworks_scanner_CC1352P1",
         "catnip_v2": "catsniffer-v2",
     },
 }
+
+
+# Several aliases resolve to the same official ID; this is the one worth
+# printing back to a user. Showing the raw ID instead spells a variant that
+# may not be the board's own: 'airtag_scanner_cc1352p7' is the ID of the
+# image a v2 board flashes as airtag_scanner_CC1352P1.hex.
+OFFICIAL_ID_TO_DISPLAY_ALIAS = {
+    "sniffle": "ble",
+    "ti_sniffer": "zigbee",
+    "airtag_scanner_cc1352p7": "airtag-scanner",
+    "airtag_spoofer_cc1352p7": "airtag-spoofer",
+    "justworks_scanner_cc1352p7": "justworks",
+}
+
+
+def get_display_alias(official_id: str) -> str:
+    """The user-facing alias for an official ID (the ID itself as fallback)."""
+    return OFFICIAL_ID_TO_DISPLAY_ALIAS.get(official_id, official_id)
 
 
 def get_official_id(alias_or_name: str) -> Optional[str]:
@@ -96,6 +121,11 @@ def get_official_id(alias_or_name: str) -> Optional[str]:
         return "rp2040_boot"
     if "catsniffer-v2" in name_lower:
         return "catnip_v2"
+    # Before the generic "sniffer" rule: the justworks images are named
+    # justworks_scanner_*, which matches none of the branches below and used
+    # to leave the file with no official ID at all.
+    if "justworks" in name_lower:
+        return "justworks_scanner_cc1352p7"
     if any(x in name_lower for x in ["sniffer", "zigbee", "thread", "15.4"]):
         return "ti_sniffer"
     if "airtag" in name_lower:

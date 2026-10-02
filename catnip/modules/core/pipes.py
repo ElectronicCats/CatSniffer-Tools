@@ -1,4 +1,5 @@
 import os
+import sys
 import platform
 import threading
 import subprocess
@@ -21,7 +22,7 @@ if platform.system().lower() == "windows":
         logger.error(
             "[bold red][X] Error[/bold red]: win32pipe, win32file, pywintypes modules not found. [yellow]Please install [bold]pywin32[/bold] package.[/yellow]"
         )
-        exit(1)
+        sys.exit(1)
 
 
 def show_generic_error(title="", e="") -> None:
@@ -44,7 +45,7 @@ class UnixPipe:
             logger.info(f"[-] Pipeline already exists.")
         except OSError as e:
             show_generic_error("Creating Pipeline", e)
-            exit(1)
+            sys.exit(1)
 
     def open(self, mode="ab") -> None:
         logger.info(f"[*] Check if exist: {self.pipe_path}")
@@ -56,7 +57,7 @@ class UnixPipe:
             logger.info(f"[*] Pipeline Open ({mode}): {self.pipe_path}")
         except Exception as e:
             show_generic_error("Opening Pipeline", e)
-            exit(1)
+            sys.exit(1)
 
     def read(self, size=1024) -> bytes:
         try:
@@ -97,7 +98,7 @@ class UnixPipe:
         except BrokenPipeError:
             show_generic_error("BrokenPipe", "")
             self.remove()
-            exit(1)
+            sys.exit(1)
         except Exception as e:
             show_generic_error("Writing Pipeline", e)
             pass
@@ -127,7 +128,7 @@ class WindowsPipe:
             logger.info(f"[-] Pipeline already exists.")
         except pywintypes.error as e:
             logger.error(f"[X] {e}")
-            exit(1)
+            sys.exit(1)
 
     def open(self) -> None:
         logger.info(f"[*] Waiting for a client on {self.pipe_path}.")
@@ -216,7 +217,15 @@ class WindowsPipe:
 
 
 class Wireshark(threading.Thread):
-    def __init__(self, pipe_name=None, profile=None):
+    """Launch Wireshark on a named pipe and wait for the window to close.
+
+    ``extra_args`` is appended verbatim to the command line, which is how the
+    sniffers steer dissection: ``sniff lora`` passes a ``-d`` decode-as rule so
+    that a payload carried on the LoRaWAN sync word is not force-fed to the
+    LoRaWAN dissector (see ``lora_decode_as_args``).
+    """
+
+    def __init__(self, pipe_name=None, profile=None, extra_args=None):
         super().__init__(daemon=True)
         self.system = platform.system()
         if pipe_name is None:
@@ -226,6 +235,7 @@ class Wireshark(threading.Thread):
         else:
             self.pipe_name = pipe_name
         self.profile = profile
+        self.extra_args = list(extra_args) if extra_args else []
         self.running = True
         self.wireshark_process: subprocess.Popen | None = None
 
@@ -253,7 +263,8 @@ class Wireshark(threading.Thread):
         fifo_path = self.get_wireshark_pipepath()
         cmd = [str(exe_path), "-k", "-i", fifo_path]
         if self.profile:
-            cmd = [str(exe_path), "-k", "-i", fifo_path, "-C", self.profile]
+            cmd += ["-C", self.profile]
+        cmd += self.extra_args
         return cmd
 
     def run(self):

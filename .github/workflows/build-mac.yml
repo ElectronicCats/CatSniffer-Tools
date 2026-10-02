@@ -12,9 +12,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Launch tag to upload assets to (ex: v3.3.2.1)'
+        description: 'Launch tag to upload assets to (ex: v3.3.3.0)'
         required: true
-        default: 'v3.3.2.1'
+        default: 'v3.3.3.0'
 
 jobs:
   build-mac:
@@ -47,11 +47,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
-
-      - name: Inject Version into _version.py
-        run: |
-          VERSION=$(cat catnip/VERSION | tr -d '[:space:]')
-          echo "__version__ = \"${VERSION}\"" > catnip/modules/_version.py
 
       - name: Build macOS Installer
         run: |

@@ -44,6 +44,15 @@ _mock_serial_tools = MagicMock(name="serial.tools")
 _mock_serial_tools.list_ports = _mock_serial_tools_list_ports
 _mock_serial = MagicMock(name="serial")
 _mock_serial.tools = _mock_serial_tools
+
+
+# `except serial.SerialException` requires a real exception class, not a
+# MagicMock attribute — give the mocked module a genuine one to catch.
+class _SerialException(Exception):
+    pass
+
+
+_mock_serial.SerialException = _SerialException
 for _mod_name, _mod_obj in [
     ("serial", _mock_serial),
     ("serial.tools", _mock_serial_tools),
@@ -59,6 +68,31 @@ sys.modules.setdefault("matplotlib.animation", MagicMock())
 # ─────────────────────────────────────────────────────────────────────────────
 # Fixtures reusable across multiple test modules
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(scope="session")
+def run_catnip():
+    """Run ``catnip.py`` as a real subprocess and return the ``CompletedProcess``.
+
+    The only way to observe the CLI the way a user does: real exit codes, real
+    stdout/stderr, and none of the ``sys.modules`` stubbing above.  No hardware
+    is required by the commands that use it.
+    """
+    import os
+    import subprocess
+
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+    def run(*args, timeout=10):
+        return subprocess.run(
+            [sys.executable, os.path.join(project_root, "catnip.py"), *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=project_root,
+        )
+
+    return run
 
 
 @pytest.fixture

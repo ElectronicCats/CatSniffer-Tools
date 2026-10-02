@@ -118,6 +118,7 @@ class TestSpectrumScan:
                     "/dev/ttyUSB0",
                     DEFAULT_BAUDRATE,
                     timeout=2,
+                    write_timeout=2.0,
                     dsrdtr=False,
                     rtscts=False,
                 )

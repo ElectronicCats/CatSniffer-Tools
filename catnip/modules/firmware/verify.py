@@ -4,6 +4,7 @@ CatSniffer Verification Module
 Provides device verification and testing functionality.
 """
 
+import sys
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -382,4 +383,4 @@ if __name__ == "__main__":
     success, _ = run_verification(
         test_all=args.test_all, device_id=args.device, quiet=args.quiet
     )
-    exit(0 if success else 1)
+    sys.exit(0 if success else 1)

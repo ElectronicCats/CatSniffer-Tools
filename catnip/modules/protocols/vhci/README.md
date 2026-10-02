@@ -1,97 +1,29 @@
 # VHCI Bridge
 
+> **User docs: [`docs/commands/vhci.md`](../../../docs/commands/vhci.md)** —
+> requirements, `vhci check`, `vhci start` and its flags.
+> This file keeps the implementation notes: architecture, data flow, serial
+> framing, per-tool examples and known quirks.
+
 The VHCI bridge makes CatSniffer V3 appear as a standard Bluetooth LE controller
 to the Linux Bluetooth stack (BlueZ). It creates a virtual HCI controller via
 `/dev/vhci` that BlueZ registers as `hciN`, enabling any BLE tool that speaks
 BlueZ to use the CatSniffer radio without modification.
 
-## Requirements
+## Before any of this works
 
-### Hardware
+Requirements, prerequisite checks and the flags of `vhci check` / `vhci start`
+are in [`docs/commands/vhci.md`](../../../docs/commands/vhci.md). In short:
+a v3 board running Sniffle, Linux with BlueZ, the `hci_vhci` module loaded, and
+root.
 
-- CatSniffer V3 (CC1352P7 + RP2040)
-- Sniffle firmware flashed to the CC1352P7
-
-### Software
-
-- Linux with BlueZ 5.x
-- Python 3.11 or later
-- `pyserial` Python package
-- Kernel module `hci_vhci` loaded (`/dev/vhci` must exist)
-- Root access (`/dev/vhci` requires root)
-
-### Load the kernel module
-
-```
-sudo modprobe hci_vhci
-```
-
-To load it automatically on boot:
-
-```
-echo hci_vhci | sudo tee /etc/modules-load.d/hci_vhci.conf
-```
-
-### Install the package
-
-From the repository root:
-
-```
-pip install -e .
-```
-
-### Flash Sniffle firmware
-
-If the CatSniffer does not already have Sniffle firmware:
-
-```
-catnip flash sniffle
-```
-
----
-
-## Usage
-
-### Check prerequisites
-
-```
-catnip vhci check
-```
-
-This verifies that `hci_vhci` is loaded, `/dev/vhci` exists, and lists any
-existing HCI controllers.
-
-### Start the bridge
-
-```
-sudo catnip vhci start
-```
-
-Options:
-
-| Flag | Description |
-|------|-------------|
-| `-d`, `--device` | CatSniffer device index when multiple are connected |
-| `-p`, `--port` | Serial port path (auto-detected if omitted) |
-| `-v`, `--verbose` | Enable verbose logging (shows all HCI opcodes and data packets) |
-
-Examples:
-
-```
-sudo catnip vhci start
-sudo catnip vhci start -d 1
-sudo catnip vhci start -p /dev/ttyACM0
-sudo catnip vhci start -p /dev/ttyACM0 -v
-```
-
-When the bridge starts successfully it prints a line such as:
+When the bridge starts it prints the index BlueZ assigned:
 
 ```
 Created hci1
 ```
 
-The number indicates which HCI index BlueZ assigned. Use that index with all
-tools below.
+Every example below uses that index.
 
 ---
 
@@ -214,7 +146,7 @@ hcitool -i hci1 lescan
 
 ## Architecture
 
-The bridge is implemented in four files under `catnip/modules/vhci/`:
+The bridge is implemented in four files under `modules/protocols/vhci/`:
 
 | File | Role |
 |------|------|
@@ -387,31 +319,9 @@ Test procedure and manual test script: `tests/vhci/README.md`
 
 ## Troubleshooting
 
-### /dev/vhci does not exist
-
-```
-sudo modprobe hci_vhci
-```
-
-### CatSniffer not responding
-
-The device may be in bootloader mode. Check connected ports:
-
-```
-ls -la /dev/ttyACM*
-```
-
-Re-flash Sniffle firmware:
-
-```
-catnip flash sniffle
-```
-
-### BlueZ does not register hciN
-
-The bridge prints `Created hciX` when registration succeeds. If this line does
-not appear, confirm that `hci_vhci` is loaded and that the process has root
-access.
+The symptoms below are specific to the bridge. For the ones every user hits —
+`/dev/vhci` missing, the board not answering, BlueZ never registering an
+`hciN` — see [`docs/troubleshooting.md`](../../../docs/troubleshooting.md#vhci-down).
 
 ### Connection drops immediately with no data packets
 
