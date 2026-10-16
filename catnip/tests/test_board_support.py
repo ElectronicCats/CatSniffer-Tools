@@ -833,6 +833,23 @@ class TestFileAvailableForBoard:
         assert board_mod.file_available_for_board("anything.hex", None)
 
 
+class TestTiSnifferPhyIsPerBoard:
+    def test_each_build_gets_its_own_ieee_phy_index(self):
+        # Measured on hardware: the v2 build rejects 0x12 with status 0x05
+        # and captures 802.15.4 on 0x08; the v3 build's table puts it at 0x12.
+        from protocol.sniffer_ti import SnifferTI
+
+        cmds = SnifferTI.Commands()
+        assert BOARD_V2.ti_ieee_phy == b"\x08"
+        assert BOARD_V3.ti_ieee_phy == b"\x12"
+        # SOF(2) + cmd(1) + len(2) + data: the PHY byte is at offset 5
+        assert cmds.config_phy(BOARD_V2.ti_ieee_phy)[5:6] == b"\x08"
+        assert cmds.config_phy()[5:6] == b"\x12"
+        assert cmds.get_startup_cmd(25, BOARD_V2.ti_ieee_phy)[2] == cmds.config_phy(
+            b"\x08"
+        )
+
+
 class TestRestoreRefusesOnV2:
     def test_v2_is_refused_before_any_tool_is_touched(self):
         from modules.core.exceptions import UnsupportedOnBoardError

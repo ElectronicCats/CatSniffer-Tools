@@ -32,6 +32,7 @@ from protocol.common import (
     get_global_header,
 )
 
+from ..firmware.board import BOARD_V3, detect_board
 from ..firmware.fw_status import read_loss_counters
 from ..utils._version import __version__
 
@@ -1268,7 +1269,9 @@ def run_bridge(
     serial_worker = Catnip(port=device.bridge_port)
     serial_worker.connect()
 
-    for cmd in snifferTICmd.get_startup_cmd(channel):
+    # Unknown board keeps the historical v3 index.
+    board = detect_board(device.shell_port) or BOARD_V3
+    for cmd in snifferTICmd.get_startup_cmd(channel, board.ti_ieee_phy):
         serial_worker.write(cmd)
         time.sleep(0.1)
 
