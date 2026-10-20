@@ -17,3 +17,4 @@ textual>=0.50.0
 
 # Development dependencies
 pytest>=7.0.0
+pytest-cov>=5.0.0

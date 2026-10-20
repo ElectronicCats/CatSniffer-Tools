@@ -189,6 +189,27 @@ class TestWindowsPipe:
         mock_win32file.WriteFile.assert_called_once_with("fake_handle", test_data)
         mock_win32file.FlushFileBuffers.assert_called_once_with("fake_handle")
 
+    @patch("modules.core.pipes.pywintypes", create=True)
+    @patch("modules.core.pipes.win32file", create=True)
+    @patch("modules.core.pipes.win32pipe", create=True)
+    def test_write_packet_after_disconnect_is_noop(
+        self, mock_win32pipe, mock_win32file, mock_pywintypes
+    ):
+        """Once the client disconnects, close() drops the handle; later writes must not hit WriteFile."""
+
+        class FakeWinError(Exception):
+            winerror = 232  # ERROR_NO_DATA: Wireshark stopped the capture
+
+        mock_pywintypes.error = FakeWinError
+        pipe = WindowsPipe(path=r"\\.\pipe\test")
+        pipe.pipe_writer = "fake_handle"
+        mock_win32file.WriteFile.side_effect = FakeWinError()
+        pipe.write_packet(b"a")  # disconnect detected → close()
+        assert pipe.pipe_writer is None
+        mock_win32file.WriteFile.reset_mock()
+        pipe.write_packet(b"b")
+        mock_win32file.WriteFile.assert_not_called()
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  3.  TESTS FOR Wireshark

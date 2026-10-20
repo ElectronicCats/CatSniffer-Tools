@@ -20,12 +20,12 @@ from typing import Dict, List, Optional, Tuple
 
 from .core import (
     DEFAULT_KEYS,
-    SYNC_WORD_MESHTASTIC,
     CHANNELS_PRESET,
     msb2lsb,
     extract_frame,
     extract_fields,
     decrypt,
+    configure_meshtastic_radio,
 )
 
 # Third-party
@@ -50,7 +50,6 @@ from meshtastic import mesh_pb2, admin_pb2, telemetry_pb2
 # -------------------------- Radio / decoding helpers -------------------------
 from .core import (
     DEFAULT_KEYS,
-    SYNC_WORD_MESHTASTIC,
     CHANNELS_PRESET,
     msb2lsb,
     extract_frame,
@@ -501,29 +500,48 @@ class MeshtasticChatApp(App):
 
 
 # ------------------------------- Entrypoint ----------------------------------
+def resolve_shell_port(explicit: Optional[str] = None) -> Optional[str]:
+    """The Cat-Shell port to configure the radio through.
+
+    Falls back to catnip's own device detection, so running this script by hand
+    does not mean having to look up two port numbers instead of one.
+    """
+    if explicit:
+        return explicit
+
+    from modules.core.usb_connection import find_device
+
+    device = find_device()
+    return device.shell_port if device else None
+
+
 async def run_app(args) -> None:
     rx_queue: queue.Queue = queue.Queue()
+
+    # The radio is configured over Cat-Shell (CDC2), never over the LoRa port.
+    # That port carries the SX1262's data stream: `process_lora_command` knows
+    # only TEST/FSKTEST/FSKTX/FSKRX, and only in COMMAND mode — in the default
+    # STREAM mode every byte written to it is handed to `lora_send` and
+    # transmitted over the air.  So the `lora_freq ...` lines this used to
+    # write into the monitor were never parsed as commands at all: they went
+    # out as LoRa payloads and the radio kept whatever settings it already had.
+    shell_port = resolve_shell_port(args.shell_port)
+    if not shell_port:
+        print("[!] No config port found — pass --shell-port explicitly")
+        return
+
+    # Shared with `catnip meshtastic dashboard` rather than duplicated here,
+    # which is how this copy drifted onto the wrong port to begin with.  It
+    # also claims the antenna switch (`band3`) and the modulation, neither of
+    # which the inline list did.
+    if not configure_meshtastic_radio(
+        shell_port, int(args.frequency * 1_000_000), args.preset
+    ):
+        print("[!] Failed to configure the radio")
+        return
+
     mon = Monitor(args.port, args.baudrate, rx_queue)
     mon.start()
-
-    # Configure radio using commands from the new firmware
-    print(f"[*] Configuring radio on {args.port}...")
-    # Use specific commands from the updated firmware
-    commands = [
-        f"lora_freq {int(args.frequency * 1_000_000)}",
-        f"lora_sf {CHANNELS_PRESET[args.preset]['sf']}",
-        f"lora_bw {CHANNELS_PRESET[args.preset]['bw']}",  # Note: uses index, not kHz
-        f"lora_cr {CHANNELS_PRESET[args.preset]['cr']}",
-        f"lora_preamble {CHANNELS_PRESET[args.preset]['pl']}",
-        f"lora_syncword 0x{SYNC_WORD_MESHTASTIC:02X}",  # CORRECTED: 0x2B
-        "lora_apply",
-        "lora_mode stream",
-    ]
-
-    for cmd in commands:
-        print(f"  > {cmd}")
-        mon.write(f"{cmd}\r\n".encode())
-        await asyncio.sleep(0.1)
 
     try:
         app = MeshtasticChatApp(
@@ -549,6 +567,12 @@ Examples:
         "--port",
         required=True,
         help="Serial port for CatSniffer LoRa device",
+    )
+    parser.add_argument(
+        "-s",
+        "--shell-port",
+        default=None,
+        help="Cat-Shell config port (default: auto-detected)",
     )
     parser.add_argument(
         "-baud",

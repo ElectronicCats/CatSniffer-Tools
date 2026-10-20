@@ -1,7 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = []
+# Wireshark loads this from disk by path, so it has to stay a real file next to
+# the protocol package rather than being frozen into the archive.
+datas = [('protocol/lora_ascii.lua', 'protocol')]
 binaries = []
 hiddenimports = [
     'click',

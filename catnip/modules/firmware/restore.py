@@ -5,7 +5,8 @@ CC1352 Restore Module for CatSniffer
 Recovers a CC1352 when the serial bootloader is broken (e.g., after
 flashing firmware without proper CCFG bootloader configuration).
 
-Uses the RP2040 as a CMSIS-DAP JTAG programmer via OpenOCD.
+Uses the RP2040 as a CMSIS-DAP JTAG programmer via OpenOCD, so it runs on
+v3 boards only; a v2 (SAMD21) or an unidentified board is refused.
 
 Flow:
     1. Put RP2040 into BOOTSEL mode (shell 'reboot' or manual)
@@ -31,9 +32,12 @@ from typing import Optional
 
 import requests
 
+from .board import detect_board, image_allowed_for_board, require_capability
 from .fw_update import (
+    find_any_board_mount_point,
     find_rp2040_mount_point,
     enter_boot_mode,
+    resolve_board_uf2,
 )
 
 from ..utils.output import (
@@ -60,6 +64,7 @@ FREE_DAP_FILENAME = "free_dap_catsniffer.uf2"
 # CC1352 JTAG TAPIDs
 TAPID_CC1352P7 = "0x1BB7702F"
 TAPID_CC1352P1 = "0x0BB4102F"
+TAPID_BY_CHIP = {"CC1352P7": TAPID_CC1352P7, "CC1352P1": TAPID_CC1352P1}
 
 # CMSIS-DAP USB identifiers
 CMSIS_DAP_VID_PID = "6666:9930"
@@ -144,33 +149,6 @@ def get_free_dap_path() -> Optional[str]:
                     return cached
     except Exception as e:
         print_error(f"Cannot fetch free_dap release: {e}")
-
-    return None
-
-
-def get_bridge_uf2_path(flasher=None) -> Optional[str]:
-    """
-    Get path to bridge UF2 firmware.
-    First checks catnip's local release folder, then downloads if needed.
-    """
-    # Check catnip's release folder first
-    if flasher:
-        try:
-            release_path = flasher.get_releases_path()
-            if os.path.exists(release_path):
-                for f in os.listdir(release_path):
-                    if f.endswith(".uf2") and "catsniffer" in f.lower():
-                        path = os.path.join(release_path, f)
-                        print_info(f"Bridge UF2: {f}")
-                        return path
-        except Exception:
-            pass
-
-    # Fallback: check cache
-    os.makedirs(CACHE_DIR, exist_ok=True)
-    for f in os.listdir(CACHE_DIR):
-        if f.endswith(".uf2") and "catsniffer" in f.lower() and "free_dap" not in f:
-            return os.path.join(CACHE_DIR, f)
 
     return None
 
@@ -324,11 +302,26 @@ def wait_for_cmsis_dap(timeout: int = 10) -> bool:
     return False
 
 
+def _identify_board(board=None, device=None):
+    """The board ``restore`` is about to touch, or None if it never said.
+
+    An explicit ``--board`` wins, then the Cat-Shell answer. A board with no
+    shell still names itself by its mounted bootloader volume: an RP2040 left
+    in BOOTSEL by an interrupted restore shows up as RPI-RP2.
+    """
+    if board is None and device is not None and getattr(device, "shell_port", None):
+        board = detect_board(device.shell_port)
+    if board is None:
+        board, _ = find_any_board_mount_point()
+    return board
+
+
 def restore_cc1352(
     hex_path: Optional[str] = None,
     device=None,
     flasher=None,
-    tapid: str = TAPID_CC1352P7,
+    tapid: Optional[str] = None,
+    board=None,
 ) -> bool:
     """
     Full CC1352 restore procedure.
@@ -337,12 +330,28 @@ def restore_cc1352(
         hex_path: Path to .hex firmware (None = use default CatSniffer firmware)
         device: CatSnifferDevice (optional, for shell access to RP2040)
         flasher: Flasher instance (optional, for finding bridge UF2)
-        tapid: JTAG TAPID for the CC1352 variant
+        tapid: JTAG TAPID override (None = the board's CC1352 variant)
+        board: BoardInfo override for when detection cannot name the board
 
     Returns:
         True if CC1352 was successfully restored
+
+    Raises:
+        UnsupportedOnBoardError: the board has no host MCU that can act as a
+            CMSIS-DAP probe (a v2 SAMD21 board: its CC1352 JTAG pins are not
+            routed to the SAMD21), or the board never said which generation it
+            is. The whole flow below runs on the RP2040.
     """
     print_section("CatSniffer CC1352 Restore via JTAG")
+
+    # --- Board gate ---
+    # This flow turns the *host* MCU into the JTAG programmer, so it only
+    # runs on a board that has positively identified itself as one that can
+    # be. An unknown board is refused too: assuming v3 would send 'reboot' to
+    # a v2's SAMD21 and leave it stranded in its bootloader.
+    board = _identify_board(board, device)
+    require_capability(board, "can_self_program_cc1352", "catnip restore")
+    print_info(f"Board: {board.label}")
 
     # --- Prerequisites ---
     openocd = check_openocd()
@@ -351,6 +360,11 @@ def restore_cc1352(
         print_detail_message("Install: sudo apt install openocd (Linux)")
         print_detail_message("         brew install openocd (macOS)")
         return False
+
+    if flasher is None:
+        from .flasher import Flasher
+
+        flasher = Flasher()
 
     if not hex_path:
         hex_path = get_default_cc1352_firmware(flasher)
@@ -366,12 +380,32 @@ def restore_cc1352(
         print_error(f"File not found: {hex_path}")
         return False
 
+    # The serial flash in step 4 refuses an image built for the other CC1352
+    # variant, but by then the chip has already been erased over JTAG. Ask
+    # the same question here, while the board is still untouched.
+    allowed, reason = image_allowed_for_board(os.path.basename(hex_path), board)
+    if not allowed:
+        print_error(f"Refusing to restore: {reason}")
+        return False
+
     free_dap = get_free_dap_path()
     if not free_dap:
         return False
 
-    bridge_uf2 = get_bridge_uf2_path(flasher)
+    # Resolved by the board's own UF2 pattern: the release folder holds the
+    # UF2 of every generation, and copying a v2 one onto RPI-RP2 is silently
+    # ignored by the boot ROM. Needed in step 3, so it must exist before the
+    # RP2040 stops being a bridge.
+    bridge_uf2 = resolve_board_uf2(flasher, board)
+    if not bridge_uf2:
+        print_error(
+            f"No {board.mcu} bridge UF2 found for this board; nothing was touched."
+        )
+        print_detail_message("Run: catnip update --force to download it first.")
+        return False
+    print_info(f"Bridge UF2: {os.path.basename(bridge_uf2)}")
 
+    tapid = tapid or TAPID_BY_CHIP[board.cc_chip]
     config = create_openocd_config(tapid)
     if not config:
         return False
@@ -458,10 +492,10 @@ def restore_cc1352(
 
     mount = wait_for_bootsel(timeout=30)
 
-    if not mount or not bridge_uf2:
-        if not bridge_uf2:
-            print_warning("Bridge UF2 not found locally.")
-            print_detail_message("Run: catnip update --force after BOOTSEL restore.")
+    if not mount:
+        print_detail_message(
+            f"Copy {os.path.basename(bridge_uf2)} to the RPI-RP2 drive by hand."
+        )
         return False
 
     print_info(f"Restoring bridge: {os.path.basename(bridge_uf2)}...")
@@ -490,11 +524,7 @@ def restore_cc1352(
             return True  # Erase succeeded, just need manual flash
 
         print_info(f"Flashing {os.path.basename(hex_path)} via serial...")
-        if flasher is None:
-            from .flasher import Flasher
-
-            flasher = Flasher()
-        result = flasher.find_flash_firmware(hex_path, dev)
+        result = flasher.find_flash_firmware(hex_path, dev, board=board)
         if result:
             print_empty_line()
             print_success("CC1352 restore complete!")

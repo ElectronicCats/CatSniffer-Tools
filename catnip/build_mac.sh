@@ -29,6 +29,8 @@ pyinstaller \
   --hidden-import usb \
   --hidden-import usb.backend.libusb1 \
   --hidden-import magic \
+  --add-data "VERSION:." \
+  --add-data "protocol/lora_ascii.lua:protocol" \
   catnip.py
 
 echo "[*] Building lora_extcap..."
