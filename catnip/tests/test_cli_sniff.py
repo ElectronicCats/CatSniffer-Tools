@@ -94,8 +94,16 @@ class TestCc1352CaptureIntegrity:
         return result, reset, report, inner
 
     def test_a_sniffle_capture_is_bracketed_by_the_counters(self):
+        def capture(*args, on_capture_end, **kwargs):
+            # The real one calls this after Wireshark closes, before killing
+            # the extcap that drains the bridge port.
+            on_capture_end()
+            return True
+
         result, reset, report, inner = self._invoke(
-            ["sniff", "ble", "--wireshark"], "modules.sniff.cli.run_extcap_directly"
+            ["sniff", "ble", "--wireshark"],
+            "modules.sniff.cli.run_extcap_directly",
+            inner_raises=capture,
         )
         assert result.exit_code == 0
         assert inner.called
