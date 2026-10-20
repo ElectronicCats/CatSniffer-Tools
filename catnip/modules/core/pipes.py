@@ -204,6 +204,10 @@ class WindowsPipe:
             pass
 
     def write_packet(self, data: bytes) -> None:
+        # The client may have gone away (close() drops the handle) while the
+        # bridge thread keeps relaying; writing to a None handle is error 6.
+        if not self.pipe_writer:
+            return
         try:
             win32file.WriteFile(self.pipe_writer, data)
             win32file.FlushFileBuffers(self.pipe_writer)
