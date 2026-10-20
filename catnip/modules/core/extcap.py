@@ -61,8 +61,16 @@ def find_putty_path():
     return None
 
 
-def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
-    """Run Sniffle extcap directly and bridge it to Wireshark."""
+def run_extcap_directly(
+    port, channel=37, mode="conn_follow", on_capture_end=None, **kwargs
+):
+    """Run Sniffle extcap directly and bridge it to Wireshark.
+
+    ``on_capture_end`` runs once Wireshark closes but while the extcap is
+    still draining the bridge port. Killing the extcap leaves the CC1352
+    streaming into a ring nobody empties, so anything that reads the
+    firmware's loss counters must run before that, not after.
+    """
     try:
         system = platform.system()
 
@@ -252,6 +260,9 @@ def run_extcap_directly(port, channel=37, mode="conn_follow", **kwargs):
 
         # 9. Wait for Wireshark to close
         ws.join()
+
+        if on_capture_end:
+            on_capture_end()
 
         # Cleanup
         stop_event.set()
