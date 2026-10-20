@@ -16,7 +16,7 @@ The rendering is pure: :class:`SpamLiveView` folds each parsed :class:`SpamLine`
 into counters and paints a Rich renderable from them. :func:`run_live` drives the
 controller's event generator against it. The generator blocks per read timeout
 and skips idle reads, so ``Ctrl+C`` is delivered promptly; the caller
-(``cli/ble_spam.py``) owns the ``stop``/``close`` on exit (R5).
+(``cli/ble_spam.py``) owns the ``stop``/``close`` at teardown (R5).
 """
 
 from __future__ import annotations
