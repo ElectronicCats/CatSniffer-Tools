@@ -240,9 +240,7 @@ def sniff_ble(device, wireshark, channel, mode):
                 dev.bridge_port,
                 channel,
                 mode,
-                on_capture_end=lambda: report_capture_loss(
-                    dev.shell_port, loss_armed
-                ),
+                on_capture_end=lambda: report_capture_loss(dev.shell_port, loss_armed),
             )
 
             if not success:
