@@ -54,7 +54,7 @@ class TestSpamGroup:
     def test_help_lists_subcommands(self):
         result = CliRunner().invoke(spam, ["--help"])
         assert result.exit_code == 0
-        for sub in ("start", "stop", "status", "modes", "pwr", "int", "stats", "scan"):
+        for sub in ("start", "stop", "status", "modes", "pwr", "int", "stats"):
             assert sub in result.output
 
     def test_modes_needs_no_hardware(self):
@@ -163,7 +163,7 @@ class TestSpamGroup:
 
 @pytest.mark.unit
 class TestSpamRuntimeControls:
-    """Phase 3: pwr / int / stats / scan and the start/run profile options."""
+    """Phase 3: pwr / int / stats and the start/run profile options."""
 
     def test_pwr_sets_profile_without_stopping(self):
         ctrl = MagicMock()
@@ -226,36 +226,6 @@ class TestSpamRuntimeControls:
         assert "pwr=bal" in result.output
         assert "int=64-96" in result.output
         ctrl.stop.assert_not_called()
-        ctrl.close.assert_called_once_with()
-
-    def test_scan_on_toggles_scan(self):
-        ctrl = MagicMock()
-
-        result = _run(["scan", "on"], ctrl)
-
-        assert result.exit_code == 0, result.output
-        ctrl.set_scan.assert_called_once_with(True)
-        ctrl.close.assert_called_once_with()
-
-    def test_scan_off_toggles_scan(self):
-        ctrl = MagicMock()
-
-        result = _run(["scan", "off"], ctrl)
-
-        assert result.exit_code == 0, result.output
-        ctrl.set_scan.assert_called_once_with(False)
-
-    def test_scan_without_feature_surfaces_typed_error(self):
-        ctrl = MagicMock()
-        ctrl.set_scan.side_effect = FeatureUnavailable(
-            "no scan", hint=["Rebuild with SPAM_WITH_SCAN=1"]
-        )
-
-        result = _run(["scan", "on"], ctrl)
-
-        # main_cli renders FeatureUnavailable cleanly; here it just propagates.
-        assert result.exit_code != 0
-        assert isinstance(result.exception, FeatureUnavailable)
         ctrl.close.assert_called_once_with()
 
     def test_start_applies_power_and_interval_before_emitting(self):
@@ -453,7 +423,6 @@ class TestSpamCompletion:
             "pwr",
             "int",
             "stats",
-            "scan",
         } <= set(subs)
 
     def test_modes_complete_for_the_mode_option(self):
@@ -469,8 +438,7 @@ class TestSpamCompletion:
         ]
         assert sorted(self._completions(["spam", "pwr"], "")) == ["bal", "high", "low"]
 
-    def test_scan_states_complete_for_the_scan_argument(self):
-        assert sorted(self._completions(["spam", "scan"], "")) == ["off", "on"]
+    def test_scan_states_complete_for_the_scan_option(self):
         assert sorted(self._completions(["spam", "run", "--scan"], "")) == [
             "off",
             "on",
