@@ -135,17 +135,16 @@ class SnifferTI:
             ).packet
 
         @staticmethod
-        def config_phy() -> bytes:
-            return TIBaseCommand(
-                TIBaseCommand.ByteCommands.CFG_PHY.value, BYTE_IEEE802145
-            ).packet
+        def config_phy(phy: bytes = BYTE_IEEE802145) -> bytes:
+            # The index is per firmware build: pass BoardInfo.ti_ieee_phy.
+            return TIBaseCommand(TIBaseCommand.ByteCommands.CFG_PHY.value, phy).packet
 
         @staticmethod
-        def get_startup_cmd(channel=11):
+        def get_startup_cmd(channel=11, phy: bytes = BYTE_IEEE802145):
             startup_cmds = [
                 SnifferTI.Commands().ping(),
                 SnifferTI.Commands().stop(),
-                SnifferTI.Commands().config_phy(),
+                SnifferTI.Commands().config_phy(phy),
                 SnifferTI.Commands().config_freq(channel=channel),
                 SnifferTI.Commands().start(),
             ]

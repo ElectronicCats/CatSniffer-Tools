@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch, mock_open
 import pytest
 
 from modules.firmware import restore
+from modules.firmware.board import BOARD_V3
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -159,36 +160,20 @@ class TestGetFreeDapPath:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# get_bridge_uf2_path
+# bridge UF2 selection
 # ─────────────────────────────────────────────────────────────────────────────
-class TestGetBridgeUf2Path:
-    def test_finds_uf2_via_flasher_release_path(self, tmp_path):
-        release_dir = tmp_path / "releases"
-        release_dir.mkdir()
-        (release_dir / "catsniffer_bridge_v3.uf2").write_bytes(b"x")
+class TestBridgeUf2Selection:
+    def test_v2_uf2_listed_first_is_not_picked_for_a_v3(self, tmp_path):
+        # The release folder holds both generations' UF2s, and the v2 one
+        # sorts first (as os.listdir returns it on NTFS/APFS). Copied onto
+        # RPI-RP2 it is silently ignored and the board stays in BOOTSEL.
+        (tmp_path / "catsniffer-v2.1.0.0.uf2").write_bytes(b"x")
+        (tmp_path / "catsniffer-v3.1.0.1.uf2").write_bytes(b"x")
         flasher = MagicMock()
-        flasher.get_releases_path.return_value = str(release_dir)
-        assert restore.get_bridge_uf2_path(flasher) == str(
-            release_dir / "catsniffer_bridge_v3.uf2"
+        flasher.get_releases_path.return_value = str(tmp_path)
+        assert restore.resolve_board_uf2(flasher, BOARD_V3) == str(
+            tmp_path / "catsniffer-v3.1.0.1.uf2"
         )
-
-    def test_flasher_error_falls_back_to_cache(self, tmp_path):
-        flasher = MagicMock()
-        flasher.get_releases_path.side_effect = RuntimeError("no releases")
-        (tmp_path / "catsniffer_bridge.uf2").write_bytes(b"x")
-        with patch.object(restore, "CACHE_DIR", str(tmp_path)):
-            assert restore.get_bridge_uf2_path(flasher) == str(
-                tmp_path / "catsniffer_bridge.uf2"
-            )
-
-    def test_cache_skips_free_dap_file(self, tmp_path):
-        (tmp_path / "free_dap_catsniffer.uf2").write_bytes(b"x")
-        with patch.object(restore, "CACHE_DIR", str(tmp_path)):
-            assert restore.get_bridge_uf2_path(None) is None
-
-    def test_nothing_found_returns_none(self, tmp_path):
-        with patch.object(restore, "CACHE_DIR", str(tmp_path)):
-            assert restore.get_bridge_uf2_path(None) is None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -375,6 +360,18 @@ class TestCleanup:
 # restore_cc1352 — top-level orchestration branches
 # ─────────────────────────────────────────────────────────────────────────────
 class TestRestoreCc1352:
+    @pytest.fixture(autouse=True)
+    def _v3_board(self):
+        # These tests cover the flow past the board gate (see
+        # test_board_support.TestRestoreRefusesOnV2), on an identified v3 and
+        # without touching a real serial port, mount point or release fetch.
+        with patch.object(restore, "detect_board", return_value=BOARD_V3), patch.object(
+            restore, "find_any_board_mount_point", return_value=(BOARD_V3, None)
+        ), patch("modules.firmware.flasher.Flasher"), patch.object(
+            restore, "resolve_board_uf2", return_value="/cache/catsniffer-v3.uf2"
+        ):
+            yield
+
     def test_no_openocd_fails_fast(self):
         with patch.object(restore, "check_openocd", return_value=None):
             assert restore.restore_cc1352() is False
@@ -405,8 +402,6 @@ class TestRestoreCc1352:
         ), patch.object(
             restore, "get_free_dap_path", return_value="/cache/free_dap.uf2"
         ), patch.object(
-            restore, "get_bridge_uf2_path", return_value=None
-        ), patch.object(
             restore, "create_openocd_config", return_value=None
         ):
             assert restore.restore_cc1352(hex_path=str(hex_file)) is False
@@ -418,8 +413,6 @@ class TestRestoreCc1352:
             restore, "check_openocd", return_value="/usr/bin/openocd"
         ), patch.object(
             restore, "get_free_dap_path", return_value="/cache/free_dap.uf2"
-        ), patch.object(
-            restore, "get_bridge_uf2_path", return_value=None
         ), patch.object(
             restore, "create_openocd_config", return_value="/tmp/cfg.cfg"
         ), patch.object(
@@ -443,8 +436,6 @@ class TestRestoreCc1352:
             restore, "check_openocd", return_value="/usr/bin/openocd"
         ), patch.object(
             restore, "get_free_dap_path", return_value="/cache/free_dap.uf2"
-        ), patch.object(
-            restore, "get_bridge_uf2_path", return_value=None
         ), patch.object(
             restore, "create_openocd_config", return_value="/tmp/cfg.cfg"
         ), patch.object(
@@ -476,8 +467,6 @@ class TestRestoreCc1352:
         ), patch.object(
             restore, "get_free_dap_path", return_value="/cache/free_dap.uf2"
         ), patch.object(
-            restore, "get_bridge_uf2_path", return_value="/cache/bridge.uf2"
-        ), patch.object(
             restore, "create_openocd_config", return_value="/tmp/cfg.cfg"
         ), patch.object(
             restore, "enter_boot_mode", return_value=True
@@ -499,9 +488,13 @@ class TestRestoreCc1352:
             )
 
         assert result is True
-        flasher.find_flash_firmware.assert_called_once_with(str(hex_file), device)
+        flasher.find_flash_firmware.assert_called_once_with(
+            str(hex_file), device, board=BOARD_V3
+        )
 
-    def test_missing_bridge_uf2_after_bootsel_fails(self, tmp_path):
+    def test_missing_bridge_uf2_fails_before_touching_the_board(self, tmp_path):
+        # Without it step 3 cannot give the RP2040 its bridge back, so the
+        # board would be left as a JTAG probe with an erased CC1352.
         hex_file = tmp_path / "fw.hex"
         hex_file.write_bytes(b"x")
         device = MagicMock(shell_port="/dev/ttyACM0")
@@ -511,25 +504,52 @@ class TestRestoreCc1352:
         ), patch.object(
             restore, "get_free_dap_path", return_value="/cache/free_dap.uf2"
         ), patch.object(
-            restore, "get_bridge_uf2_path", return_value=None
+            restore, "resolve_board_uf2", return_value=None
         ), patch.object(
-            restore, "create_openocd_config", return_value="/tmp/cfg.cfg"
-        ), patch.object(
-            restore, "enter_boot_mode", return_value=True
-        ), patch.object(
-            restore, "wait_for_bootsel", return_value="/media/RPI-RP2"
-        ), patch.object(
-            restore, "wait_for_cmsis_dap", return_value=True
-        ), patch.object(
-            restore, "erase_cc1352_jtag", return_value=True
-        ), patch(
-            "shutil.copy2"
-        ), patch(
-            "time.sleep"
-        ):
+            restore, "create_openocd_config"
+        ) as config, patch.object(
+            restore, "enter_boot_mode"
+        ) as reboot:
             assert (
                 restore.restore_cc1352(hex_path=str(hex_file), device=device) is False
             )
+        config.assert_not_called()
+        reboot.assert_not_called()
+
+    def test_wrong_variant_image_is_refused_before_erase(self, tmp_path):
+        # The serial flash would refuse it too, but only after the JTAG erase.
+        hex_file = tmp_path / "sniffle_cc1352p1_cc2652p1_1M.hex"
+        hex_file.write_bytes(b"x")
+
+        with patch.object(
+            restore, "check_openocd", return_value="/usr/bin/openocd"
+        ), patch.object(restore, "get_free_dap_path") as free_dap, patch.object(
+            restore, "enter_boot_mode"
+        ) as reboot, patch.object(
+            restore, "erase_cc1352_jtag"
+        ) as erase:
+            assert restore.restore_cc1352(hex_path=str(hex_file)) is False
+        free_dap.assert_not_called()
+        reboot.assert_not_called()
+        erase.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "tapid, expected",
+        [(None, restore.TAPID_CC1352P7), ("0xDEADBEEF", "0xDEADBEEF")],
+    )
+    def test_tapid_defaults_to_the_board_chip(self, tmp_path, tapid, expected):
+        hex_file = tmp_path / "fw.hex"
+        hex_file.write_bytes(b"x")
+
+        with patch.object(
+            restore, "check_openocd", return_value="/usr/bin/openocd"
+        ), patch.object(
+            restore, "get_free_dap_path", return_value="/cache/free_dap.uf2"
+        ), patch.object(
+            restore, "create_openocd_config", return_value=None
+        ) as config:
+            assert restore.restore_cc1352(hex_path=str(hex_file), tapid=tapid) is False
+        config.assert_called_once_with(expected)
 
     def test_copy_free_dap_failure_fails(self, tmp_path):
         hex_file = tmp_path / "fw.hex"
@@ -540,8 +560,6 @@ class TestRestoreCc1352:
             restore, "check_openocd", return_value="/usr/bin/openocd"
         ), patch.object(
             restore, "get_free_dap_path", return_value="/cache/free_dap.uf2"
-        ), patch.object(
-            restore, "get_bridge_uf2_path", return_value=None
         ), patch.object(
             restore, "create_openocd_config", return_value="/tmp/cfg.cfg"
         ), patch.object(
@@ -566,8 +584,6 @@ class TestRestoreCc1352:
             restore, "check_openocd", return_value="/usr/bin/openocd"
         ), patch.object(
             restore, "get_free_dap_path", return_value="/cache/free_dap.uf2"
-        ), patch.object(
-            restore, "get_bridge_uf2_path", return_value="/cache/bridge.uf2"
         ), patch.object(
             restore, "create_openocd_config", return_value="/tmp/cfg.cfg"
         ), patch.object(

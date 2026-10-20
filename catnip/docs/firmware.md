@@ -99,10 +99,10 @@ Host MCU images, for [`update`](commands/flash.md#catnip-update):
 | `rp2040_boot` / `catnip_v3` | v3 system firmware (`catsniffer-v3.X.Y.Z.uf2`) | `RPI-RP2` |
 | `free_dap_catsniffer.uf2` | the CMSIS-DAP probe [`restore`](commands/restore.md) loads onto the RP2040 to reprogram a CC1352 whose bootloader is gone | `RPI-RP2` |
 
-**A v2 has exactly two images: Sniffle and its own system firmware.** Zigbee,
-Thread, AirTag and JustWorks have no CC1352P1 build, so on a v2 those commands
-stop with [exit code 5](reference.md#exit-codes) rather than flashing something
-that cannot work.
+**On a v2 every CC1352 image resolves to its CC1352P1 build** (Zigbee/Thread
+flashes `sniffer_fw_Catsniffer_v2.x_p1.hex`). An id with no v2 image, such as
+`catnip_v3`, stops with [exit code 5](reference.md#exit-codes) rather than
+flashing something that cannot work.
 
 `catnip flash --list` prints this catalogue filtered to the connected board;
 `--list --all` prints it whole.

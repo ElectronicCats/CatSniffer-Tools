@@ -4,6 +4,7 @@ import queue
 import os
 import sys
 from ...core.catnip import Catnip, CatSnifferDevice
+from ...firmware.board import BOARD_V3, detect_board
 from protocol.sniffer_ti import SnifferTI, PacketCategory
 from protocol.common import START_OF_FRAME, END_OF_FRAME
 from .graphs import Graphs
@@ -89,7 +90,9 @@ class CativityRunner:
         # Prepare device
         self.catnip.write(self.ti_cmd.ping())
         self.catnip.write(self.ti_cmd.stop())
-        self.catnip.write(self.ti_cmd.config_phy())
+        # Unknown board keeps the historical v3 index.
+        board = detect_board(self.device.shell_port) or BOARD_V3
+        self.catnip.write(self.ti_cmd.config_phy(board.ti_ieee_phy))
 
         if channel is not None:
             self.fixed_channel = True

@@ -221,9 +221,9 @@ failing silently.
   [`devices`](devices.md) shows either as `Not found`, fix that first.
 - Images are downloaded on demand. `--list` shows the catalogue for the board;
   `--list --all` shows the whole catalogue including what is already on disk.
-- **On a v2 board, `zigbee`, `thread` and the AirTag images do not exist.** The
-  command says so rather than flashing something that would not work. Currently
-  only Sniffle ships a CC1352P1 build.
+- **On a v2 board, each image resolves to its CC1352P1 build** (`zigbee` and
+  `thread` flash `sniffer_fw_Catsniffer_v2.x_p1.hex`). An image with no v2
+  build is refused rather than flashed.
 - The `Usage Examples` block printed by `--list` still advertises `lora-sniffer`
   and other LoRa aliases that the alias listing above it no longer shows. LoRa
   and FSK capture is handled by the SX1262 firmware, not by a CC1352 image —

@@ -199,14 +199,10 @@ class TestBoardCatalog:
             == "sniffle_cc1352p1_cc2652p1_1M"
         )
 
-    def test_v2_has_no_p7_only_images(self):
-        # ti_sniffer is the only ID with no CC1352P1 build; the airtag and
-        # justworks images do ship as P1 .hex assets in the v2.X.Y.Z releases.
-        assert fw_aliases.get_filename_pattern("ti_sniffer", "v2") is None
-
     @pytest.mark.parametrize(
         "fw_id,expected",
         [
+            ("ti_sniffer", "sniffer_fw_Catsniffer_v2.x_p1"),
             ("airtag_scanner_cc1352p7", "airtag_scanner_CC1352P1"),
             ("airtag_spoofer_cc1352p7", "airtag_spoofer_CC1352P1"),
             ("justworks_scanner_cc1352p7", "justworks_scanner_CC1352P1"),
@@ -242,8 +238,9 @@ class TestBoardCatalog:
     def test_official_ids_for_board(self):
         assert "sniffle" in fw_aliases.official_ids_for_board("v2")
         assert "airtag_scanner_cc1352p7" in fw_aliases.official_ids_for_board("v2")
-        assert "ti_sniffer" not in fw_aliases.official_ids_for_board("v2")
+        assert "ti_sniffer" in fw_aliases.official_ids_for_board("v2")
         assert "ti_sniffer" in fw_aliases.official_ids_for_board("v3")
+        assert "catnip_v3" not in fw_aliases.official_ids_for_board("v2")
 
     def test_v2_uf2_alias(self):
         assert fw_aliases.get_official_id("catsniffer-v2.0.1.0.uf2") == "catnip_v2"
@@ -762,17 +759,26 @@ class TestRequireCapability:
 
 
 class TestRequireFirmwareForBoard:
-    def test_ti_sniffer_is_refused_on_v2(self):
+    def test_v3_only_image_is_refused_on_v2(self):
         from modules.core.exceptions import UnsupportedOnBoardError
 
         with pytest.raises(UnsupportedOnBoardError) as excinfo:
             board_mod.require_firmware_for_board(
-                BOARD_V2, "ti_sniffer", "catnip sniff zigbee"
+                BOARD_V2, "catnip_v3", "catnip flash catnip_v3"
             )
-        assert "ti_sniffer" in str(excinfo.value)
-        assert "catnip sniff zigbee" in str(excinfo.value)
+        assert "catnip_v3" in str(excinfo.value)
+        assert "catnip flash catnip_v3" in str(excinfo.value)
         # The hint lists what *is* available, so the user has somewhere to go.
         assert any("sniffle" in line for line in excinfo.value.hint)
+
+    def test_ti_sniffer_is_fine_on_v2(self):
+        # sniffer_fw_Catsniffer_v2.x_p1.hex ships in the release bundle.
+        assert (
+            board_mod.require_firmware_for_board(
+                BOARD_V2, "ti_sniffer", "catnip cativity"
+            )
+            is None
+        )
 
     def test_sniffle_is_fine_on_v2(self):
         assert (
@@ -827,6 +833,23 @@ class TestFileAvailableForBoard:
         assert board_mod.file_available_for_board("anything.hex", None)
 
 
+class TestTiSnifferPhyIsPerBoard:
+    def test_each_build_gets_its_own_ieee_phy_index(self):
+        # Measured on hardware: the v2 build rejects 0x12 with status 0x05
+        # and captures 802.15.4 on 0x08; the v3 build's table puts it at 0x12.
+        from protocol.sniffer_ti import SnifferTI
+
+        cmds = SnifferTI.Commands()
+        assert BOARD_V2.ti_ieee_phy == b"\x08"
+        assert BOARD_V3.ti_ieee_phy == b"\x12"
+        # SOF(2) + cmd(1) + len(2) + data: the PHY byte is at offset 5
+        assert cmds.config_phy(BOARD_V2.ti_ieee_phy)[5:6] == b"\x08"
+        assert cmds.config_phy()[5:6] == b"\x12"
+        assert cmds.get_startup_cmd(25, BOARD_V2.ti_ieee_phy)[2] == cmds.config_phy(
+            b"\x08"
+        )
+
+
 class TestRestoreRefusesOnV2:
     def test_v2_is_refused_before_any_tool_is_touched(self):
         from modules.core.exceptions import UnsupportedOnBoardError
@@ -850,16 +873,47 @@ class TestRestoreRefusesOnV2:
                 restore_mod.restore_cc1352(board=BOARD_V2)
             detect.assert_not_called()
 
-    def test_unknown_board_still_lets_a_recovery_run(self):
-        # The board being recovered is exactly the one that cannot answer.
+    def test_unknown_board_is_refused(self):
+        # Assuming v3 would send 'reboot' to a v2's SAMD21 and strand it in
+        # its bootloader, so a board that never said what it is is refused.
+        from modules.core.exceptions import UnsupportedOnBoardError
         from modules.firmware import restore as restore_mod
 
         device = MagicMock()
         device.shell_port = "/dev/ttyACM2"
         with patch.object(restore_mod, "detect_board", return_value=None), patch.object(
-            restore_mod, "check_openocd", return_value=None
-        ) as openocd:
-            assert restore_mod.restore_cc1352(device=device) is False
+            restore_mod, "find_any_board_mount_point", return_value=(None, None)
+        ), patch.object(restore_mod, "check_openocd") as openocd, patch.object(
+            restore_mod, "enter_boot_mode"
+        ) as reboot:
+            with pytest.raises(UnsupportedOnBoardError):
+                restore_mod.restore_cc1352(device=device)
+            openocd.assert_not_called()
+            reboot.assert_not_called()
+
+    def test_v2_bootloader_volume_is_refused(self):
+        from modules.core.exceptions import UnsupportedOnBoardError
+        from modules.firmware import restore as restore_mod
+
+        with patch.object(
+            restore_mod,
+            "find_any_board_mount_point",
+            return_value=(BOARD_V2, "/media/SNIFFER"),
+        ), patch.object(restore_mod, "check_openocd") as openocd:
+            with pytest.raises(UnsupportedOnBoardError):
+                restore_mod.restore_cc1352()
+            openocd.assert_not_called()
+
+    def test_v3_in_bootsel_is_identified_by_its_volume(self):
+        # An interrupted restore leaves the RP2040 with no shell to ask.
+        from modules.firmware import restore as restore_mod
+
+        with patch.object(
+            restore_mod,
+            "find_any_board_mount_point",
+            return_value=(BOARD_V3, "/media/RPI-RP2"),
+        ), patch.object(restore_mod, "check_openocd", return_value=None) as openocd:
+            assert restore_mod.restore_cc1352() is False
             openocd.assert_called_once()
 
 
@@ -918,12 +972,25 @@ class TestEarlyFirmwareCheck:
             with pytest.raises(UnsupportedOnBoardError):
                 with session_mod.device_session(
                     None,
-                    required_firmware="ti_sniffer",
-                    feature="catnip sniff zigbee",
+                    required_firmware="catnip_v3",
+                    feature="catnip x",
                     flasher=flasher,
                 ):
                     pass
             flasher.find_flash_firmware.assert_not_called()
+        finally:
+            self._stop(patches)
+
+    def test_a_v2_missing_ti_sniffer_now_gets_flashed(self):
+        session_mod, _, patches = self._session(verified=False)
+        try:
+            flasher = MagicMock()
+            flasher.find_flash_firmware.return_value = True
+            with session_mod.device_session(
+                None, required_firmware="ti_sniffer", flasher=flasher
+            ):
+                pass
+            flasher.find_flash_firmware.assert_called_once()
         finally:
             self._stop(patches)
 
@@ -1565,6 +1632,7 @@ class TestBootstrapCoversBothGenerations:
             "airtag_spoofer_CC1352P_7.hex",
             "catsniffer-v3.1.0.1.uf2",
             "sniffer_fw_Catsniffer_v3.x.hex",
+            "sniffer_fw_Catsniffer_v2.x_p1.hex",
             "sniffle_cc1352p7_1M.hex",
             "sniffle_cc1352p1_cc2652p1_1M.hex",
             "airtag_scanner_CC1352P1.hex",
@@ -1578,14 +1646,19 @@ class TestBootstrapCoversBothGenerations:
             "airtag_spoofer_CC1352P1.hex",
             "catsniffer-v2.1.0.0.uf2",
             "justworks_scanner_CC1352P1.hex",
+            "sniffer_fw_Catsniffer_v2.x_p1.hex",
             "sniffle_cc1352p1_cc2652p1_1M.hex",
         ]
+        # and the v2 sniffer never shows up on a v3
+        assert not board_mod.file_available_for_board(
+            "sniffer_fw_Catsniffer_v2.x_p1.hex", BOARD_V3
+        )
         # no CC1352P7 image leaks into a v2 listing
         assert not any("P_7" in f or "p7" in f for f in visible)
 
 
 class TestAliasRecommendationsAreBoardAware:
-    def test_v2_is_not_told_to_flash_zigbee(self):
+    def test_v2_sees_its_aliases(self):
         from modules.firmware import cli as fw_cli
 
         available = set(fw_aliases.official_ids_for_board(BOARD_V2.generation))
@@ -1595,8 +1668,7 @@ class TestAliasRecommendationsAreBoardAware:
             for alias, official_id, _desc in items
             if official_id in available
         ]
-        assert "zigbee" not in shown
-        assert "multiprotocol" not in shown
+        assert "zigbee" in shown
         assert "airtag-scanner" in shown
         assert "justworks" in shown
         assert "ble / sniffle" in shown

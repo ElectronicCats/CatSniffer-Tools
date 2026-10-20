@@ -4,6 +4,8 @@ Kept free of Click so that any ``modules/<feature>/cli.py`` can import it
 without creating a cycle back to ``modules.core.cli``.
 """
 
+import sys
+
 # Internal
 from .catnip import catnip_get_device
 from .usb_connection import ShellConnection
@@ -24,7 +26,7 @@ def get_device_or_exit(device_id=None):
     if device is None:
         print_error("No CatSniffer device found!")
         print_dim("Make sure your CatSniffer is connected.")
-        exit(1)
+        sys.exit(1)
     if not device.is_valid():
         print_warning(f"Not all ports detected for {device}")
         print_dim(f"Bridge: {device.bridge_port}")

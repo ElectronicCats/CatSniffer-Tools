@@ -53,6 +53,10 @@ class BoardInfo:
     ships_cc1352_hex_assets: bool  # its releases carry CC1352 .hex assets
     accepts_unnamed_images: bool  # images whose name omits the variant are its
     bridge_ring_bytes: int  # CC1352 bridge ring buffer size in the firmware
+    # CFG_PHY index of IEEE 802.15.4 (2.4 GHz O-QPSK) in this board's
+    # ti_sniffer build: each build ships its own PHY table, and an index the
+    # build lacks is rejected (status 0x05), leaving the radio untuned.
+    ti_ieee_phy: bytes
 
     @property
     def label(self) -> str:
@@ -85,6 +89,7 @@ BOARD_V2 = BoardInfo(
     ships_cc1352_hex_assets=True,  # v2.1.0.0 ships airtag_*/justworks CC1352P1 .hex
     accepts_unnamed_images=False,  # unnamed images are historically P7 builds
     bridge_ring_bytes=256,
+    ti_ieee_phy=b"\x08",  # sniffer_fw_Catsniffer_v2.x_p1: PHYs 0-9, 9 is BLE
 )
 
 BOARD_V3 = BoardInfo(
@@ -100,6 +105,7 @@ BOARD_V3 = BoardInfo(
     ships_cc1352_hex_assets=True,
     accepts_unnamed_images=True,  # every image in the bundle is a P7 build
     bridge_ring_bytes=16384,
+    ti_ieee_phy=b"\x12",  # sniffer_fw_Catsniffer_v3.x: 14 x 15.4g, 4 x prop, 15.4, BLE
 )
 
 BOARDS = {"v2": BOARD_V2, "v3": BOARD_V3}

@@ -119,6 +119,12 @@ class CCLoader:
                     if hasattr(self.shell.connection, "reset_output_buffer"):
                         self.shell.connection.reset_output_buffer()
 
+                # The RP2040 ignores 'boot' while it is already in BOOT mode
+                # (change_mode() returns early), so a board left there by an
+                # interrupted flash would not reset the CC1352 and every
+                # synch would fail. 'exit' is a no-op in passthrough and
+                # otherwise forces the reset 'boot' needs.
+                self.shell.exit_bootloader()
                 result = self.shell.enter_bootloader()
                 # 1 s gives the CC1352 time to reset and set up its UART
                 # bootloader. 200 ms was enough on Linux but causes synch
@@ -186,21 +192,23 @@ class CCLoader:
     def sync_device(self, retries: int = 3) -> None:
         logger.info("[*] Connecting to target...")
         for attempt in range(retries):
+            if attempt:
+                logger.warning(
+                    f"[!] Synch attempt {attempt}/{retries} failed, "
+                    "resetting the CC1352 into its bootloader again..."
+                )
+                # The ROM bootloader autobauds once per reset: once it has
+                # missed the 0x55 0x55, resending it never gets an answer.
+                self.enter_bootloader()
             self.drain_bridge()
             try:
                 if self.cmd.sendSynch():
                     return
             except CmdException as e:
                 logger.debug(f"Synch attempt {attempt + 1}: {e}")
-            if attempt < retries - 1:
-                logger.warning(
-                    f"[!] Synch attempt {attempt + 1}/{retries} failed, retrying..."
-                )
-                time.sleep(0.5)
         logger.error(
             "[X] Error: Can't connect to target. Ensure boot loader is started. (no answer on synch sequence)",
         )
-        self.exit_bootloader()
         self.close_exit()
 
     def close(self) -> None:
@@ -209,10 +217,13 @@ class CCLoader:
             self.shell.disconnect()
 
     def close_exit(self) -> None:
+        # Leave passthrough even on erase/write/CRC failure: a board left in
+        # BOOT mode made the next flash fail its synch.
+        self.exit_bootloader()
         self.cmd.close()
         if self.shell:
             self.shell.disconnect()
-        exit(1)
+        sys.exit(1)
 
     def close_reset(self) -> None:
         self.cmd.cmdReset()
@@ -790,13 +801,13 @@ class Flasher:
 
         except requests.exceptions.ConnectionError as e:
             logger.error("[X] Error: No internet connection.")
-            exit(1)
+            sys.exit(1)
         except requests.exceptions.RequestException as e:
             logger.error(f"[X] HTTP Error: {e}")
-            exit(1)
+            sys.exit(1)
         except Exception as e:
             logger.error(f"[X] Error fetching remote firmware: {e}")
-            exit(1)
+            sys.exit(1)
 
     def _hex_assets_for_board(self, board) -> list:
         """The .hex assets of ``board``'s own latest release (empty if none).

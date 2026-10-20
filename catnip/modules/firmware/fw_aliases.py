@@ -74,6 +74,7 @@ OFFICIAL_ID_TO_FILENAME_BY_BOARD = {
         # releases, whose CC1352P1 images spell the variant "CC1352P1"
         # (the v3 bundle spells the same field "CC1352P_7").
         "sniffle": "sniffle_cc1352p1_cc2652p1_1M",
+        "ti_sniffer": "sniffer_fw_Catsniffer_v2.x_p1",
         "airtag_scanner_cc1352p7": "airtag_scanner_CC1352P1",
         "airtag_spoofer_cc1352p7": "airtag_spoofer_CC1352P1",
         "justworks_scanner_cc1352p7": "justworks_scanner_CC1352P1",

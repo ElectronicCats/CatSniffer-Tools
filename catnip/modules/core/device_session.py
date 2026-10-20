@@ -52,7 +52,7 @@ def device_session(
             successful flash only warns and continues — matching prior
             per-command behaviour, since the device commonly still works.
         UnsupportedOnBoardError: ``required_firmware`` has no image built for
-            the connected board generation (e.g. ``ti_sniffer`` on a v2).
+            the connected board generation (e.g. ``catnip_v3`` on a v2).
 
     Yields:
         The resolved ``CatSnifferDevice``.

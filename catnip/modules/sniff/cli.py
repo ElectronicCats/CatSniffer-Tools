@@ -231,14 +231,17 @@ def sniff_ble(device, wireshark, channel, mode):
             # so the capture fits between the reset and the report.
             loss_armed = reset_loss_counters(dev.shell_port)
 
-            # Always use the direct method when --wireshark is specified
-            success = run_extcap_directly(dev.bridge_port, channel, mode)
-
-            if success:
-                # Only after a capture that actually ran: the failure paths
-                # here are a missing plugin or a pipe Wireshark never opened,
-                # and there is no capture whose integrity to speak about.
-                report_capture_loss(dev.shell_port, loss_armed)
+            # Always use the direct method when --wireshark is specified.
+            # The report runs from inside, only after a capture that actually
+            # ran and before the extcap stops reading the bridge port — after
+            # that the ring overflows and the counters would blame the capture
+            # for bytes lost during teardown.
+            success = run_extcap_directly(
+                dev.bridge_port,
+                channel,
+                mode,
+                on_capture_end=lambda: report_capture_loss(dev.shell_port, loss_armed),
+            )
 
             if not success:
                 print_error(
