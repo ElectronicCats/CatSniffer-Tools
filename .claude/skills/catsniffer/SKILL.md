@@ -5,6 +5,80 @@ description: Operate an Electronic Cats CatSniffer RF board with the catnip CLI 
 
 # CatSniffer tools
 
+## Agent fast start
+
+Read this section first. It gets you productive in about five minutes. The rest of this file is reference.
+
+### The mental model in six lines
+
+1. **One tool matters: `catnip`**, in `catnip/`. Everything in `Legacy/` is retired.
+2. **Two radios.**
+   - The **CC1352** (2.4 GHz: BLE, Zigbee, Thread) needs the *right firmware image* for each protocol.
+   - The **SX1262** (sub-GHz: LoRa, FSK) needs only *radio settings*.
+3. **`catnip sniff <proto>` flashes the CC1352 for you.** You rarely call `flash` yourself.
+4. **Boards come in two generations.** v2 is SAMD21 + CC1352P1, v3 is RP2040 + CC1352P7. **Wrong-generation firmware bricks the bootloader**, so never guess `--board`.
+5. **`-d N` is a board index** from `catnip devices`. It is not a port path.
+6. **Most commands need a physical board.** Without one, say so; do not simulate output.
+
+### First: decide which kind of task this is
+
+| The user wants… | Do this |
+|---|---|
+| To *operate* a board (capture, flash, check status) | Run `catnip devices`. If it lists no board, say so and give them the exact command to run instead. If it lists one, use the **Task → command** table below. |
+| To *change catnip's code* | Read **Working on the code** below. Run the relevant test files before and after your change. |
+| A *protocol or RF explanation* | Answer from **Task → command** and `references/recipes.md`. Cite `catnip/docs/` pages for depth. |
+| To *debug a failure* | Rerun with `CATNIP_DEBUG=1`, read the exit code, then open `catnip/docs/troubleshooting.md` at the matching symptom. |
+
+### Learn the CLI without hardware (copy and paste)
+
+```sh
+cd catnip && python3 -m venv venv && . venv/bin/activate
+pip install -r requirements.txt               # Python 3.12+
+python catnip.py --help                       # top-level commands
+python scripts/dump_cli_tree.py | less        # every --help in one stream, about 740 lines
+python catnip.py sniff profiles               # built-in LoRa presets
+python catnip.py devices                      # "No CatSniffer devices found", exit 0, when none are attached
+```
+
+`flash --list` and `update` call the GitHub API to fetch firmware releases. They fail when there is no network or the request is rate-limited. That failure says nothing about the board.
+
+### Where to look for each question
+
+| Question | Open |
+|---|---|
+| What does flag X do? | `python catnip.py <cmd> --help`, then `catnip/docs/commands/<cmd>.md` |
+| Which firmware alias maps to which file? | `catnip/modules/firmware/fw_aliases.py` |
+| What does board v2 vs v3 allow? | `catnip/modules/firmware/board.py`, `catnip/docs/firmware.md`, `catnip/docs/limitations.md` |
+| Where is a command defined or registered? | `catnip/modules/core/cli.py` (`build_cli`), then `modules/<area>/cli.py` |
+| How are the radio presets defined? | `catnip/modules/radio/profiles.py` |
+| What goes over the wire on each port? | `catnip/docs/protocol.md`, `catnip/protocol/` |
+| Why did it fail? | `catnip/docs/troubleshooting.md` (it opens with a symptom index) |
+| What is an end-to-end workflow for X? | [references/recipes.md](references/recipes.md) |
+
+Use `grep -rn` across `catnip/modules` for anything else. The code is small enough to search directly.
+
+### Mistakes agents make here
+
+- Putting a global `-v` after the subcommand. It goes first: `catnip -v sniff ...`.
+- Looking for `--version`. It does not exist; the version is in the banner or `catnip/VERSION`.
+- Passing `--board v3` to get past "generation unknown". **This can brick a v2.** Ask the user which board they have.
+- Treating exit code 1 as "unknown error". "No device found" is also exit 1. Read the message.
+- Expecting `sniff zigbee`/`thread`/`airtag_scanner` to work on v2. They exit with code 5, which means hardware limit. Do not retry.
+- Starting a capture in the foreground and waiting forever. Captures run until Ctrl-C. Use `timeout N` and `-w file`.
+- Running a transmitting command without asking: `verify --test-all`, `sniff ble -m active_scan`, `vhci`, a raised `-pw`, or the catsnifferTUI smoke test.
+- Following `Legacy/` README instructions, or the retired `lora-*` aliases that `flash --list` still prints.
+- Trusting the committed CLI snapshot over the live `--help`. The snapshot can lag behind the code.
+- Reading test failures in `test_output.py`, `test_pcap_writer.py` or `test_restore.py` as regressions. In a full `pytest` run they can fail because `tests/test_catsniffer.py` replaces modules in `sys.modules` and never restores them. Run the file on its own, for example `pytest tests/test_restore.py`, before blaming your change.
+
+### Before you reply, check
+
+- [ ] Every command you give exists in the live `--help`.
+- [ ] You never presented device output, captures or versions you did not actually observe.
+- [ ] Any flashing advice states the board generation it applies to.
+- [ ] Any command that transmits is flagged as such.
+
+---
+
 A CatSniffer is a multi-protocol RF board with three chips behind one USB cable:
 
 | Chip | Job | Firmware written by |
